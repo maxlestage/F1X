@@ -437,3 +437,23 @@ button.btn:disabled { opacity: .5; }
 .row-fav .row-title::after { content: " ★"; color: #facc15; }
 .section-title { font-size: .85rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-top: 6px; }
 .titles { font-weight: 700; color: #facc15; }
+
+/* ---------- Alertes discrètes (remplacent la pile de notifications) ---------- */
+.toasts, .toast { display: none; }
+.ticker { display: flex; align-items: center; gap: 8px; background: rgba(0, 0, 0, .3); border-radius: 10px; padding: 8px 10px; font-size: .86rem; animation: toast-in .3s ease-out; }
+.ticker-text { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ticker-lap { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; font-size: .78rem; }
+.banner {
+  position: fixed; z-index: 30; left: 12px; right: 12px; max-width: 616px; margin: 0 auto;
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 10px);
+  display: flex; align-items: center; gap: 10px;
+  font: inherit; font-size: .86rem; text-align: left; color: var(--text);
+  background: rgba(30, 30, 42, .97); border: 1px solid var(--line); border-left: 4px solid var(--red);
+  border-radius: 10px; padding: 8px 12px; box-shadow: 0 6px 20px rgba(0,0,0,.45);
+  animation: toast-in .25s ease-out; cursor: pointer;
+}
+.banner-text { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.banner-x { flex: none; color: var(--muted); }
+.segmented-4 .seg { font-size: min(.82rem, 3.7vw); overflow-wrap: normal; word-break: keep-all; white-space: nowrap; }
+.segmented-4 .seg { font-size: min(.82rem, 3.25vw); padding-left: 0; padding-right: 0; }
+.segmented.segmented-4 button.seg { font-size: min(.82rem, 3.25vw); padding: 9px 0; overflow-wrap: normal; white-space: nowrap; }
