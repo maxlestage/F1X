@@ -1,0 +1,53 @@
+name: Deploy Heroku
+
+# Déclenché à chaque merge sur main, ou à la main depuis l'app GitHub mobile
+# (onglet Actions → « Deploy Heroku » → Run workflow).
+on:
+  push:
+    branches: [main]
+    paths: ["web/**", "Dockerfile", "heroku.yml", ".github/workflows/deploy.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: heroku-deploy
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: web
+      - run: cargo build --locked
+      - run: cargo test --locked
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Push vers Heroku (build Docker via heroku.yml)
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+          HEROKU_APP_NAME: ${{ vars.HEROKU_APP_NAME }}
+        run: |
+          if [ -z "$HEROKU_API_KEY" ]; then
+            echo "::notice::Secret HEROKU_API_KEY absent : déploiement ignoré."
+            exit 0
+          fi
+          test -n "$HEROKU_APP_NAME" || { echo "Variable HEROKU_APP_NAME manquante"; exit 1; }
+          # Passe l'app sur la stack « container » (build via heroku.yml) — pas besoin du CLI Heroku.
+          curl -fsS -X PATCH "https://api.heroku.com/apps/${HEROKU_APP_NAME}" \
+            -H "Accept: application/vnd.heroku+json; version=3" \
+            -H "Authorization: Bearer ${HEROKU_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{"build_stack":"container"}' > /dev/null
+          git push --force "https://heroku:${HEROKU_API_KEY}@git.heroku.com/${HEROKU_APP_NAME}.git" HEAD:refs/heads/main
