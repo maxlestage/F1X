@@ -8,6 +8,7 @@ des pilotes, palmarès des écuries et des circuits (avec leur **tracé GPS colo
 
 | | |
 |---|---|
+| 🏁 **Site de présentation** | `/presentation` — page vitrine FR/EN (HTML + CSS rendus par le serveur Rust, sans JavaScript) avec captures réelles et bouton « Voir l'app web » |
 | 📱 **App iOS native** | SwiftUI, dans [`ios/F1X.swiftpm`](ios/) |
 | 🌐 **Site web mobile first** | 100 % Rust : front **Yew 0.23** (WebAssembly) + serveur **axum**, dans [`web/`](web/) |
 | ☁️ **Déploiement** | Heroku, pilotable 100 % depuis un téléphone |

@@ -1,4 +1,5 @@
 mod api;
+mod landing;
 mod live;
 mod news;
 mod openf1;
@@ -148,6 +149,9 @@ fn app(state: AppState) -> Router {
                 )
             }),
         )
+        // Site de présentation (HTML/CSS rendus par le serveur, sans JavaScript).
+        .route("/presentation", get(landing::page))
+        .route("/presentation/shots/{name}", get(landing::shot))
         // Fichiers inconnus (ex. ancienne empreinte) : vrai 404, jamais la page HTML à la place
         // d'un script (sinon le navigateur resterait bloqué sur l'écran de démarrage).
         .route("/pkg/{*rest}", get(|| async { StatusCode::NOT_FOUND }))

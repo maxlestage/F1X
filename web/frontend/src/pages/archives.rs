@@ -71,6 +71,14 @@ pub fn ArchivesPage() -> Html {
 
             <h2 class="section-title">{ t("Outils et jeux", "Tools and games") }</h2>
             <ol class="rows rows-card">
+                // Page servie par le serveur (hors application) : lien classique.
+                <li class="row row-plain">
+                    <a class="row-main" href={if crate::i18n::is_fr() { "/presentation?lang=fr" } else { "/presentation?lang=en" }}>
+                        <span class="row-title"><strong>{ t("ℹ️ Présentation de F1X", "ℹ️ About F1X") }</strong></span>
+                        <span class="row-sub">{ t("Le site de présentation, à partager", "The presentation site, to share") }</span>
+                    </a>
+                    <span class="pts">{ "→" }</span>
+                </li>
                 { entry(Route::News, t("📰 Actualités", "📰 News"), t("Les derniers titres de la presse F1", "Latest F1 headlines"), "→".into()) }
                 { entry(Route::Records, t("🏅 Records", "🏅 Records"), t("Titres, victoires, poles, séries, âges…", "Titles, wins, poles, streaks, ages…"), "→".into()) }
                 { entry(Route::Compare, t("⚖️ Comparateur", "⚖️ Compare"), t("Deux pilotes face à face", "Two drivers head to head"), "→".into()) }
