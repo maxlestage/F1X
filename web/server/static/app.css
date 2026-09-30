@@ -468,3 +468,6 @@ button.btn:disabled { opacity: .5; }
 /* ---------- Lien vers le site de présentation ---------- */
 .site-link { margin-left: auto; flex: none; font-size: .78rem; font-weight: 800; letter-spacing: .03em; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 6px 11px; }
 .site-link + .lang-switch { margin-left: 0; }
+/* Sans bouton « Site », la bascule de langue reste calée à droite. */
+.topbar .lang-switch { margin-left: auto; }
+.topbar .site-link + .lang-switch { margin-left: 0; }

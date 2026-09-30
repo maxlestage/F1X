@@ -219,11 +219,7 @@ fn render(lang: Lang, back: Option<&str>) -> String {
     let back_q = back
         .map(|b| format!("&amp;back={}", b.replace('/', "%2F")))
         .unwrap_or_default();
-    let top_button = if back.is_some() {
-        t("← Retour à l'app", "← Back to the app")
-    } else {
-        t("Ouvrir l'app", "Open the app")
-    };
+    let top_button = t("← Retour à l'app", "← Back to the app");
     format!(
         r##"<!doctype html>
 <html lang="{code}">
