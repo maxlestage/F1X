@@ -201,7 +201,7 @@ strong { font-weight: 800; }
   color: var(--muted); font-size: .7rem; font-weight: 600;
 }
 .tab svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.tab[aria-current="page"] { color: var(--red); }
+.tab[aria-current="page"], .tab-active { color: var(--red); }
 
 /* Écrans plus larges : on aère, mais toujours en une seule colonne verticale. */
 @media (min-width: 700px) {
@@ -212,3 +212,9 @@ strong { font-weight: 800; }
   .cd-num { font-size: 1.2rem; }
   .hero-title { font-size: 1.35rem; }
 }
+
+/* ---------- Démarrage (avant que le WebAssembly ne prenne la main) ---------- */
+.boot { min-height: 100vh; display: grid; place-items: center; font-size: 2.2rem; }
+.boot .brand { animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+.loading { display: grid; place-items: center; padding: 48px 0; color: var(--muted); }

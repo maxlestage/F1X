@@ -1,0 +1,17 @@
+[package]
+name = "f1x-frontend"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+gloo-net = { version = "0.7", default-features = false, features = ["http", "json"] }
+gloo-timers = "0.4"
+js-sys = "0.3"
+serde.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["Document", "Element", "Window", "HtmlElement"] }
+yew = { version = "0.23", features = ["csr"] }
+yew-router = "0.20"

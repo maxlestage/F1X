@@ -1,12 +1,9 @@
-# --- Build ---
+# --- Build : serveur axum + frontend Yew (WebAssembly, compilé par server/build.rs) ---
 FROM rust:1-slim-trixie AS build
+RUN rustup target add wasm32-unknown-unknown
 WORKDIR /src
-COPY web/Cargo.toml web/Cargo.lock ./
-# Pre-build dependencies so code-only changes rebuild fast.
-RUN mkdir src && echo 'fn main() {}' > src/main.rs && cargo build --release && rm -rf src
-COPY web/src ./src
-COPY web/static ./static
-RUN touch src/main.rs && cargo build --release
+COPY web/ ./
+RUN cargo build --release --locked
 
 # --- Runtime ---
 FROM debian:trixie-slim

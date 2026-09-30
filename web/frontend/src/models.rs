@@ -1,176 +1,11 @@
-//! Client for the Jolpica F1 API (successor of Ergast), with an in-memory cache.
-
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+//! Modèles de l'API Jolpica F1 (ex-Ergast), servis via le proxy `/api` du serveur.
+//! L'API renvoie les nombres sous forme de chaînes.
 
 use serde::Deserialize;
-use serde::de::DeserializeOwned;
-use serde_json::Value;
-use tokio::sync::RwLock;
 
-const BASE_URL: &str = "https://api.jolpi.ca/ergast/f1";
+use crate::util::parse_ms;
 
-#[derive(Clone)]
-pub struct F1Api {
-    http: reqwest::Client,
-    cache: Arc<RwLock<HashMap<String, (Instant, Value)>>>,
-    ttl: Duration,
-}
-
-#[derive(Debug)]
-pub struct ApiError(pub String);
-
-impl std::fmt::Display for ApiError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-type ApiResult<T> = Result<T, ApiError>;
-
-impl F1Api {
-    pub fn new(ttl: Duration) -> Self {
-        let http = reqwest::Client::builder()
-            .user_agent("F1X/0.1 (+https://github.com/maxlestage/f1x)")
-            .timeout(Duration::from_secs(10))
-            .build()
-            .expect("failed to build HTTP client");
-        Self {
-            http,
-            cache: Arc::new(RwLock::new(HashMap::new())),
-            ttl,
-        }
-    }
-
-    /// Fetches `path` (relative to the API root), serving fresh cached copies when possible
-    /// and falling back to a stale copy if the upstream API is unavailable.
-    async fn get_json(&self, path: &str) -> ApiResult<Value> {
-        let cached = self.cache.read().await.get(path).cloned();
-        if let Some((at, value)) = &cached {
-            if at.elapsed() < self.ttl {
-                return Ok(value.clone());
-            }
-        }
-
-        let url = format!("{BASE_URL}/{path}");
-        let fetched = async {
-            let resp = self.http.get(&url).send().await?.error_for_status()?;
-            resp.json::<Value>().await
-        }
-        .await;
-
-        match fetched {
-            Ok(value) => {
-                self.cache
-                    .write()
-                    .await
-                    .insert(path.to_string(), (Instant::now(), value.clone()));
-                Ok(value)
-            }
-            Err(err) => {
-                tracing::warn!(%url, %err, "F1 API request failed");
-                cached.map(|(_, v)| v).ok_or_else(|| {
-                    ApiError("Les données F1 sont momentanément indisponibles.".into())
-                })
-            }
-        }
-    }
-
-    async fn get<T: DeserializeOwned>(&self, path: &str, pointer: &str) -> ApiResult<T> {
-        let value = self.get_json(path).await?;
-        let node = value.pointer(pointer).cloned().unwrap_or(Value::Null);
-        serde_json::from_value(node)
-            .map_err(|e| ApiError(format!("Réponse inattendue de l'API : {e}")))
-    }
-
-    pub async fn schedule(&self) -> ApiResult<Vec<Race>> {
-        self.get("current.json", "/MRData/RaceTable/Races").await
-    }
-
-    pub async fn race_results(&self, round: u32) -> ApiResult<Option<Race>> {
-        let races: Vec<Race> = self
-            .get(
-                &format!("current/{round}/results.json"),
-                "/MRData/RaceTable/Races",
-            )
-            .await?;
-        Ok(races.into_iter().next())
-    }
-
-    pub async fn last_results(&self) -> ApiResult<Option<Race>> {
-        let races: Vec<Race> = self
-            .get("current/last/results.json", "/MRData/RaceTable/Races")
-            .await?;
-        Ok(races.into_iter().next())
-    }
-
-    pub async fn qualifying(&self, round: u32) -> ApiResult<Vec<QualifyingResult>> {
-        let races: Vec<Race> = self
-            .get(
-                &format!("current/{round}/qualifying.json"),
-                "/MRData/RaceTable/Races",
-            )
-            .await?;
-        Ok(races
-            .into_iter()
-            .next()
-            .and_then(|r| r.qualifying_results)
-            .unwrap_or_default())
-    }
-
-    pub async fn sprint(&self, round: u32) -> ApiResult<Vec<RaceResult>> {
-        let races: Vec<Race> = self
-            .get(
-                &format!("current/{round}/sprint.json"),
-                "/MRData/RaceTable/Races",
-            )
-            .await?;
-        Ok(races
-            .into_iter()
-            .next()
-            .and_then(|r| r.sprint_results)
-            .unwrap_or_default())
-    }
-
-    pub async fn driver_standings(&self) -> ApiResult<Vec<DriverStanding>> {
-        let lists: Vec<StandingsList> = self
-            .get(
-                "current/driverStandings.json",
-                "/MRData/StandingsTable/StandingsLists",
-            )
-            .await?;
-        Ok(lists
-            .into_iter()
-            .next()
-            .and_then(|l| l.driver_standings)
-            .unwrap_or_default())
-    }
-
-    pub async fn constructor_standings(&self) -> ApiResult<Vec<ConstructorStanding>> {
-        let lists: Vec<StandingsList> = self
-            .get(
-                "current/constructorStandings.json",
-                "/MRData/StandingsTable/StandingsLists",
-            )
-            .await?;
-        Ok(lists
-            .into_iter()
-            .next()
-            .and_then(|l| l.constructor_standings)
-            .unwrap_or_default())
-    }
-
-    pub async fn driver_results(&self, driver_id: &str) -> ApiResult<Vec<Race>> {
-        self.get(
-            &format!("current/drivers/{driver_id}/results.json?limit=100"),
-            "/MRData/RaceTable/Races",
-        )
-        .await
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Race {
     pub season: String,
     pub round: String,
@@ -210,6 +45,16 @@ impl Race {
         iso(&self.date, self.time.as_deref())
     }
 
+    pub fn start_ms(&self) -> f64 {
+        parse_ms(&self.start_iso())
+    }
+
+    /// La course est considérée terminée ~2 h après le départ.
+    pub fn is_over(&self, now_ms: f64) -> bool {
+        let start = self.start_ms();
+        !start.is_nan() && now_ms > start + 2.0 * 3600.0 * 1000.0
+    }
+
     pub fn is_sprint_weekend(&self) -> bool {
         self.sprint.is_some()
     }
@@ -233,7 +78,7 @@ impl Race {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Session {
     pub date: String,
     pub time: Option<String>,
@@ -249,7 +94,7 @@ fn iso(date: &str, time: Option<&str>) -> String {
     format!("{date}T{}", time.unwrap_or("00:00:00Z"))
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Circuit {
     #[serde(rename = "circuitName")]
     pub circuit_name: String,
@@ -257,13 +102,13 @@ pub struct Circuit {
     pub location: Location,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Location {
     pub locality: String,
     pub country: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Driver {
     #[serde(rename = "driverId")]
     pub driver_id: String,
@@ -282,24 +127,24 @@ impl Driver {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Constructor {
     #[serde(rename = "constructorId")]
     pub constructor_id: String,
     pub name: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct TimeValue {
     pub time: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct FastestLap {
     pub rank: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct RaceResult {
     pub position: String,
     #[serde(rename = "positionText")]
@@ -347,7 +192,7 @@ impl RaceResult {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct QualifyingResult {
     pub position: String,
     #[serde(rename = "Driver")]
@@ -371,7 +216,7 @@ impl QualifyingResult {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct StandingsList {
     #[serde(rename = "DriverStandings")]
     pub driver_standings: Option<Vec<DriverStanding>>,
@@ -379,7 +224,7 @@ pub struct StandingsList {
     pub constructor_standings: Option<Vec<ConstructorStanding>>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct DriverStanding {
     pub position: Option<String>,
     #[serde(rename = "positionText")]
@@ -392,7 +237,7 @@ pub struct DriverStanding {
     pub constructors: Vec<Constructor>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct ConstructorStanding {
     pub position: Option<String>,
     #[serde(rename = "positionText")]
