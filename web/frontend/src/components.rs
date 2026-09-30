@@ -1,23 +1,24 @@
-//! Composants partagés : mise en page, barre d'onglets, compte à rebours, lignes de classement.
+//! Composants partagés.
 //!
 //! Règle de mise en page : tout s'empile verticalement. Pas de tableau, pas de carrousel,
 //! rien de plus large que l'écran — le texte long passe à la ligne.
 
 use gloo_timers::callback::Interval;
+use web_sys::HtmlSelectElement;
 use yew::prelude::*;
 use yew_router::prelude::*;
 
-use crate::Route;
-use crate::api::Fetch;
+use crate::api::{Fetch, f1, use_f1};
 use crate::models::{ConstructorStanding, DriverStanding, QualifyingResult, Race, RaceResult};
 use crate::util::{flag_nationality, local_date, now_ms, set_title, team_style, wins_label};
+use crate::{CURRENT, Route};
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Tab {
     Home,
     Calendar,
-    Drivers,
-    Teams,
+    Standings,
+    Archives,
 }
 
 #[derive(Properties, PartialEq)]
@@ -63,9 +64,21 @@ struct TabBarProps {
 fn TabBar(props: &TabBarProps) -> Html {
     let items = [
         (Tab::Home, Route::Home, "Accueil", ICON_HOME),
-        (Tab::Calendar, Route::Calendar, "Calendrier", ICON_CAL),
-        (Tab::Drivers, Route::Drivers, "Pilotes", ICON_HELMET),
-        (Tab::Teams, Route::Teams, "Écuries", ICON_TEAM),
+        (
+            Tab::Calendar,
+            Route::season(CURRENT),
+            "Calendrier",
+            ICON_CAL,
+        ),
+        (
+            Tab::Standings,
+            Route::DriverStandings {
+                season: CURRENT.into(),
+            },
+            "Classements",
+            ICON_TROPHY,
+        ),
+        (Tab::Archives, Route::Archives, "Archives", ICON_ARCHIVE),
     ];
     html! {
         <nav class="tabbar" aria-label="Navigation principale">
@@ -82,10 +95,15 @@ fn TabBar(props: &TabBarProps) -> Html {
     }
 }
 
+pub fn loading() -> Html {
+    html! { <div class="loading" aria-busy="true">{ "Chargement…" }</div> }
+}
+
 /// Affiche le chargement / l'erreur, ou délègue le rendu une fois les données là.
-pub fn fetch_view<T>(fetch: &Fetch<T>, render: impl FnOnce(&T) -> Html) -> Html {
+pub fn fetch_view(fetch: &Fetch, render: impl FnOnce(&crate::models::MrData) -> Html) -> Html {
     match fetch {
-        Fetch::Loading => html! { <div class="loading" aria-busy="true">{ "Chargement…" }</div> },
+        Fetch::Idle => html! {},
+        Fetch::Loading => loading(),
         Fetch::Failed(message) => html! { <ErrorCard message={message.clone()} /> },
         Fetch::Done(value) => render(value),
     }
@@ -112,12 +130,102 @@ pub fn ErrorCard(props: &ErrorProps) -> Html {
     }
 }
 
+pub fn empty_card(text: &str) -> Html {
+    html! { <section class="card"><p class="muted">{ text.to_string() }</p></section> }
+}
+
+/// Grille de statistiques (3 colonnes égales, jamais plus large que l'écran).
+pub fn stat_grid(items: Vec<(&'static str, String)>) -> Html {
+    html! {
+        <dl class="stats">
+            { for items.into_iter().map(|(label, value)| html! {
+                <div><dt>{ label }</dt><dd>{ value }</dd></div>
+            }) }
+        </dl>
+    }
+}
+
+/// Valeur d'un compteur `total` (requête `limit=1`), « – » pendant le chargement.
+pub fn total_of(fetch: &Fetch) -> String {
+    fetch
+        .done()
+        .map(|d| d.total().to_string())
+        .unwrap_or_else(|| "–".into())
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum SeasonTarget {
+    Calendar,
+    DriverStandings,
+    TeamStandings,
+}
+
+impl SeasonTarget {
+    fn route(self, season: String) -> Route {
+        match self {
+            Self::Calendar => Route::Season { season },
+            Self::DriverStandings => Route::DriverStandings { season },
+            Self::TeamStandings => Route::TeamStandings { season },
+        }
+    }
+}
+
+#[derive(Properties, PartialEq)]
+pub struct SeasonSelectProps {
+    /// Saison affichée (`"current"` ou une année).
+    pub season: AttrValue,
+    /// Page vers laquelle naviguer quand la saison change.
+    pub target: SeasonTarget,
+    /// Liste restreinte (ex. saisons d'un pilote) ; sinon toutes les saisons depuis 1950.
+    #[prop_or_default]
+    pub only: Option<Vec<String>>,
+}
+
+/// Sélecteur de saison natif (liste déroulante verticale).
+#[function_component]
+pub fn SeasonSelect(props: &SeasonSelectProps) -> Html {
+    let navigator = use_navigator();
+    let seasons_fetch = use_f1(if props.only.is_none() {
+        f1("seasons.json", 100)
+    } else {
+        None
+    });
+    let mut seasons: Vec<String> = match &props.only {
+        Some(list) => list.clone(),
+        None => seasons_fetch
+            .done()
+            .map(|d| d.seasons().iter().map(|s| s.season.clone()).collect())
+            .unwrap_or_default(),
+    };
+    seasons.reverse();
+    let target = props.target;
+    let onchange = Callback::from(move |e: Event| {
+        let season = e.target_unchecked_into::<HtmlSelectElement>().value();
+        if let Some(nav) = &navigator {
+            nav.push(&target.route(season));
+        }
+    });
+    html! {
+        <label class="select">
+            <span class="select-label">{ "Saison" }</span>
+            <select {onchange} aria-label="Choisir une saison">
+                if props.only.is_none() {
+                    <option value={CURRENT} selected={props.season == CURRENT}>{ "Saison en cours" }</option>
+                }
+                { for seasons.iter().map(|s| html! {
+                    <option value={s.clone()} selected={props.season == s.as_str()}>{ s }</option>
+                }) }
+            </select>
+        </label>
+    }
+}
+
 #[derive(Properties, PartialEq)]
 pub struct CountdownProps {
     pub target_ms: f64,
 }
 
-/// Compte à rebours : grille fixe de 4 colonnes, jamais plus large que l'écran.
+/// Compte à rebours : grille fixe de 4 colonnes.
 #[function_component]
 pub fn Countdown(props: &CountdownProps) -> Html {
     let now = use_state(now_ms);
@@ -154,12 +262,13 @@ pub struct RaceProps {
 
 #[function_component]
 pub fn SessionsList(props: &RaceProps) -> Html {
+    let has_time = props.race.has_time();
     html! {
         <ul class="sessions">
             { for props.race.sessions().into_iter().map(|(name, iso)| html! {
                 <li class={classes!("session", (name == "Course").then_some("session-race"))}>
                     <span class="session-name">{ name }</span>
-                    <time class="session-time" datetime={iso.clone()}>{ local_date(&iso, true) }</time>
+                    <time class="session-time" datetime={iso.clone()}>{ local_date(&iso, has_time) }</time>
                 </li>
             }) }
         </ul>
@@ -170,8 +279,8 @@ pub fn driver_standing_row(s: &DriverStanding) -> Html {
     let team = s.constructors.last();
     html! {
         <li class="row" style={team.map(|t| team_style(&t.constructor_id))}>
-            <span class="pos">{ s.position.clone().unwrap_or_else(|| s.position_text.clone()) }</span>
-            <Link<Route> to={Route::Driver { id: s.driver.driver_id.clone() }} classes="row-main">
+            <span class="pos">{ s.rank() }</span>
+            <Link<Route> to={Route::driver(&s.driver.driver_id)} classes="row-main">
                 <span class="row-title">
                     { flag_nationality(s.driver.nationality.as_deref()) }{ " " }
                     { &s.driver.given_name }{ " " }<strong>{ &s.driver.family_name }</strong>
@@ -186,15 +295,22 @@ pub fn driver_standing_row(s: &DriverStanding) -> Html {
     }
 }
 
-pub fn team_standing_row(s: &ConstructorStanding) -> Html {
+pub fn team_standing_row(s: &ConstructorStanding, leader_points: f64) -> Html {
     let wins = wins_label(&s.wins);
+    let pts: f64 = s.points.parse().unwrap_or(0.0);
+    let pct = if leader_points > 0.0 {
+        (pts / leader_points * 100.0).clamp(0.0, 100.0)
+    } else {
+        0.0
+    };
     html! {
         <li class="row" style={team_style(&s.constructor.constructor_id)}>
-            <span class="pos">{ s.position.clone().unwrap_or_else(|| s.position_text.clone()) }</span>
-            <span class="row-main">
-                <span class="row-title">{ &s.constructor.name }</span>
+            <span class="pos">{ s.rank() }</span>
+            <Link<Route> to={Route::team(&s.constructor.constructor_id)} classes="row-main">
+                <span class="row-title">{ flag_nationality(s.constructor.nationality.as_deref()) }{ " " }{ &s.constructor.name }</span>
+                <span class="bar" aria-hidden="true"><span class="bar-fill" style={format!("width:{pct:.1}%")}></span></span>
                 if !wins.is_empty() { <span class="row-sub">{ wins }</span> }
-            </span>
+            </Link<Route>>
             <span class="pts">{ &s.points }<small>{ " pts" }</small></span>
         </li>
     }
@@ -202,18 +318,29 @@ pub fn team_standing_row(s: &ConstructorStanding) -> Html {
 
 pub fn result_row(r: &RaceResult) -> Html {
     let scored = r.points.parse::<f64>().unwrap_or(0.0) > 0.0;
+    let mut sub = vec![r.constructor.name.clone()];
     let outcome = r.outcome();
+    if !outcome.is_empty() {
+        sub.push(outcome);
+    }
+    let gained = r.places_gained();
     html! {
         <li class="row" style={team_style(&r.constructor.constructor_id)}>
             <span class="pos">{ &r.position_text }</span>
-            <Link<Route> to={Route::Driver { id: r.driver.driver_id.clone() }} classes="row-main">
+            <Link<Route> to={Route::driver(&r.driver.driver_id)} classes="row-main">
                 <span class="row-title">
                     { &r.driver.given_name }{ " " }<strong>{ &r.driver.family_name }</strong>
                     if r.has_fastest_lap() { { " " }<span class="tag tag-purple" title="Meilleur tour">{ "⏱" }</span> }
                 </span>
                 <span class="row-sub">
-                    { &r.constructor.name }
-                    if !outcome.is_empty() { { format!(" · {outcome}") } }
+                    { sub.join(" · ") }
+                    if let (Some(g), Some(grid)) = (gained, r.grid.as_deref()) {
+                        { " · " }
+                        <span class={classes!("delta", (g > 0).then_some("up"), (g < 0).then_some("down"))}
+                              title={format!("Parti P{grid}")}>
+                            { match g { g if g > 0 => format!("▲{g}"), g if g < 0 => format!("▼{}", -g), _ => "=".into() } }
+                        </span>
+                    }
                 </span>
             </Link<Route>>
             if scored { <span class="pts">{ format!("+{}", r.points) }</span> }
@@ -225,7 +352,7 @@ pub fn qualifying_row(q: &QualifyingResult) -> Html {
     html! {
         <li class="row" style={team_style(&q.constructor.constructor_id)}>
             <span class="pos">{ &q.position }</span>
-            <Link<Route> to={Route::Driver { id: q.driver.driver_id.clone() }} classes="row-main">
+            <Link<Route> to={Route::driver(&q.driver.driver_id)} classes="row-main">
                 <span class="row-title">{ &q.driver.given_name }{ " " }<strong>{ &q.driver.family_name }</strong></span>
                 <span class="row-sub">{ &q.constructor.name }</span>
             </Link<Route>>
@@ -236,8 +363,20 @@ pub fn qualifying_row(q: &QualifyingResult) -> Html {
     }
 }
 
+/// Lien de navigation en carte (flèche à droite), pour les listes d'archives.
+pub fn nav_row(route: Route, title: Html, sub: String, trailing: Option<String>) -> Html {
+    html! {
+        <li class="row row-plain">
+            <Link<Route> to={route} classes="row-main">
+                <span class="row-title">{ title }</span>
+                if !sub.is_empty() { <span class="row-sub">{ sub }</span> }
+            </Link<Route>>
+            if let Some(t) = trailing { <span class="pts">{ t }</span> }
+        </li>
+    }
+}
+
 const ICON_HOME: &str = r#"<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>"#;
 const ICON_CAL: &str = r#"<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg>"#;
-const ICON_HELMET: &str = r#"<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15a9 9 0 0 1 18-2v4a1 1 0 0 1-1 1H9l-3 2H4a1 1 0 0 1-1-1zM12 11h8"/></svg>"#;
-const ICON_TEAM: &str =
-    r#"<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>"#;
+const ICON_TROPHY: &str = r#"<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8 21h8M9 17h6v4H9z"/></svg>"#;
+const ICON_ARCHIVE: &str = r#"<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v4H4zM5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></svg>"#;

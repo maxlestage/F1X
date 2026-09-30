@@ -1,0 +1,177 @@
+use std::collections::HashMap;
+
+use yew::prelude::*;
+use yew_router::prelude::*;
+
+use super::season_label;
+use crate::Route;
+use crate::api::{f1, use_f1};
+use crate::components::*;
+use crate::models::RaceResult;
+use crate::util::{flag_country, local_date, now_ms};
+
+#[derive(Properties, PartialEq)]
+pub struct SeasonProps {
+    pub season: AttrValue,
+}
+
+/// Calendrier d'une saison, avec le vainqueur de chaque Grand Prix disputé.
+#[function_component]
+pub fn SeasonPage(props: &SeasonProps) -> Html {
+    let season = props.season.to_string();
+    let schedule = use_f1(f1(format!("{season}.json"), 100));
+    let winners = use_f1(f1(format!("{season}/results/1.json"), 100));
+
+    let winner_by_round: HashMap<String, RaceResult> = winners
+        .done()
+        .map(|d| {
+            d.races()
+                .iter()
+                .filter_map(|r| Some((r.round.clone(), r.winner()?.clone())))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let body = fetch_view(&schedule, |data| {
+        let races = data.races();
+        let now = now_ms();
+        let next_round = races
+            .iter()
+            .find(|r| !r.is_over(now))
+            .map(|r| r.round.clone());
+        let year = races.first().map(|r| r.season.clone()).unwrap_or_default();
+        if races.is_empty() {
+            return empty_card("Aucun Grand Prix pour cette saison.");
+        }
+        html! {
+            <>
+                <p class="section-intro">{ format!("Saison {year} · {} Grands Prix", races.len()) }</p>
+                <ol class="race-list">
+                    { for races.iter().map(|race| {
+                        let done = race.is_over(now);
+                        let is_next = next_round.as_deref() == Some(race.round.as_str());
+                        let winner = winner_by_round.get(&race.round);
+                        html! {
+                            <li>
+                                <Link<Route> to={Route::race(&season, race.round_num())}
+                                    classes={classes!("race-item", (done && season == crate::CURRENT).then_some("done"), is_next.then_some("next"))}>
+                                    <span class="race-round">{ format!("R{}", race.round) }</span>
+                                    <span class="race-main">
+                                        <span class="race-name">{ format!("{} {}", flag_country(&race.circuit.location.country), race.race_name) }</span>
+                                        <span class="race-meta">
+                                            { local_date(&race.start_iso(), false) }
+                                            if race.is_sprint_weekend() { { " · " }<span class="tag">{ "Sprint" }</span> }
+                                        </span>
+                                        if let Some(w) = winner {
+                                            <span class="race-meta">{ format!("🏆 {} ({})", w.driver.full_name(), w.constructor.name) }</span>
+                                        }
+                                    </span>
+                                    if is_next { <span class="badge badge-live">{ "Prochain" }</span> }
+                                </Link<Route>>
+                            </li>
+                        }
+                    }) }
+                </ol>
+            </>
+        }
+    });
+
+    html! {
+        <Layout title={format!("Calendrier · {}", season_label(&season))} tab={Tab::Calendar}>
+            <SeasonSelect season={props.season.clone()} target={SeasonTarget::Calendar} />
+            <div class="segmented">
+                <Link<Route> to={Route::DriverStandings { season: season.clone() }} classes="seg">{ "Classement pilotes" }</Link<Route>>
+                <Link<Route> to={Route::TeamStandings { season: season.clone() }} classes="seg">{ "Classement écuries" }</Link<Route>>
+            </div>
+            { body }
+        </Layout>
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum StandingsKind {
+    Drivers,
+    Teams,
+}
+
+#[derive(Properties, PartialEq)]
+pub struct StandingsProps {
+    pub season: AttrValue,
+    pub kind: StandingsKind,
+}
+
+#[function_component]
+pub fn StandingsPage(props: &StandingsProps) -> Html {
+    let season = props.season.to_string();
+    let file = match props.kind {
+        StandingsKind::Drivers => "driverStandings",
+        StandingsKind::Teams => "constructorStandings",
+    };
+    let fetch = use_f1(f1(format!("{season}/{file}.json"), 100));
+
+    let body = fetch_view(&fetch, |data| {
+        let list = data.standings();
+        let after = list
+            .and_then(|l| l.round.clone())
+            .map(|r| format!("Après la manche {r}"))
+            .unwrap_or_default();
+        match props.kind {
+            StandingsKind::Drivers => {
+                let rows = list
+                    .and_then(|l| l.driver_standings.clone())
+                    .unwrap_or_default();
+                if rows.is_empty() {
+                    return empty_card("Le classement n'est pas encore disponible.");
+                }
+                html! {
+                    <>
+                        <p class="section-intro">{ after }</p>
+                        <ol class="rows rows-card">{ for rows.iter().map(driver_standing_row) }</ol>
+                    </>
+                }
+            }
+            StandingsKind::Teams => {
+                let rows = list
+                    .and_then(|l| l.constructor_standings.clone())
+                    .unwrap_or_default();
+                if rows.is_empty() {
+                    return empty_card(
+                        "Pas de classement des constructeurs pour cette saison (créé en 1958).",
+                    );
+                }
+                let leader = rows
+                    .first()
+                    .and_then(|t| t.points.parse().ok())
+                    .unwrap_or(0.0);
+                html! {
+                    <>
+                        <p class="section-intro">{ after }</p>
+                        <ol class="rows rows-card">{ for rows.iter().map(|t| team_standing_row(t, leader)) }</ol>
+                    </>
+                }
+            }
+        }
+    });
+
+    let (title, target) = match props.kind {
+        StandingsKind::Drivers => ("Pilotes", SeasonTarget::DriverStandings),
+        StandingsKind::Teams => ("Écuries", SeasonTarget::TeamStandings),
+    };
+    let is = |k| {
+        if props.kind == k {
+            "seg seg-active"
+        } else {
+            "seg"
+        }
+    };
+    html! {
+        <Layout title={format!("{title} · {}", season_label(&season))} tab={Tab::Standings}>
+            <SeasonSelect season={props.season.clone()} {target} />
+            <div class="segmented">
+                <Link<Route> to={Route::DriverStandings { season: season.clone() }} classes={is(StandingsKind::Drivers)}>{ "Pilotes" }</Link<Route>>
+                <Link<Route> to={Route::TeamStandings { season: season.clone() }} classes={is(StandingsKind::Teams)}>{ "Écuries" }</Link<Route>>
+            </div>
+            { body }
+        </Layout>
+    }
+}

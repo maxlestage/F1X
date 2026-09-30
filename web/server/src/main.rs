@@ -4,12 +4,11 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use axum::Router;
-use axum::extract::{Path, State};
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::extract::{Path, Query, State};
+use axum::http::{StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
 use tower_http::compression::CompressionLayer;
-use tower_http::set_header::SetResponseHeaderLayer;
 
 use api::F1Api;
 
@@ -17,9 +16,6 @@ use api::F1Api;
 const FRONTEND_JS: &str = include_str!(concat!(env!("OUT_DIR"), "/pkg/f1x_frontend.js"));
 const FRONTEND_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/pkg/f1x_frontend_bg.wasm"));
 const INDEX_HTML: &str = include_str!("../static/index.html");
-
-const RACES: &str = "/MRData/RaceTable/Races";
-const STANDINGS: &str = "/MRData/StandingsTable/StandingsLists";
 
 #[derive(Clone)]
 struct AppState {
@@ -42,6 +38,12 @@ async fn main() {
     let state = AppState {
         api: F1Api::new(Duration::from_secs(ttl)),
     };
+    // Cache persistant optionnel (utile en local pour ne pas épuiser le quota Jolpica).
+    let cache_file = std::env::var("CACHE_FILE").ok();
+    if let Some(file) = &cache_file {
+        state.api.load(file).await;
+    }
+    let api = state.api.clone();
 
     let port: u16 = std::env::var("PORT")
         .ok()
@@ -57,31 +59,17 @@ async fn main() {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .expect("server error");
+    if let Some(file) = &cache_file {
+        api.save(file).await;
+    }
 }
 
 fn app(state: AppState) -> Router {
     let version = env!("CARGO_PKG_VERSION");
     let api = Router::new()
-        .route("/schedule", get(|s| proxy(s, "current.json".into(), RACES)))
-        .route(
-            "/last",
-            get(|s| proxy(s, "current/last/results.json".into(), RACES)),
-        )
-        .route("/race/{round}/{kind}", get(race))
-        .route(
-            "/drivers",
-            get(|s| proxy(s, "current/driverStandings.json".into(), STANDINGS)),
-        )
-        .route(
-            "/teams",
-            get(|s| proxy(s, "current/constructorStandings.json".into(), STANDINGS)),
-        )
-        .route("/driver/{id}", get(driver))
-        .fallback(|| async { StatusCode::NOT_FOUND })
-        .layer(SetResponseHeaderLayer::overriding(
-            header::CACHE_CONTROL,
-            HeaderValue::from_static("public, max-age=60"),
-        ));
+        .route("/f1/{*path}", get(f1_page))
+        .route("/all/{*path}", get(f1_all))
+        .fallback(|| async { StatusCode::NOT_FOUND });
 
     Router::new()
         .nest("/api", api)
@@ -137,41 +125,49 @@ async fn asset(content_type: &'static str, body: &'static [u8]) -> Response {
         .into_response()
 }
 
-async fn proxy(State(s): State<AppState>, path: String, pointer: &'static str) -> Response {
-    match s.api.get(&path, pointer).await {
-        Some(value) => axum::Json(value).into_response(),
-        None => (
+#[derive(serde::Deserialize)]
+struct PageQuery {
+    limit: Option<u32>,
+    offset: Option<u32>,
+}
+
+/// `/api/f1/{chemin}.json?limit=&offset=` : une page de n'importe quel endpoint Jolpica.
+async fn f1_page(
+    State(s): State<AppState>,
+    Path(path): Path<String>,
+    Query(q): Query<PageQuery>,
+) -> Response {
+    if !api::valid_path(&path) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let limit = q.limit.unwrap_or(30).clamp(1, api::PAGE);
+    let value = s.api.page(&path, limit, q.offset.unwrap_or(0)).await;
+    json_response(&path, value)
+}
+
+/// `/api/all/{chemin}.json` : toutes les pages d'un endpoint, fusionnées.
+async fn f1_all(State(s): State<AppState>, Path(path): Path<String>) -> Response {
+    if !api::valid_path(&path) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let value = s.api.all(&path).await;
+    json_response(&path, value)
+}
+
+fn json_response(path: &str, value: Option<serde_json::Value>) -> Response {
+    let Some(value) = value else {
+        return (
             StatusCode::BAD_GATEWAY,
             "Les données F1 sont momentanément indisponibles.",
         )
-            .into_response(),
-    }
-}
-
-async fn race(s: State<AppState>, Path((round, kind)): Path<(u32, String)>) -> Response {
-    let file = match kind.as_str() {
-        "results" => "results",
-        "sprint" => "sprint",
-        "qualifying" => "qualifying",
-        _ => return StatusCode::NOT_FOUND.into_response(),
+            .into_response();
     };
-    proxy(s, format!("current/{round}/{file}.json"), RACES).await
-}
-
-async fn driver(s: State<AppState>, Path(id): Path<String>) -> Response {
-    if id.is_empty()
-        || !id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-    {
-        return StatusCode::NOT_FOUND.into_response();
-    }
-    proxy(
-        s,
-        format!("current/drivers/{id}/results.json?limit=100"),
-        RACES,
-    )
-    .await
+    let cache = if F1Api::is_historical(path) {
+        "public, max-age=86400"
+    } else {
+        "public, max-age=60"
+    };
+    ([(header::CACHE_CONTROL, cache)], axum::Json(value)).into_response()
 }
 
 async fn shutdown_signal() {

@@ -97,6 +97,16 @@ pub fn flag_country(country: &str) -> &'static str {
         "UAE" | "United Arab Emirates" => "🇦🇪",
         "UK" | "United Kingdom" => "🇬🇧",
         "USA" | "United States" => "🇺🇸",
+        "Argentina" => "🇦🇷",
+        "India" => "🇮🇳",
+        "Korea" => "🇰🇷",
+        "Morocco" => "🇲🇦",
+        "Russia" => "🇷🇺",
+        "South Africa" => "🇿🇦",
+        "Sweden" => "🇸🇪",
+        "Switzerland" => "🇨🇭",
+        "Turkey" => "🇹🇷",
+        "Vietnam" => "🇻🇳",
         _ => "🏁",
     }
 }
@@ -126,6 +136,24 @@ pub fn flag_nationality(nationality: Option<&str>) -> &'static str {
         "Spanish" => "🇪🇸",
         "Swiss" => "🇨🇭",
         "Thai" => "🇹🇭",
+        "Indian" => "🇮🇳",
+        "Irish" => "🇮🇪",
+        "Hungarian" => "🇭🇺",
+        "Indonesian" => "🇮🇩",
+        "Malaysian" => "🇲🇾",
+        "Portuguese" => "🇵🇹",
+        "Russian" => "🇷🇺",
+        "Swedish" => "🇸🇪",
+        "South African" => "🇿🇦",
+        "Venezuelan" => "🇻🇪",
+        "Colombian" => "🇨🇴",
+        "Chilean" => "🇨🇱",
+        "Uruguayan" => "🇺🇾",
+        "Czech" => "🇨🇿",
+        "Liechtensteiner" => "🇱🇮",
+        "Rhodesian" => "🇿🇼",
+        "Hong Kong" => "🇭🇰",
+        "East German" => "🇩🇪",
         _ => "🏳️",
     }
 }
@@ -136,4 +164,78 @@ pub fn wins_label(wins: &str) -> String {
         "1" => "1 victoire".into(),
         n => format!("{n} victoires"),
     }
+}
+
+/// Minuscule sans accents, pour la recherche (« Räikkönen » → « raikkonen »).
+pub fn fold(s: &str) -> String {
+    s.chars()
+        .flat_map(char::to_lowercase)
+        .map(|c| match c {
+            'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' => 'a',
+            'ç' | 'č' | 'ć' => 'c',
+            'è' | 'é' | 'ê' | 'ë' | 'ě' => 'e',
+            'ì' | 'í' | 'î' | 'ï' => 'i',
+            'ñ' | 'ń' => 'n',
+            'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' => 'o',
+            'ù' | 'ú' | 'û' | 'ü' | 'ů' => 'u',
+            'ý' | 'ÿ' => 'y',
+            'š' | 'ś' => 's',
+            'ž' | 'ź' | 'ż' => 'z',
+            'ł' => 'l',
+            'ř' => 'r',
+            c => c,
+        })
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+/// « 1985-01-07 » → « 7 janvier 1985 ».
+pub fn format_birth(date: &str) -> String {
+    const MONTHS: [&str; 12] = [
+        "janvier",
+        "février",
+        "mars",
+        "avril",
+        "mai",
+        "juin",
+        "juillet",
+        "août",
+        "septembre",
+        "octobre",
+        "novembre",
+        "décembre",
+    ];
+    let parts: Vec<&str> = date.split('-').collect();
+    match parts.as_slice() {
+        [y, m, d] => {
+            let month = m
+                .parse::<usize>()
+                .ok()
+                .and_then(|m| MONTHS.get(m.wrapping_sub(1)))
+                .copied()
+                .unwrap_or(m);
+            let day = d.trim_start_matches('0');
+            format!("{} {month} {y}", if day == "1" { "1er" } else { day })
+        }
+        _ => date.to_string(),
+    }
+}
+
+/// Âge en années à partir d'une date de naissance ISO.
+pub fn age(date: &str) -> Option<u32> {
+    let birth = Date::new(&JsValue::from_str(date));
+    if birth.get_time().is_nan() {
+        return None;
+    }
+    let now = Date::new_0();
+    let mut years = now.get_full_year() as i32 - birth.get_full_year() as i32;
+    if (now.get_month(), now.get_date()) < (birth.get_month(), birth.get_date()) {
+        years -= 1;
+    }
+    u32::try_from(years).ok()
+}
+
+pub fn current_year() -> u32 {
+    Date::new_0().get_full_year()
 }

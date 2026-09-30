@@ -355,7 +355,7 @@ dependencies = [
 
 [[package]]
 name = "f1x-frontend"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "gloo-net 0.7.0",
  "gloo-timers 0.4.0",
@@ -370,10 +370,11 @@ dependencies = [
 
 [[package]]
 name = "f1x-web"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "axum",
  "reqwest",
+ "serde",
  "serde_json",
  "tokio",
  "tower-http 0.7.1",
