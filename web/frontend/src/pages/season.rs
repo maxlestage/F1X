@@ -131,10 +131,31 @@ pub fn StandingsPage(props: &StandingsProps) -> Html {
                         "Standings are not available yet.",
                     ));
                 }
+                let csv: Vec<Vec<String>> = std::iter::once(vec![
+                    t("Pos", "Pos").into(),
+                    t("Pilote", "Driver").into(),
+                    t("Écurie", "Team").into(),
+                    "Points".into(),
+                    t("Victoires", "Wins").into(),
+                ])
+                .chain(rows.iter().map(|s| {
+                    vec![
+                        s.rank(),
+                        s.driver.full_name(),
+                        s.constructors
+                            .last()
+                            .map(|c| c.name.clone())
+                            .unwrap_or_default(),
+                        s.points.clone(),
+                        s.wins.clone(),
+                    ]
+                }))
+                .collect();
                 html! {
                     <>
                         <p class="section-intro">{ after }</p>
                         <ol class="rows rows-card">{ for rows.iter().map(driver_standing_row) }</ol>
+                        <ExportCsv filename={format!("f1x-pilotes-{season}.csv")} rows={csv} />
                     </>
                 }
             }
@@ -152,10 +173,26 @@ pub fn StandingsPage(props: &StandingsProps) -> Html {
                     .first()
                     .and_then(|t| t.points.parse().ok())
                     .unwrap_or(0.0);
+                let csv: Vec<Vec<String>> = std::iter::once(vec![
+                    "Pos".into(),
+                    t("Écurie", "Team").into(),
+                    "Points".into(),
+                    t("Victoires", "Wins").into(),
+                ])
+                .chain(rows.iter().map(|s| {
+                    vec![
+                        s.rank(),
+                        s.constructor.name.clone(),
+                        s.points.clone(),
+                        s.wins.clone(),
+                    ]
+                }))
+                .collect();
                 html! {
                     <>
                         <p class="section-intro">{ after }</p>
                         <ol class="rows rows-card">{ for rows.iter().map(|t| team_standing_row(t, leader)) }</ol>
+                        <ExportCsv filename={format!("f1x-ecuries-{season}.csv")} rows={csv} />
                     </>
                 }
             }

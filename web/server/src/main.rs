@@ -1,5 +1,6 @@
 mod api;
 mod live;
+mod news;
 mod openf1;
 mod race;
 
@@ -24,6 +25,7 @@ const INDEX_HTML: &str = include_str!("../static/index.html");
 struct AppState {
     api: F1Api,
     hub: std::sync::Arc<live::Hub>,
+    news: news::News,
 }
 
 #[tokio::main]
@@ -51,6 +53,7 @@ async fn main() {
     let state = AppState {
         api: F1Api::new(Duration::from_secs(ttl)),
         hub: live::Hub::new(openf1),
+        news: news::News::new(),
     };
     // Cache persistant optionnel (utile en local pour ne pas épuiser le quota Jolpica).
     let cache_file = std::env::var("CACHE_FILE").ok();
@@ -85,6 +88,30 @@ fn app(state: AppState) -> Router {
         .route("/all/{*path}", get(f1_all))
         .route("/live/sessions/{year}", get(live_sessions))
         .route("/track/{circuit_id}", get(track))
+        .route(
+            "/news/{lang}",
+            get(
+                |State(s): State<AppState>, Path(lang): Path<String>| async move {
+                    let list = s
+                        .news
+                        .articles(if lang == "fr" { "fr" } else { "en" })
+                        .await;
+                    (
+                        [(header::CACHE_CONTROL, "public, max-age=300")],
+                        axum::Json(list.as_ref().clone()),
+                    )
+                },
+            ),
+        )
+        .route(
+            "/champions",
+            get(|State(s): State<AppState>| async move {
+                (
+                    [(header::CACHE_CONTROL, "public, max-age=3600")],
+                    axum::Json(s.api.champions().await),
+                )
+            }),
+        )
         .fallback(|| async { StatusCode::NOT_FOUND });
 
     Router::new()

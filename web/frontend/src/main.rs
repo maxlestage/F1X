@@ -34,6 +34,22 @@ pub enum Route {
     Circuit { id: String },
     #[at("/archives")]
     Archives,
+    #[at("/archives/records")]
+    Records,
+    #[at("/quiz")]
+    Quiz,
+    #[at("/pronostics")]
+    Predict,
+    #[at("/fantasy")]
+    Fantasy,
+    #[at("/actus")]
+    News,
+    #[at("/lexique")]
+    Glossary,
+    #[at("/comparer")]
+    Compare,
+    #[at("/comparer/:a/:b")]
+    CompareWith { a: String, b: String },
     #[at("/archives/saisons")]
     AllSeasons,
     #[at("/archives/pilotes")]
@@ -107,6 +123,14 @@ fn switch(route: Route) -> Html {
         Route::Team { id } => html! { <TeamPage id={id} /> },
         Route::Circuit { id } => html! { <CircuitPage id={id} /> },
         Route::Archives => html! { <ArchivesPage /> },
+        Route::Records => html! { <RecordsPage /> },
+        Route::Compare => html! { <ComparePage /> },
+        Route::Quiz => html! { <QuizPage /> },
+        Route::Predict => html! { <PredictPage /> },
+        Route::Fantasy => html! { <FantasyPage /> },
+        Route::News => html! { <NewsPage /> },
+        Route::Glossary => html! { <GlossaryPage /> },
+        Route::CompareWith { a, b } => html! { <ComparePage a={a} b={b} /> },
         Route::AllSeasons => html! { <AllSeasonsPage /> },
         Route::AllDrivers => html! { <AllDriversPage /> },
         Route::AllTeams => html! { <AllTeamsPage /> },

@@ -300,8 +300,9 @@ pub fn SessionsList(props: &RaceProps) -> Html {
 
 pub fn driver_standing_row(s: &DriverStanding) -> Html {
     let team = s.constructors.last();
+    let fav = crate::util::fav_driver().as_deref() == Some(s.driver.driver_id.as_str());
     html! {
-        <li class="row" style={team.map(|t| team_style(&t.constructor_id))}>
+        <li class={classes!("row", fav.then_some("row-fav"))} style={team.map(|t| team_style(&t.constructor_id))}>
             <span class="pos">{ s.rank() }</span>
             <Link<Route> to={Route::driver(&s.driver.driver_id)} classes="row-main">
                 <span class="row-title">
@@ -321,13 +322,14 @@ pub fn driver_standing_row(s: &DriverStanding) -> Html {
 pub fn team_standing_row(s: &ConstructorStanding, leader_points: f64) -> Html {
     let wins = wins_label(&s.wins);
     let pts: f64 = s.points.parse().unwrap_or(0.0);
+    let fav = crate::util::fav_team().as_deref() == Some(s.constructor.constructor_id.as_str());
     let pct = if leader_points > 0.0 {
         (pts / leader_points * 100.0).clamp(0.0, 100.0)
     } else {
         0.0
     };
     html! {
-        <li class="row" style={team_style(&s.constructor.constructor_id)}>
+        <li class={classes!("row", fav.then_some("row-fav"))} style={team_style(&s.constructor.constructor_id)}>
             <span class="pos">{ s.rank() }</span>
             <Link<Route> to={Route::team(&s.constructor.constructor_id)} classes="row-main">
                 <span class="row-title">{ flag_nationality(s.constructor.nationality.as_deref()) }{ " " }{ &s.constructor.name }</span>
@@ -404,3 +406,54 @@ const ICON_LIVE: &str = r#"<svg viewBox="0 0 24 24" aria-hidden="true"><path d="
 const ICON_CAL: &str = r#"<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg>"#;
 const ICON_TROPHY: &str = r#"<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8 21h8M9 17h6v4H9z"/></svg>"#;
 const ICON_ARCHIVE: &str = r#"<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v4H4zM5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></svg>"#;
+
+#[derive(Properties, PartialEq)]
+pub struct ExportProps {
+    pub filename: AttrValue,
+    pub rows: Vec<Vec<String>>,
+}
+
+/// Bouton « Exporter en CSV ».
+#[function_component]
+pub fn ExportCsv(props: &ExportProps) -> Html {
+    let rows = props.rows.clone();
+    let name = props.filename.clone();
+    let onclick = Callback::from(move |_| crate::util::download_csv(&name, &rows));
+    html! {
+        <button class="btn btn-ghost btn-small" {onclick} disabled={props.rows.len() < 2}>
+            { t("⬇ Exporter (CSV)", "⬇ Export (CSV)") }
+        </button>
+    }
+}
+
+#[derive(Properties, PartialEq)]
+pub struct FavProps {
+    /// « driver » ou « team ».
+    pub kind: AttrValue,
+    pub id: AttrValue,
+}
+
+/// Bouton étoile : pilote / écurie favori (un de chaque, enregistré sur l'appareil).
+#[function_component]
+pub fn FavButton(props: &FavProps) -> Html {
+    let key = format!("f1x-fav-{}", props.kind);
+    let current = use_state(|| crate::util::load::<String>(&key));
+    let on = current.as_deref() == Some(props.id.as_str());
+    let onclick = {
+        let current = current.clone();
+        let id = props.id.to_string();
+        Callback::from(move |_| {
+            let next = if on { None } else { Some(id.clone()) };
+            match &next {
+                Some(v) => crate::util::store(&key, v),
+                None => crate::util::store(&key, &Option::<String>::None),
+            }
+            current.set(next);
+        })
+    };
+    html! {
+        <button class={classes!("fav", on.then_some("fav-on"))} {onclick} aria-pressed={on.to_string()}>
+            { if on { t("★ Mon favori", "★ My favourite") } else { t("☆ Ajouter aux favoris", "☆ Add to favourites") } }
+        </button>
+    }
+}

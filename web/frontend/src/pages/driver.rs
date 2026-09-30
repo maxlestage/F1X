@@ -3,7 +3,7 @@ use yew::prelude::*;
 use yew_router::prelude::*;
 
 use crate::Route;
-use crate::api::{all, f1, use_f1};
+use crate::api::{all, f1, use_f1, use_json};
 use crate::components::*;
 use crate::i18n::t;
 use crate::models::{Constructor, Race, RaceResult};
@@ -24,6 +24,7 @@ pub fn DriverPage(props: &IdProps) -> Html {
     // Toute la carrière en une seule requête paginée : départs, victoires, podiums,
     // poles, meilleurs tours, saisons et écuries en sont déduits (économise le quota Jolpica).
     let career = use_f1(all(p("/results")));
+    let champions = use_json::<Vec<super::stats::Champion>>(Some("/api/champions".into()));
     let races: Vec<Race> = career
         .done()
         .map(|d| d.races().to_vec())
@@ -118,6 +119,12 @@ pub fn DriverPage(props: &IdProps) -> Html {
                     (t("Meilleurs tours", "Fastest laps"), fastest),
                     (t("Saisons", "Seasons"), season_list.len().to_string()),
                 ]) }
+                if let Some(Ok(c)) = &champions {
+                    if let titles @ [_, ..] = super::stats::driver_titles(c, &driver.driver_id).as_slice() {
+                        <p class="titles">{ tr!("🏆 Champion du monde ×{} : {}", "🏆 World champion ×{}: {}", titles.len(), titles.join(", ")) }</p>
+                    }
+                }
+                <FavButton kind="driver" id={driver.driver_id.clone()} />
                 if let Some(url) = &driver.url {
                     <a class="link" href={url.clone()} target="_blank" rel="noopener">{ t("Wikipédia ↗", "Wikipedia ↗") }</a>
                 }

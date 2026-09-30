@@ -57,7 +57,7 @@ pub fn ArchivesPage() -> Html {
     };
 
     html! {
-        <Layout title={t("Archives", "Archive")} tab={Tab::Archives}>
+        <Layout title={t("Explorer", "Explore")} tab={Tab::Archives}>
             <section class="card hero">
                 <p class="eyebrow">{ t("Depuis 1950", "Since 1950") }</p>
                 <h2 class="hero-title">{ t("Toute l'histoire de la F1", "The whole history of F1") }</h2>
@@ -69,6 +69,18 @@ pub fn ArchivesPage() -> Html {
                 <SeasonSelect season="" target={SeasonTarget::Calendar} />
             </section>
 
+            <h2 class="section-title">{ t("Outils et jeux", "Tools and games") }</h2>
+            <ol class="rows rows-card">
+                { entry(Route::News, t("📰 Actualités", "📰 News"), t("Les derniers titres de la presse F1", "Latest F1 headlines"), "→".into()) }
+                { entry(Route::Records, t("🏅 Records", "🏅 Records"), t("Titres, victoires, poles, séries, âges…", "Titles, wins, poles, streaks, ages…"), "→".into()) }
+                { entry(Route::Compare, t("⚖️ Comparateur", "⚖️ Compare"), t("Deux pilotes face à face", "Two drivers head to head"), "→".into()) }
+                { entry(Route::Predict, t("🔮 Pronostics", "🔮 Predictions"), t("Pronostique chaque Grand Prix, gagne des points", "Predict every Grand Prix, score points"), "→".into()) }
+                { entry(Route::Fantasy, t("🏎️ Fantasy F1", "🏎️ Fantasy F1"), t("Ton équipe, 100 M€, points réels", "Your team, €100M, real points"), "→".into()) }
+                { entry(Route::Quiz, t("🧩 Devine le pilote", "🧩 Guess the driver"), t("Quiz sur 75 ans de statistiques", "Quiz on 75 years of stats"), "→".into()) }
+                { entry(Route::Glossary, t("📚 Lexique", "📚 Glossary"), t("Drapeaux, pneus, stratégie, règlement…", "Flags, tyres, strategy, rules…"), "→".into()) }
+            </ol>
+
+            <h2 class="section-title">{ t("Archives", "Archive") }</h2>
             <ol class="rows rows-card">
                 { entry(Route::AllSeasons, t("Saisons", "Seasons"), t("Calendriers, vainqueurs et classements", "Calendars, winners and standings"), total_of(&seasons)) }
                 { entry(Route::AllDrivers, t("Pilotes", "Drivers"), t("Tous les pilotes, avec recherche", "Every driver, searchable"), total_of(&drivers)) }
