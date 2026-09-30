@@ -2,6 +2,7 @@
 
 mod api;
 mod components;
+mod live;
 mod models;
 mod pages;
 mod util;
@@ -14,6 +15,8 @@ use yew_router::prelude::*;
 pub enum Route {
     #[at("/")]
     Home,
+    #[at("/direct")]
+    Live,
     #[at("/saison/:season")]
     Season { season: String },
     #[at("/saison/:season/course/:round")]
@@ -82,6 +85,7 @@ fn switch(route: Route) -> Html {
     let cur = || AttrValue::from(CURRENT);
     match route {
         Route::Home => html! { <Home /> },
+        Route::Live => html! { <LivePage /> },
         Route::Season { season } => html! { <SeasonPage season={season} /> },
         Route::LegacyCalendar => html! { <SeasonPage season={cur()} /> },
         Route::Race { season, round } => html! { <RacePage season={season} {round} /> },

@@ -95,6 +95,7 @@ pub fn Home() -> Html {
                     </section>
                 }
 
+                <Link<Route> to={Route::Live} classes="btn">{ "● Direct & replays en temps réel" }</Link<Route>>
                 <Link<Route> to={Route::Archives} classes="btn btn-ghost">{ "Explorer 75 ans d'archives →" }</Link<Route>>
             </>
         }

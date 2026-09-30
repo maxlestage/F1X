@@ -1,12 +1,12 @@
 [workspace]
 resolver = "3"
-members = ["server", "frontend"]
+members = ["server", "frontend", "protocol"]
 # `cargo build` à la racine (Heroku) ne construit que le serveur ;
 # son build.rs compile lui-même le frontend Yew en WebAssembly.
 default-members = ["server"]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.85"
 publish = false
@@ -14,6 +14,7 @@ publish = false
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+f1x-protocol = { path = "protocol" }
 # wasm-bindgen et son générateur doivent avoir exactement la même version.
 wasm-bindgen = "=0.2.129"
 wasm-bindgen-cli-support = "=0.2.129"

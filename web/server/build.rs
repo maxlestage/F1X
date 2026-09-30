@@ -14,6 +14,7 @@ fn main() {
     println!("cargo:rerun-if-changed=../frontend/src");
     println!("cargo:rerun-if-changed=../frontend/Cargo.toml");
     println!("cargo:rerun-if-changed=../Cargo.lock");
+    println!("cargo:rerun-if-changed=../protocol/src");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let target_dir = out_dir.join("wasm-target");

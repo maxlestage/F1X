@@ -3,7 +3,7 @@
 La Formule 1 dans ta poche — **uniquement de la F1**, de 1950 à aujourd'hui : prochain Grand Prix
 avec compte à rebours, programme du week-end (à ton heure locale), résultats course / sprint / qualifs,
 meilleurs tours, arrêts aux stands, analyse tour par tour, classements de toutes les saisons, carrières
-des pilotes, palmarès des écuries et des circuits.
+des pilotes, palmarès des écuries et des circuits — et du **temps réel en WebSocket** (direct et replays).
 
 | | |
 |---|---|
@@ -63,6 +63,7 @@ puis redéploie.
 web/
 ├── Cargo.toml        # workspace
 ├── frontend/         # Yew 0.23 + yew-router 0.20 → WebAssembly (application monopage)
+├── protocol/         # messages WebSocket partagés front ↔ serveur
 └── server/           # axum : proxy /api avec cache + sert le front
     └── build.rs      # compile frontend/ en wasm + wasm-bindgen, embarqué dans le binaire
 ```
@@ -96,12 +97,31 @@ cargo run            # http://localhost:3000
 
 Les anciennes adresses (`/calendrier`, `/course/{manche}`, `/pilotes`, `/ecuries`) restent valides.
 
+### ⚡ Direct & replay en WebSocket (`/direct`)
+
+Une connexion WebSocket (`/ws`) relie le front Yew au serveur axum ; le protocole est un crate partagé
+(`web/protocol`), donc typé des deux côtés. Chaque seconde le serveur pousse une photo complète de la
+course : classement, écarts (au leader et à la voiture de devant), dernier/meilleur tour, pneus (gomme +
+âge), arrêts et passages aux stands, drapeaux / voiture de sécurité, météo, messages de la direction de
+course. Le nombre de personnes connectées est diffusé en temps réel.
+
+- **Replay (gratuit)** : rejoue n'importe quelle session depuis 2023 (essais, qualifs, sprint, course) comme
+  en direct, de ×1 à ×60, avec pause et ±2 min. Données [OpenF1](https://openf1.org) (historique gratuit).
+- **Direct** : pendant une session, le serveur interroge OpenF1 toutes les ~4 s et diffuse à tous les
+  connectés. Le temps réel d'OpenF1 est **réservé aux abonnés** : renseigne `OPENF1_USERNAME` et
+  `OPENF1_PASSWORD` (Heroku → *Settings* → *Config Vars*). Sans eux, la page propose le replay.
+- Reconnexion automatique côté navigateur (reprend le suivi en cours), signe de vie toutes les 25 s
+  (Heroku ferme les WebSockets inactives après 55 s), débit OpenF1 limité côté serveur (30 req/min en
+  gratuit), données de session partagées entre spectateurs (chargées une seule fois).
+
 ### API du serveur
 
 | Route | Rôle |
 |---|---|
 | `/api/f1/{chemin}.json?limit=&offset=` | N'importe quel endpoint Jolpica (chemin validé) |
 | `/api/all/{chemin}.json` | Toutes les pages d'un endpoint, fusionnées côté serveur |
+| `/api/live/sessions/{année}` | Sessions rejouables (OpenF1) |
+| `/ws` | WebSocket direct / replay (messages JSON, voir `web/protocol`) |
 | `/healthz` | Health check |
 
 **Quota Jolpica** (500 requêtes/heure, 4/s) : le serveur espace ses appels, met en cache
@@ -111,7 +131,7 @@ pour limiter les requêtes (ex. la carrière d'un pilote est calculée à partir
 l'analyse tour par tour ne se charge qu'à la demande).
 
 Variables d'environnement : `PORT` (fourni par Heroku), `CACHE_TTL_SECS` (saison en cours, défaut 300),
-`CACHE_FILE` (optionnel : sauvegarde le cache à l'arrêt et le recharge au démarrage, pratique en local).
+`OPENF1_USERNAME` / `OPENF1_PASSWORD` (optionnels, direct OpenF1), `CACHE_FILE` (optionnel : sauvegarde le cache à l'arrêt et le recharge au démarrage, pratique en local).
 Installable sur l'écran d'accueil (manifest web).
 
 ## 📱 App iOS
