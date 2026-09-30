@@ -91,7 +91,15 @@ pub fn use_f1(path: Option<String>) -> Fetch {
                     state.set(Fetch::Loading);
                     let alive_task = alive.clone();
                     wasm_bindgen_futures::spawn_local(async move {
-                        let result = get(&path).await;
+                        // Réessaie automatiquement si le serveur est momentanément limité par l'API F1.
+                        let mut result = get(&path).await;
+                        for delay in [8_000, 20_000] {
+                            if result.is_ok() || !alive_task.get() {
+                                break;
+                            }
+                            gloo_timers::future::TimeoutFuture::new(delay).await;
+                            result = get(&path).await;
+                        }
                         // Ignore une réponse arrivée après un changement de page/paramètre.
                         if alive_task.get() {
                             state.set(match result {

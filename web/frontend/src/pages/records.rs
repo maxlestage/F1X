@@ -25,20 +25,41 @@ fn firsts(f: &Fetch) -> Vec<(Race, RaceResult)> {
 }
 
 /// Section « top N » avec barres.
+/// État d'une section : chargement, échec ou prête.
+#[derive(Clone, Copy, PartialEq)]
+enum State {
+    Loading,
+    Failed,
+    Ready,
+}
+
+fn state(fetches: &[&Fetch]) -> State {
+    if fetches.iter().any(|f| matches!(f, Fetch::Failed(_))) {
+        State::Failed
+    } else if fetches.iter().all(|f| f.done().is_some()) {
+        State::Ready
+    } else {
+        State::Loading
+    }
+}
+
 fn top_section(
     title: &str,
     note: Option<&str>,
     rows: &[(String, String, u32)],
     route: fn(&str) -> Route,
     unit: (&str, &str),
-    loading_: bool,
+    st: State,
 ) -> Html {
     let max = rows.first().map(|r| r.2).unwrap_or(1).max(1) as f64;
     html! {
         <section class="card">
             <h2>{ title.to_string() }</h2>
             if let Some(n) = note { <p class="muted">{ n.to_string() }</p> }
-            if loading_ && rows.is_empty() { { loading() } }
+            if st == State::Loading && rows.is_empty() { { loading() } }
+            if st == State::Failed {
+                <p class="muted">{ t("Données momentanément indisponibles, recharge la page dans un instant.", "Data temporarily unavailable, reload the page in a moment.") }</p>
+            }
             <ol class="rows">
                 { for rows.iter().take(10).enumerate().map(|(i, (id, name, n))| html! {
                     <li class="row row-plain">
@@ -178,6 +199,11 @@ pub fn RecordsPage() -> Html {
     )
     .collect();
 
+    let champ_state = match &champions {
+        None => State::Loading,
+        Some(Err(_)) => State::Failed,
+        Some(Ok(_)) => State::Ready,
+    };
     let champions_note = match &champions {
         None => Some(t("Calcul des champions en cours…", "Computing champions…")),
         Some(Err(_)) => Some(t(
@@ -194,13 +220,13 @@ pub fn RecordsPage() -> Html {
                 <h2 class="hero-title">{ t("Les records de la Formule 1", "Formula 1 records") }</h2>
                 <p class="muted">{ t("Mis à jour automatiquement après chaque Grand Prix.", "Updated automatically after every Grand Prix.") }</p>
             </section>
-            { top_section(t("Titres de champion du monde", "World championships"), champions_note, &driver_titles, Route::driver, (t(" titre", " title"), t(" titres", " titles")), champions.is_none()) }
-            { top_section(t("Titres constructeurs", "Constructors' titles"), Some(t("Depuis 1958.", "Since 1958.")), &team_titles, Route::team, (t(" titre", " title"), t(" titres", " titles")), champions.is_none()) }
-            { top_section(t("Victoires", "Wins"), None, &driver_wins, Route::driver, (t(" victoire", " win"), t(" victoires", " wins")), wins.is_loading()) }
-            { top_section(t("Victoires des écuries", "Team wins"), None, &team_wins, Route::team, (t(" victoire", " win"), t(" victoires", " wins")), wins.is_loading()) }
-            { top_section(t("Podiums", "Podiums"), None, &podiums, Route::driver, (" podium", " podiums"), !podium_ready) }
-            { top_section(t("Départs en pole position", "Pole positions"), Some(t("Départs depuis la 1re place de la grille.", "Starts from first on the grid.")), &pole_rows, Route::driver, (" pole", " poles"), poles.is_loading()) }
-            { top_section(t("Meilleurs tours en course", "Fastest laps"), Some(t("Données disponibles depuis 2004.", "Data available since 2004.")), &fastest_rows, Route::driver, (t(" record", " lap"), t(" records", " laps")), fastest.is_loading()) }
+            { top_section(t("Titres de champion du monde", "World championships"), champions_note, &driver_titles, Route::driver, (t(" titre", " title"), t(" titres", " titles")), champ_state) }
+            { top_section(t("Titres constructeurs", "Constructors' titles"), Some(t("Depuis 1958.", "Since 1958.")), &team_titles, Route::team, (t(" titre", " title"), t(" titres", " titles")), champ_state) }
+            { top_section(t("Victoires", "Wins"), None, &driver_wins, Route::driver, (t(" victoire", " win"), t(" victoires", " wins")), state(&[&wins])) }
+            { top_section(t("Victoires des écuries", "Team wins"), None, &team_wins, Route::team, (t(" victoire", " win"), t(" victoires", " wins")), state(&[&wins])) }
+            { top_section(t("Podiums", "Podiums"), None, &podiums, Route::driver, (" podium", " podiums"), state(&[&wins, &seconds, &thirds])) }
+            { top_section(t("Départs en pole position", "Pole positions"), Some(t("Départs depuis la 1re place de la grille.", "Starts from first on the grid.")), &pole_rows, Route::driver, (" pole", " poles"), state(&[&poles])) }
+            { top_section(t("Meilleurs tours en course", "Fastest laps"), Some(t("Données disponibles depuis 2004.", "Data available since 2004.")), &fastest_rows, Route::driver, (t(" record", " lap"), t(" records", " laps")), state(&[&fastest])) }
 
             <section class="card">
                 <h2>{ t("Plus de victoires en une saison", "Most wins in a season") }</h2>
