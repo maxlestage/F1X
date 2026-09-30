@@ -142,11 +142,36 @@ fn App() -> Html {
     }
 }
 
+/// En cas de panique Rust : message lisible + bouton « Recharger » au lieu d'un écran figé.
+fn install_panic_hook() {
+    std::panic::set_hook(Box::new(|info| {
+        let message = info.to_string();
+        web_sys::console::error_1(&message.clone().into());
+        if let Some(window) = web_sys::window() {
+            if let Ok(fail) = js_sys::Reflect::get(&window, &"__f1xFail".into()) {
+                if let Some(fail) = wasm_bindgen::JsCast::dyn_ref::<js_sys::Function>(&fail) {
+                    // `force` : affiche le message même si l'app avait démarré.
+                    let _ = fail.call2(&window, &message.into(), &true.into());
+                }
+            }
+        }
+    }));
+}
+
 fn main() {
+    install_panic_hook();
     let root = web_sys::window()
         .and_then(|w| w.document())
         .and_then(|d| d.get_element_by_id("app"))
         .expect("élément #app introuvable");
     root.set_inner_html(""); // retire l'écran de démarrage
     yew::Renderer::<App>::with_root(root).render();
+    // Démarrage réussi : désactive le filet de sécurité de index.html.
+    if let Some(window) = web_sys::window() {
+        if let Ok(started) = js_sys::Reflect::get(&window, &"__f1xStarted".into()) {
+            if let Some(f) = wasm_bindgen::JsCast::dyn_ref::<js_sys::Function>(&started) {
+                let _ = f.call0(&window);
+            }
+        }
+    }
 }

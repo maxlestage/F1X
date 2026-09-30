@@ -332,3 +332,7 @@ button.btn:disabled { opacity: .5; }
 .stats div { padding: 10px 4px; }
 .stats dt { overflow-wrap: normal; hyphens: auto; line-height: 1.25; }
 .stats dd.dd-long { font-size: min(1.15rem, 17cqi); margin-top: 4px; }
+
+/* ---------- Échec de démarrage ---------- */
+.boot-error { max-width: 340px; padding: 24px; text-align: center; font-size: 1rem; display: flex; flex-direction: column; gap: 12px; }
+.boot-error small { color: var(--muted); font-size: .72rem; overflow-wrap: anywhere; }
