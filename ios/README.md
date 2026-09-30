@@ -5,7 +5,10 @@ Projet au format **App Swift Playgrounds** (`F1X.swiftpm`) : il s'ouvre tel quel
 - sur **iPad** dans l'app *Swift Playgrounds* (lancer, modifier, et même publier sur TestFlight / App Store),
 - sur **Mac** dans *Xcode* (double-clic sur `F1X.swiftpm`).
 
-iOS 17 minimum. Aucune dépendance externe.
+iOS 17 minimum (tous les iPhone depuis le XS), compilé avec le SDK le plus récent de ton outil :
+Xcode 27 / Swift 6.4 / SDK iOS 27 sur Mac, ou Swift Playground sur iPad. Le `Package.swift` reste en
+`swift-tools-version: 5.9`, le format que Swift Playground sur iPad ouvre sans souci
+(un format plus récent peut empêcher l'ouverture ou l'aperçu sur iPad). Aucune dépendance externe.
 
 ## Écrans
 
