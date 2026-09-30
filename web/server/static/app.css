@@ -307,3 +307,28 @@ button.btn:disabled { opacity: .5; }
 .segmented button.seg-active { background: var(--surface-2); color: var(--text); }
 /* Les nombres ne se coupent jamais au milieu (ex. un temps au tour). */
 .stats dd, .pts { overflow-wrap: normal; word-break: keep-all; }
+
+/* ---------- Bascule de langue ---------- */
+.lang-switch {
+  margin-left: auto; flex: none;
+  font: inherit; font-size: .78rem; font-weight: 800; letter-spacing: .05em;
+  color: var(--text); background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: 999px; padding: 6px 11px; cursor: pointer;
+}
+
+/* ---------- Tracé des circuits ---------- */
+.track { display: block; width: 100%; height: auto; max-height: 70vh; touch-action: pan-y; }
+.track-base { fill: none; stroke: #3a3a4a; stroke-width: 30; stroke-linejoin: round; stroke-linecap: round; }
+.track-seg { stroke-width: 14; stroke-linecap: round; }
+.track-start { stroke: #fff; stroke-width: 8; }
+.track-arrow { fill: #fff; }
+.track-dot { fill: var(--surface); stroke: #fff; stroke-width: 6; }
+.track-legend { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; color: var(--muted); font-size: .78rem; font-variant-numeric: tabular-nums; }
+.track-ramp { height: 8px; border-radius: 4px; }
+.osm { display: block; width: 100%; height: 280px; border: 0; border-radius: 12px; background: var(--surface-2); }
+.stats div { container-type: inline-size; }
+.stats dd.dd-long { font-size: min(1.1rem, 13.5cqi); white-space: nowrap; }
+.stats dd { font-size: min(1.4rem, 24cqi); }
+.stats div { padding: 10px 4px; }
+.stats dt { overflow-wrap: normal; hyphens: auto; line-height: 1.25; }
+.stats dd.dd-long { font-size: min(1.15rem, 17cqi); margin-top: 4px; }

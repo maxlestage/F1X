@@ -382,6 +382,14 @@ pub fn is_classified(status: &str) -> bool {
 /// Traduction de tous les statuts d'arrivée de l'API (136 en 2026).
 /// Les statuts synonymes reçoivent le même libellé (ex. « Puncture » / « Tyre puncture »).
 pub fn translate_status(status: &str) -> String {
+    if !crate::i18n::is_fr() {
+        // L'API est en anglais : on garde son texte (sauf « Finished », implicite).
+        return if status == "Finished" {
+            String::new()
+        } else {
+            status.to_string()
+        };
+    }
     let fr = match status {
         "Finished" => "",
         "Lapped" => "Doublé",

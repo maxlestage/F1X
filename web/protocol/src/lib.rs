@@ -171,3 +171,50 @@ mod tests {
         assert_eq!(format_lap(605.0), "10:05.000");
     }
 }
+
+/// Tracé d'un circuit reconstitué à partir des positions GPS d'un tour réel (OpenF1),
+/// avec la télémétrie de la voiture en chaque point.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TrackMap {
+    pub circuit_id: String,
+    pub year: u32,
+    pub session_key: u32,
+    pub event: String,
+    pub driver: String,
+    pub team: String,
+    /// Couleur d'écurie, hexadécimal sans `#`.
+    pub colour: String,
+    pub lap: u32,
+    pub lap_time: f64,
+    /// Dimensions du repère des points (largeur fixée à 1000).
+    pub width: f64,
+    pub height: f64,
+    pub points: Vec<TrackPoint>,
+    pub stats: TrackStats,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TrackPoint {
+    pub x: f32,
+    pub y: f32,
+    /// Secondes écoulées depuis le début du tour.
+    pub t: f32,
+    pub speed: u16,
+    pub gear: u8,
+    pub throttle: u8,
+    pub brake: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TrackStats {
+    pub top_speed: u16,
+    pub min_speed: u16,
+    pub avg_speed: f32,
+    /// Part du tour à fond (accélérateur ≥ 98 %).
+    pub full_throttle_pct: f32,
+    /// Part du tour au freinage.
+    pub braking_pct: f32,
+    /// Longueur estimée (intégration de la vitesse), en km.
+    pub length_km: f32,
+    pub gear_changes: u32,
+}

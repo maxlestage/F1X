@@ -4,7 +4,9 @@ use yew::prelude::*;
 use crate::Route;
 use crate::api::{all, f1, use_f1};
 use crate::components::*;
+use crate::i18n::t;
 use crate::models::{Circuit, Race, is_classified, translate_status};
+use crate::tr;
 use crate::util::{country_fr, flag_country, flag_nationality, fold, format_birth};
 
 /// Plateau des archives : toute l'histoire de la F1 depuis 1950.
@@ -55,33 +57,33 @@ pub fn ArchivesPage() -> Html {
     };
 
     html! {
-        <Layout title="Archives" tab={Tab::Archives}>
+        <Layout title={t("Archives", "Archive")} tab={Tab::Archives}>
             <section class="card hero">
-                <p class="eyebrow">{ "Depuis 1950" }</p>
-                <h2 class="hero-title">{ "Toute l'histoire de la F1" }</h2>
+                <p class="eyebrow">{ t("Depuis 1950", "Since 1950") }</p>
+                <h2 class="hero-title">{ t("Toute l'histoire de la F1", "The whole history of F1") }</h2>
                 { stat_grid(vec![
-                    ("Saisons", total_of(&seasons)),
+                    (t("Saisons", "Seasons"), total_of(&seasons)),
                     ("Grands Prix", total_of(&races)),
-                    ("Pilotes", total_of(&drivers)),
+                    (t("Pilotes", "Drivers"), total_of(&drivers)),
                 ]) }
                 <SeasonSelect season="" target={SeasonTarget::Calendar} />
             </section>
 
             <ol class="rows rows-card">
-                { entry(Route::AllSeasons, "Saisons", "Calendriers, vainqueurs et classements", total_of(&seasons)) }
-                { entry(Route::AllDrivers, "Pilotes", "Tous les pilotes, avec recherche", total_of(&drivers)) }
-                { entry(Route::AllTeams, "Écuries", "Tous les constructeurs", total_of(&teams)) }
-                { entry(Route::AllCircuits, "Circuits", "Tous les circuits, GP disputés, recherche et tri", total_of(&circuits)) }
+                { entry(Route::AllSeasons, t("Saisons", "Seasons"), t("Calendriers, vainqueurs et classements", "Calendars, winners and standings"), total_of(&seasons)) }
+                { entry(Route::AllDrivers, t("Pilotes", "Drivers"), t("Tous les pilotes, avec recherche", "Every driver, searchable"), total_of(&drivers)) }
+                { entry(Route::AllTeams, t("Écuries", "Teams"), t("Tous les constructeurs", "Every constructor"), total_of(&teams)) }
+                { entry(Route::AllCircuits, "Circuits", t("Tous les circuits, GP disputés, recherche et tri", "Every circuit, races held, search and sort"), total_of(&circuits)) }
             </ol>
 
             if !causes.is_empty() {
                 <section class="card">
-                    <h2>{ "Causes d'abandon" }</h2>
-                    <p class="muted">{ format!("{total_causes} abandons, disqualifications et non-partants depuis 1950, en {} causes.", causes.len()) }</p>
+                    <h2>{ t("Causes d'abandon", "Causes of retirement") }</h2>
+                    <p class="muted">{ tr!("{total_causes} abandons, disqualifications et non-partants depuis 1950, en {} causes.", "{total_causes} retirements, disqualifications and non-starters since 1950, across {} causes.", causes.len()) }</p>
                     <ol class="rows">{ for causes.iter().take(10).map(cause_row) }</ol>
                     if causes.len() > 10 {
                         <details class="details">
-                            <summary>{ format!("Voir les {} autres causes", causes.len() - 10) }</summary>
+                            <summary>{ tr!("Voir les {} autres causes", "Show the other {} causes", causes.len() - 10) }</summary>
                             <ol class="rows">{ for causes.iter().skip(10).map(cause_row) }</ol>
                         </details>
                     }
@@ -106,7 +108,7 @@ pub fn AllSeasonsPage() -> Html {
             </ol>
         }
     });
-    html! { <Layout title="Saisons" tab={Tab::Archives}>{ body }</Layout> }
+    html! { <Layout title={t("Saisons", "Seasons")} tab={Tab::Archives}>{ body }</Layout> }
 }
 
 #[derive(Properties, PartialEq)]
@@ -153,22 +155,22 @@ pub fn AllDriversPage() -> Html {
         let count = list.len();
         html! {
             <>
-                <p class="section-intro">{ format!("{count} pilote{}", if count > 1 { "s" } else { "" }) }</p>
+                <p class="section-intro">{ tr!("{count} pilote{}", "{count} driver{}", if count > 1 { "s" } else { "" }) }</p>
                 <ol class="rows rows-card">
                     { for list.iter().take(MAX_ROWS).map(|drv| nav_row(
                         Route::driver(&drv.driver_id),
                         html! { <>{ flag_nationality(drv.nationality.as_deref()) }{ " " }{ &drv.given_name }{ " " }<strong>{ &drv.family_name }</strong></> },
-                        drv.date_of_birth.as_deref().map(|d| format!("Né le {}", format_birth(d))).unwrap_or_default(),
+                        drv.date_of_birth.as_deref().map(|d| tr!("Né le {}", "Born {}", format_birth(d))).unwrap_or_default(),
                         None,
                     )) }
                 </ol>
-                if count > MAX_ROWS { <p class="muted">{ format!("… et {} autres : affine ta recherche.", count - MAX_ROWS) }</p> }
+                if count > MAX_ROWS { <p class="muted">{ tr!("… et {} autres : affine ta recherche.", "… and {} more: refine your search.", count - MAX_ROWS) }</p> }
             </>
         }
     });
     html! {
-        <Layout title="Tous les pilotes" tab={Tab::Archives}>
-            <SearchBox value={(*query).clone()} {oninput} placeholder="Rechercher un pilote (nom, code…)" />
+        <Layout title={t("Tous les pilotes", "All drivers")} tab={Tab::Archives}>
+            <SearchBox value={(*query).clone()} {oninput} placeholder={t("Rechercher un pilote (nom, code…)", "Search a driver (name, code…)")} />
             { body }
         </Layout>
     }
@@ -193,7 +195,7 @@ pub fn AllTeamsPage() -> Html {
         let count = list.len();
         html! {
             <>
-                <p class="section-intro">{ format!("{count} écurie{}", if count > 1 { "s" } else { "" }) }</p>
+                <p class="section-intro">{ tr!("{count} écurie{}", "{count} team{}", if count > 1 { "s" } else { "" }) }</p>
                 <ol class="rows rows-card">
                     { for list.iter().take(MAX_ROWS).map(|c| nav_row(
                         Route::team(&c.constructor_id),
@@ -202,13 +204,13 @@ pub fn AllTeamsPage() -> Html {
                         None,
                     )) }
                 </ol>
-                if count > MAX_ROWS { <p class="muted">{ format!("… et {} autres : affine ta recherche.", count - MAX_ROWS) }</p> }
+                if count > MAX_ROWS { <p class="muted">{ tr!("… et {} autres : affine ta recherche.", "… and {} more: refine your search.", count - MAX_ROWS) }</p> }
             </>
         }
     });
     html! {
-        <Layout title="Toutes les écuries" tab={Tab::Archives}>
-            <SearchBox value={(*query).clone()} {oninput} placeholder="Rechercher une écurie" />
+        <Layout title={t("Toutes les écuries", "All teams")} tab={Tab::Archives}>
+            <SearchBox value={(*query).clone()} {oninput} placeholder={t("Rechercher une écurie", "Search a team")} />
             { body }
         </Layout>
     }
@@ -314,8 +316,8 @@ pub fn AllCircuitsPage() -> Html {
             <>
                 { stat_grid(vec![
                     ("Circuits", d.circuits().len().to_string()),
-                    ("Pays", countries.to_string()),
-                    ("Au calendrier", if current.done().is_some() { on_calendar.to_string() } else { "–".into() }),
+                    (t("Pays", "Country"), countries.to_string()),
+                    (t("Au calendrier", "On the calendar"), if current.done().is_some() { on_calendar.to_string() } else { "–".into() }),
                 ]) }
                 <p class="section-intro">{ format!("{} circuit{}", list.len(), if list.len() > 1 { "s" } else { "" }) }</p>
                 <ol class="rows rows-card">
@@ -331,7 +333,7 @@ pub fn AllCircuitsPage() -> Html {
                             html! {
                                 <>
                                     { flag_country(&loc.country) }{ " " }{ &c.circuit.circuit_name }
-                                    if c.on_calendar { { " " }<span class="tag">{ "Au calendrier" }</span> }
+                                    if c.on_calendar { { " " }<span class="tag">{ t("Au calendrier", "On the calendar") }</span> }
                                 </>
                             },
                             format!("{}, {}{years}", loc.locality, country_fr(&loc.country)),
@@ -353,11 +355,11 @@ pub fn AllCircuitsPage() -> Html {
 
     html! {
         <Layout title="Circuits" tab={Tab::Archives}>
-            <SearchBox value={(*query).clone()} {oninput} placeholder="Rechercher (circuit, ville, pays…)" />
+            <SearchBox value={(*query).clone()} {oninput} placeholder={t("Rechercher (circuit, ville, pays…)", "Search (circuit, city, country…)")} />
             <div class="segmented segmented-3">
-                { sort_btn(CircuitSort::Races, "Plus de GP") }
-                { sort_btn(CircuitSort::Recent, "Récents") }
-                { sort_btn(CircuitSort::Country, "Pays") }
+                { sort_btn(CircuitSort::Races, t("Plus de GP", "Most GPs")) }
+                { sort_btn(CircuitSort::Recent, t("Récents", "Recent")) }
+                { sort_btn(CircuitSort::Country, t("Pays", "Country")) }
             </div>
             { body }
         </Layout>

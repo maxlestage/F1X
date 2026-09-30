@@ -280,6 +280,8 @@ pub struct OpenF1 {
     token: Mutex<Option<(String, Instant)>>,
     sessions: RwLock<HashMap<u32, (Instant, Vec<SessionSummary>)>>,
     datasets: Mutex<VecDeque<(u32, DatasetSlot)>>,
+    /// Tracés de circuits (ne changent pas : gardés pour toute la vie du serveur).
+    tracks: RwLock<HashMap<String, Arc<TrackMap>>>,
 }
 
 impl OpenF1 {
@@ -297,6 +299,7 @@ impl OpenF1 {
             token: Mutex::new(None),
             sessions: RwLock::new(HashMap::new()),
             datasets: Mutex::new(VecDeque::new()),
+            tracks: RwLock::new(HashMap::new()),
         }
     }
 
@@ -469,5 +472,210 @@ impl OpenF1 {
             "OpenF1 session loaded"
         );
         Ok(Arc::new(d))
+    }
+}
+
+// ---------- Tracés de circuits ----------
+
+use f1x_protocol::{TrackMap, TrackPoint, TrackStats};
+
+fn query_date(ms: Ms) -> String {
+    DateTime::<Utc>::from_timestamp_millis(ms)
+        .map(|d| d.format("%Y-%m-%dT%H:%M:%S%.3f").to_string())
+        .unwrap_or_default()
+}
+
+impl OpenF1 {
+    pub async fn cached_track(&self, circuit_id: &str) -> Option<Arc<TrackMap>> {
+        self.tracks.read().await.get(circuit_id).cloned()
+    }
+
+    /// Tracé du circuit : essaie les courses candidates (les plus récentes d'abord) et, pour
+    /// chacune, les meilleurs tours jusqu'à trouver des positions GPS complètes.
+    pub async fn track(
+        &self,
+        circuit_id: &str,
+        candidates: &[(u32, String, String)],
+    ) -> Result<Arc<TrackMap>, String> {
+        if let Some(t) = self.cached_track(circuit_id).await {
+            return Ok(t);
+        }
+        let mut attempts = 0;
+        let mut last_err = String::from("Pas de données OpenF1 pour ce circuit");
+        for (year, date, event) in candidates.iter().take(3) {
+            let Some(day) = parse_date(&format!("{date}T12:00:00Z")) else {
+                continue;
+            };
+            let Some(session) = self
+                .sessions(*year)
+                .await?
+                .into_iter()
+                .filter(|s| s.session_name == "Race")
+                .find(|s| {
+                    parse_date(&s.date_start)
+                        .is_some_and(|start| (start - day).abs() < 36 * 3_600_000)
+                })
+            else {
+                continue;
+            };
+            let key = session.session_key;
+            let laps = self.get(&format!("laps?session_key={key}")).await?;
+            // Meilleurs tours de la course (hors tour 1 et sorties des stands).
+            let mut best: Vec<(f64, u32, u32, Ms)> = arr(&laps)
+                .iter()
+                .filter(|l| u(l, "lap_number").unwrap_or(0) > 1)
+                .filter(|l| {
+                    !l.get("is_pit_out_lap")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                })
+                .filter_map(|l| {
+                    Some((
+                        f(l, "lap_duration")?,
+                        u(l, "driver_number")?,
+                        u(l, "lap_number")?,
+                        t(l, "date_start")?,
+                    ))
+                })
+                .collect();
+            best.sort_by(|a, b| a.0.total_cmp(&b.0));
+            best.dedup_by_key(|l| l.1); // un tour par pilote
+            for lap in best.into_iter().take(3) {
+                if attempts >= 6 {
+                    return Err(last_err);
+                }
+                attempts += 1;
+                match self.build_track(circuit_id, *year, key, event, lap).await {
+                    Ok(track) => {
+                        self.tracks
+                            .write()
+                            .await
+                            .insert(circuit_id.to_string(), track.clone());
+                        tracing::info!(circuit_id, key, points = track.points.len(), "track built");
+                        return Ok(track);
+                    }
+                    Err(err) => last_err = err,
+                }
+            }
+        }
+        Err(last_err)
+    }
+
+    async fn build_track(
+        &self,
+        circuit_id: &str,
+        year: u32,
+        key: u32,
+        event: &str,
+        (duration, driver, lap, start): (f64, u32, u32, Ms),
+    ) -> Result<Arc<TrackMap>, String> {
+        let end = start + (duration * 1000.0) as Ms;
+        let window = format!(
+            "session_key={key}&driver_number={driver}&date>{}&date<{}",
+            query_date(start - 200),
+            query_date(end + 200)
+        );
+        let location = self.get(&format!("location?{window}")).await?;
+        let car = self.get(&format!("car_data?{window}")).await?;
+        let drivers = self
+            .get(&format!("drivers?session_key={key}&driver_number={driver}"))
+            .await?;
+        let info = arr(&drivers).first();
+
+        let mut raw: Vec<(Ms, f64, f64)> = arr(&location)
+            .iter()
+            .filter_map(|p| Some((t(p, "date")?, f(p, "x")?, f(p, "y")?)))
+            .filter(|p| p.1 != 0.0 || p.2 != 0.0)
+            .collect();
+        raw.sort_by_key(|p| p.0);
+        raw.dedup_by(|a, b| a.1 == b.1 && a.2 == b.2);
+        let mut samples: Vec<(Ms, u16, u8, u8, bool)> = arr(&car)
+            .iter()
+            .filter_map(|c| {
+                Some((
+                    t(c, "date")?,
+                    u(c, "speed")? as u16,
+                    u(c, "n_gear").unwrap_or(0) as u8,
+                    u(c, "throttle").unwrap_or(0).min(100) as u8,
+                    u(c, "brake").unwrap_or(0) > 0,
+                ))
+            })
+            .collect();
+        samples.sort_by_key(|c| c.0);
+        // Un tour complet donne ~4 positions par seconde : on exige au moins 80 % de couverture.
+        let expected = duration * 3.5;
+        if (raw.len() as f64) < expected * 0.8 || samples.is_empty() {
+            return Err("Données de position insuffisantes".into());
+        }
+
+        // Repère : largeur 1000, axe y inversé (SVG), proportions conservées.
+        let (min_x, max_x) = raw
+            .iter()
+            .fold((f64::MAX, f64::MIN), |a, p| (a.0.min(p.1), a.1.max(p.1)));
+        let (min_y, max_y) = raw
+            .iter()
+            .fold((f64::MAX, f64::MIN), |a, p| (a.0.min(p.2), a.1.max(p.2)));
+        let scale = 1000.0 / (max_x - min_x).max(1.0);
+        let height = ((max_y - min_y) * scale).max(1.0);
+
+        let mut j = 0;
+        let points: Vec<TrackPoint> = raw
+            .iter()
+            .map(|(time, x, y)| {
+                while j + 1 < samples.len()
+                    && (samples[j + 1].0 - time).abs() <= (samples[j].0 - time).abs()
+                {
+                    j += 1;
+                }
+                let c = samples[j];
+                TrackPoint {
+                    x: ((x - min_x) * scale) as f32,
+                    y: ((max_y - y) * scale) as f32,
+                    t: ((time - start).max(0) as f32) / 1000.0,
+                    speed: c.1,
+                    gear: c.2,
+                    throttle: c.3,
+                    brake: c.4,
+                }
+            })
+            .collect();
+
+        let in_lap: Vec<_> = samples
+            .iter()
+            .filter(|c| c.0 >= start && c.0 <= end)
+            .collect();
+        let n = in_lap.len().max(1) as f32;
+        let mut length_m = 0.0f64;
+        for w in in_lap.windows(2) {
+            length_m += w[0].1 as f64 / 3.6 * ((w[1].0 - w[0].0) as f64 / 1000.0);
+        }
+        let stats = TrackStats {
+            top_speed: in_lap.iter().map(|c| c.1).max().unwrap_or(0),
+            min_speed: in_lap.iter().map(|c| c.1).min().unwrap_or(0),
+            avg_speed: in_lap.iter().map(|c| c.1 as f32).sum::<f32>() / n,
+            full_throttle_pct: in_lap.iter().filter(|c| c.3 >= 98).count() as f32 / n * 100.0,
+            braking_pct: in_lap.iter().filter(|c| c.4).count() as f32 / n * 100.0,
+            length_km: (length_m / 1000.0) as f32,
+            gear_changes: in_lap.windows(2).filter(|w| w[0].2 != w[1].2).count() as u32,
+        };
+
+        Ok(Arc::new(TrackMap {
+            circuit_id: circuit_id.to_string(),
+            year,
+            session_key: key,
+            event: event.to_string(),
+            driver: info.map(|d| s(d, "full_name")).unwrap_or_default(),
+            team: info.map(|d| s(d, "team_name")).unwrap_or_default(),
+            colour: info
+                .map(|d| s(d, "team_colour"))
+                .filter(|c| !c.is_empty())
+                .unwrap_or_else(|| "E10600".into()),
+            lap,
+            lap_time: duration,
+            width: 1000.0,
+            height,
+            points,
+            stats,
+        }))
     }
 }

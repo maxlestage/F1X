@@ -9,8 +9,12 @@ use yew::prelude::*;
 use yew_router::prelude::*;
 
 use crate::api::{Fetch, f1, use_f1};
+use crate::i18n::t;
 use crate::models::{ConstructorStanding, DriverStanding, QualifyingResult, Race, RaceResult};
-use crate::util::{flag_nationality, local_date, now_ms, set_title, team_style, wins_label};
+use crate::tr;
+use crate::util::{
+    flag_nationality, local_date, now_ms, session_label, set_title, team_style, wins_label,
+};
 use crate::{CURRENT, Route};
 
 #[derive(Clone, Copy, PartialEq)]
@@ -34,6 +38,13 @@ pub struct LayoutProps {
 
 #[function_component]
 pub fn Layout(props: &LayoutProps) -> Html {
+    let toggle = use_context::<crate::LangToggle>();
+    let other = crate::i18n::lang().other();
+    let switch_lang = Callback::from(move |_| {
+        if let Some(t) = &toggle {
+            t.0.emit(());
+        }
+    });
     use_effect_with(props.title.clone(), |title| {
         set_title(title);
         if let Some(w) = web_sys::window() {
@@ -49,6 +60,10 @@ pub fn Layout(props: &LayoutProps) -> Html {
                 if !props.title.is_empty() {
                     <h1 class="topbar-title">{ props.title.clone() }</h1>
                 }
+                <button class="lang-switch" onclick={switch_lang}
+                        aria-label={t("Switch to English", "Passer en français")}>
+                    { other.code().to_uppercase() }
+                </button>
             </header>
             <main class="page">{ props.children.clone() }</main>
             <TabBar active={props.tab} />
@@ -64,12 +79,12 @@ struct TabBarProps {
 #[function_component]
 fn TabBar(props: &TabBarProps) -> Html {
     let items = [
-        (Tab::Home, Route::Home, "Accueil", ICON_HOME),
-        (Tab::Live, Route::Live, "Direct", ICON_LIVE),
+        (Tab::Home, Route::Home, t("Accueil", "Home"), ICON_HOME),
+        (Tab::Live, Route::Live, t("Direct", "Live"), ICON_LIVE),
         (
             Tab::Calendar,
             Route::season(CURRENT),
-            "Calendrier",
+            t("Calendrier", "Calendar"),
             ICON_CAL,
         ),
         (
@@ -77,13 +92,18 @@ fn TabBar(props: &TabBarProps) -> Html {
             Route::DriverStandings {
                 season: CURRENT.into(),
             },
-            "Classements",
+            t("Classements", "Standings"),
             ICON_TROPHY,
         ),
-        (Tab::Archives, Route::Archives, "Archives", ICON_ARCHIVE),
+        (
+            Tab::Archives,
+            Route::Archives,
+            t("Archives", "Archive"),
+            ICON_ARCHIVE,
+        ),
     ];
     html! {
-        <nav class="tabbar" aria-label="Navigation principale">
+        <nav class="tabbar" aria-label={t("Navigation principale", "Main navigation")}>
             { for items.into_iter().map(|(tab, route, label, icon)| {
                 let current = if props.active == Some(tab) { "tab tab-active" } else { "tab" };
                 html! {
@@ -98,7 +118,7 @@ fn TabBar(props: &TabBarProps) -> Html {
 }
 
 pub fn loading() -> Html {
-    html! { <div class="loading" aria-busy="true">{ "Chargement…" }</div> }
+    html! { <div class="loading" aria-busy="true">{ t("Chargement…", "Loading…") }</div> }
 }
 
 /// Affiche le chargement / l'erreur, ou délègue le rendu une fois les données là.
@@ -125,9 +145,9 @@ pub fn ErrorCard(props: &ErrorProps) -> Html {
     });
     html! {
         <section class="card">
-            <h2>{ "Drapeau rouge 🚩" }</h2>
+            <h2>{ t("Drapeau rouge 🚩", "Red flag 🚩") }</h2>
             <p class="muted">{ props.message.clone() }</p>
-            <button class="btn" onclick={reload}>{ "Réessayer" }</button>
+            <button class="btn" onclick={reload}>{ t("Réessayer", "Try again") }</button>
         </section>
     }
 }
@@ -141,7 +161,8 @@ pub fn stat_grid(items: Vec<(&'static str, String)>) -> Html {
     html! {
         <dl class="stats">
             { for items.into_iter().map(|(label, value)| html! {
-                <div><dt>{ label }</dt><dd>{ value }</dd></div>
+                // Valeurs longues (temps au tour, unités) : police adaptée à la largeur de la case.
+                <div><dt>{ label }</dt><dd class={classes!((value.chars().count() > 5).then_some("dd-long"))}>{ value }</dd></div>
             }) }
         </dl>
     }
@@ -209,10 +230,10 @@ pub fn SeasonSelect(props: &SeasonSelectProps) -> Html {
     });
     html! {
         <label class="select">
-            <span class="select-label">{ "Saison" }</span>
-            <select {onchange} aria-label="Choisir une saison">
+            <span class="select-label">{ t("Saison", "Season") }</span>
+            <select {onchange} aria-label={t("Choisir une saison", "Choose a season")}>
                 if props.only.is_none() {
-                    <option value={CURRENT} selected={props.season == CURRENT}>{ "Saison en cours" }</option>
+                    <option value={CURRENT} selected={props.season == CURRENT}>{ t("Saison en cours", "Current season") }</option>
                 }
                 { for seasons.iter().map(|s| html! {
                     <option value={s.clone()} selected={props.season == s.as_str()}>{ s }</option>
@@ -249,8 +270,8 @@ pub fn Countdown(props: &CountdownProps) -> Html {
     };
     html! {
         <div class="countdown">
-            { cell((secs / 86400).to_string(), "jours") }
-            { cell(format!("{:02}", secs % 86400 / 3600), "heures") }
+            { cell((secs / 86400).to_string(), t("jours", "days")) }
+            { cell(format!("{:02}", secs % 86400 / 3600), t("heures", "hours")) }
             { cell(format!("{:02}", secs % 3600 / 60), "min") }
             { cell(format!("{:02}", secs % 60), "sec") }
         </div>
@@ -269,7 +290,7 @@ pub fn SessionsList(props: &RaceProps) -> Html {
         <ul class="sessions">
             { for props.race.sessions().into_iter().map(|(name, iso)| html! {
                 <li class={classes!("session", (name == "Course").then_some("session-race"))}>
-                    <span class="session-name">{ name }</span>
+                    <span class="session-name">{ session_label(name) }</span>
                     <time class="session-time" datetime={iso.clone()}>{ local_date(&iso, has_time) }</time>
                 </li>
             }) }
@@ -289,7 +310,7 @@ pub fn driver_standing_row(s: &DriverStanding) -> Html {
                 </span>
                 <span class="row-sub">
                     { team.map(|t| t.name.clone()).unwrap_or_default() }
-                    if s.wins != "0" { { format!(" · {} V", s.wins) } }
+                    if s.wins != "0" { { tr!(" · {} V", " · {} W", s.wins) } }
                 </span>
             </Link<Route>>
             <span class="pts">{ &s.points }<small>{ " pts" }</small></span>
@@ -332,14 +353,14 @@ pub fn result_row(r: &RaceResult) -> Html {
             <Link<Route> to={Route::driver(&r.driver.driver_id)} classes="row-main">
                 <span class="row-title">
                     { &r.driver.given_name }{ " " }<strong>{ &r.driver.family_name }</strong>
-                    if r.has_fastest_lap() { { " " }<span class="tag tag-purple" title="Meilleur tour">{ "⏱" }</span> }
+                    if r.has_fastest_lap() { { " " }<span class="tag tag-purple" title={t("Meilleur tour", "Fastest lap")}>{ "⏱" }</span> }
                 </span>
                 <span class="row-sub">
                     { sub.join(" · ") }
                     if let (Some(g), Some(grid)) = (gained, r.grid.as_deref()) {
                         { " · " }
                         <span class={classes!("delta", (g > 0).then_some("up"), (g < 0).then_some("down"))}
-                              title={format!("Parti P{grid}")}>
+                              title={tr!("Parti P{grid}", "Started P{grid}")}>
                             { match g { g if g > 0 => format!("▲{g}"), g if g < 0 => format!("▼{}", -g), _ => "=".into() } }
                         </span>
                     }
