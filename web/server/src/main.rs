@@ -1,4 +1,7 @@
 mod api;
+mod live;
+mod openf1;
+mod race;
 
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -20,6 +23,7 @@ const INDEX_HTML: &str = include_str!("../static/index.html");
 #[derive(Clone)]
 struct AppState {
     api: F1Api,
+    hub: std::sync::Arc<live::Hub>,
 }
 
 #[tokio::main]
@@ -35,8 +39,18 @@ async fn main() {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(300);
+    // Accès « direct » OpenF1 (abonnement) : optionnel, le replay fonctionne sans.
+    let credentials = match (
+        std::env::var("OPENF1_USERNAME"),
+        std::env::var("OPENF1_PASSWORD"),
+    ) {
+        (Ok(user), Ok(pass)) if !user.is_empty() && !pass.is_empty() => Some((user, pass)),
+        _ => None,
+    };
+    let openf1 = std::sync::Arc::new(openf1::OpenF1::new(credentials));
     let state = AppState {
         api: F1Api::new(Duration::from_secs(ttl)),
+        hub: live::Hub::new(openf1),
     };
     // Cache persistant optionnel (utile en local pour ne pas épuiser le quota Jolpica).
     let cache_file = std::env::var("CACHE_FILE").ok();
@@ -69,11 +83,13 @@ fn app(state: AppState) -> Router {
     let api = Router::new()
         .route("/f1/{*path}", get(f1_page))
         .route("/all/{*path}", get(f1_all))
+        .route("/live/sessions/{year}", get(live_sessions))
         .fallback(|| async { StatusCode::NOT_FOUND });
 
     Router::new()
         .nest("/api", api)
         .route("/healthz", get(|| async { "ok" }))
+        .route("/ws", get(ws))
         .route(
             &format!("/pkg/{version}/f1x_frontend.js"),
             get(|| asset("text/javascript; charset=utf-8", FRONTEND_JS.as_bytes())),
@@ -152,6 +168,27 @@ async fn f1_all(State(s): State<AppState>, Path(path): Path<String>) -> Response
     }
     let value = s.api.all(&path).await;
     json_response(&path, value)
+}
+
+/// WebSocket du direct / replay.
+async fn ws(State(s): State<AppState>, upgrade: axum::extract::ws::WebSocketUpgrade) -> Response {
+    let hub = s.hub.clone();
+    upgrade.on_upgrade(move |socket| live::client(socket, hub))
+}
+
+/// Sessions rejouables d'une année (OpenF1, depuis 2023).
+async fn live_sessions(State(s): State<AppState>, Path(year): Path<u32>) -> Response {
+    if !(2023..=2100).contains(&year) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    match s.hub.openf1.sessions(year).await {
+        Ok(list) => (
+            [(header::CACHE_CONTROL, "public, max-age=300")],
+            axum::Json(list),
+        )
+            .into_response(),
+        Err(err) => (StatusCode::BAD_GATEWAY, err).into_response(),
+    }
 }
 
 fn json_response(path: &str, value: Option<serde_json::Value>) -> Response {

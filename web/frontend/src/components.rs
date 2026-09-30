@@ -16,6 +16,7 @@ use crate::{CURRENT, Route};
 #[derive(Clone, Copy, PartialEq)]
 pub enum Tab {
     Home,
+    Live,
     Calendar,
     Standings,
     Archives,
@@ -64,6 +65,7 @@ struct TabBarProps {
 fn TabBar(props: &TabBarProps) -> Html {
     let items = [
         (Tab::Home, Route::Home, "Accueil", ICON_HOME),
+        (Tab::Live, Route::Live, "Direct", ICON_LIVE),
         (
             Tab::Calendar,
             Route::season(CURRENT),
@@ -377,6 +379,7 @@ pub fn nav_row(route: Route, title: Html, sub: String, trailing: Option<String>)
 }
 
 const ICON_HOME: &str = r#"<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>"#;
+const ICON_LIVE: &str = r#"<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12h.01M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/></svg>"#;
 const ICON_CAL: &str = r#"<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg>"#;
 const ICON_TROPHY: &str = r#"<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8 21h8M9 17h6v4H9z"/></svg>"#;
 const ICON_ARCHIVE: &str = r#"<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v4H4zM5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></svg>"#;

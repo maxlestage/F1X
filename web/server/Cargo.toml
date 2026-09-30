@@ -7,11 +7,14 @@ publish.workspace = true
 build = "build.rs"
 
 [dependencies]
-axum = "0.8"
-reqwest = { version = "0.13", features = ["json"] }
+axum = { version = "0.8", features = ["ws"] }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+f1x-protocol.workspace = true
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+reqwest = { version = "0.13", features = ["json", "form"] }
 serde.workspace = true
 serde_json.workspace = true
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "signal"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "signal", "time"] }
 tower-http = { version = "0.7", features = ["compression-gzip"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

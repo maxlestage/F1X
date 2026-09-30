@@ -13,6 +13,14 @@
       "description": "Durée du cache des données F1 (secondes).",
       "value": "300",
       "required": false
+    },
+    "OPENF1_USERNAME": {
+      "description": "Optionnel : compte OpenF1 (abonnement) pour le direct pendant les sessions. Sans lui, le replay fonctionne.",
+      "required": false
+    },
+    "OPENF1_PASSWORD": {
+      "description": "Optionnel : mot de passe du compte OpenF1.",
+      "required": false
     }
   },
   "formation": {
