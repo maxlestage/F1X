@@ -98,6 +98,23 @@ cargo run            # http://localhost:3000
 
 Les anciennes adresses (`/calendrier`, `/course/{manche}`, `/pilotes`, `/ecuries`) restent valides.
 
+### 🧭 Explorer (outils et jeux, sans coût supplémentaire)
+
+| Page | Contenu |
+|---|---|
+| `/actus` | Titres de la presse F1 (flux RSS publics : Motorsport.com, Autosport, RaceFans…, FR ou EN) |
+| `/archives/records` | Titres, victoires, podiums, poles, meilleurs tours, séries, âges, champions de chaque saison |
+| `/comparer/{a}/{b}` | Deux pilotes côte à côte + face-à-face (course, coéquipiers, grille), export CSV |
+| `/pronostics` | Pronostic du prochain GP (fermé au début des qualifs), noté automatiquement |
+| `/fantasy` | 5 pilotes + 1 écurie, 100 M€, points réels (course + sprint) |
+| `/quiz` | « Devine le pilote » d'après ses statistiques |
+| `/lexique` | Lexique bilingue (drapeaux, pneus, stratégie, règlement 2026…) |
+
+Pronostics, Fantasy, favoris (★), score du quiz et réglages d'alertes sont **enregistrés sur le
+téléphone** (pas de compte, pas de base de données). La météo vient d'Open-Meteo, appelé directement
+par le navigateur. Les champions 1950-2025 sont dans `server/static/champions.json` (le passé ne change
+pas) ; seule la saison en cours est demandée à l'API.
+
 ### 🌍 Français / English
 
 Toute l'interface existe dans les deux langues (dates au format local, statuts de course, noms de
@@ -113,6 +130,9 @@ course : classement, écarts (au leader et à la voiture de devant), dernier/mei
 âge), arrêts et passages aux stands, drapeaux / voiture de sécurité, météo, messages de la direction de
 course. Le nombre de personnes connectées est diffusé en temps réel.
 
+- **Race Center** : vues Classement (écarts étiquetés, secteurs violet/vert/jaune, pneus, légende),
+  Carte (voitures placées sur le tracé), Stratégie (relais de pneus, « et s'il s'arrêtait maintenant ? »),
+  Chronologie (dépassements, arrêts, meilleurs tours, drapeaux, pénalités, abandons) + alertes réglables.
 - **Replay (gratuit)** : rejoue n'importe quelle session depuis 2023 (essais, qualifs, sprint, course) comme
   en direct, de ×1 à ×60, avec pause et ±2 min. Données [OpenF1](https://openf1.org) (historique gratuit).
 - **Direct** : pendant une session, le serveur interroge OpenF1 toutes les ~4 s et diffuse à tous les

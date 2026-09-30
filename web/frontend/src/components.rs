@@ -98,7 +98,7 @@ fn TabBar(props: &TabBarProps) -> Html {
         (
             Tab::Archives,
             Route::Archives,
-            t("Archives", "Archive"),
+            t("Explorer", "Explore"),
             ICON_ARCHIVE,
         ),
     ];
