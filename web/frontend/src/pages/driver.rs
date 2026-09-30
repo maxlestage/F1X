@@ -5,7 +5,9 @@ use yew_router::prelude::*;
 use crate::Route;
 use crate::api::{all, f1, use_f1};
 use crate::components::*;
+use crate::i18n::t;
 use crate::models::{Constructor, Race, RaceResult};
+use crate::tr;
 use crate::util::{age, current_year, flag_country, flag_nationality, format_birth, team_style};
 
 #[derive(Properties, PartialEq)]
@@ -45,7 +47,7 @@ pub fn DriverPage(props: &IdProps) -> Html {
         return match career.done() {
             Some(_) => html! { <super::NotFound /> },
             None => {
-                html! { <Layout title="Pilote" tab={Tab::Standings}>{ fetch_view(&career, |_| html! {}) }</Layout> }
+                html! { <Layout title={t("Pilote", "Driver")} tab={Tab::Standings}>{ fetch_view(&career, |_| html! {}) }</Layout> }
             }
         };
     };
@@ -103,27 +105,27 @@ pub fn DriverPage(props: &IdProps) -> Html {
                 <h2 class="hero-title">{ format!("{} {}", flag_nationality(driver.nationality.as_deref()), driver.full_name()) }</h2>
                 if let Some(dob) = &driver.date_of_birth {
                     <p class="muted">
-                        { format!("Né le {}", format_birth(dob)) }
+                        { tr!("Né le {}", "Born {}", format_birth(dob)) }
                         // L'API ne donne pas de date de décès : âge affiché pour les pilotes récents seulement.
-                        if let Some(a) = age(dob).filter(|_| recent) { { format!(" · {a} ans") } }
+                        if let Some(a) = age(dob).filter(|_| recent) { { tr!(" · {a} ans", " · {a} years old") } }
                     </p>
                 }
                 { stat_grid(vec![
-                    ("Départs", starts),
-                    ("Victoires", wins),
+                    (t("Départs", "Starts"), starts),
+                    (t("Victoires", "Wins"), wins),
                     ("Podiums", podiums),
                     ("Poles", poles),
-                    ("Meilleurs tours", fastest),
-                    ("Saisons", season_list.len().to_string()),
+                    (t("Meilleurs tours", "Fastest laps"), fastest),
+                    (t("Saisons", "Seasons"), season_list.len().to_string()),
                 ]) }
                 if let Some(url) = &driver.url {
-                    <a class="link" href={url.clone()} target="_blank" rel="noopener">{ "Wikipédia ↗" }</a>
+                    <a class="link" href={url.clone()} target="_blank" rel="noopener">{ t("Wikipédia ↗", "Wikipedia ↗") }</a>
                 }
             </section>
 
             if !teams.is_empty() {
                 <section class="card">
-                    <h2>{ "Écuries" }</h2>
+                    <h2>{ t("Écuries", "Teams") }</h2>
                     <ol class="rows">
                         { for teams.iter().map(|c| html! {
                             <li class="row" style={team_style(&c.constructor_id)}>
@@ -138,10 +140,10 @@ pub fn DriverPage(props: &IdProps) -> Html {
 
             if let Some(season) = &season {
                 <section class="card">
-                    <h2>{ "Saison par saison" }</h2>
+                    <h2>{ t("Saison par saison", "Season by season") }</h2>
                     <label class="select">
-                        <span class="select-label">{ "Saison" }</span>
-                        <select {onchange} aria-label="Choisir une saison">
+                        <span class="select-label">{ t("Saison", "Season") }</span>
+                        <select {onchange} aria-label={t("Choisir une saison", "Choose a season")}>
                             { for season_list.iter().rev().map(|s| html! {
                                 <option value={s.clone()} selected={s == season}>{ s }</option>
                             }) }
@@ -149,15 +151,15 @@ pub fn DriverPage(props: &IdProps) -> Html {
                     </label>
                     if let Some(s) = &season_standing {
                         { stat_grid(vec![
-                            ("Classement", format!("P{}", s.rank())),
+                            (t("Classement", "Standings"), format!("P{}", s.rank())),
                             ("Points", s.points.clone()),
-                            ("Victoires", s.wins.clone()),
+                            (t("Victoires", "Wins"), s.wins.clone()),
                         ]) }
                     }
                     <ol class="rows">
                         { for entries.iter().rev().filter(|(race, _)| &race.season == season).map(|(race, r)| {
                             let outcome = r.outcome();
-                            let mut sub = vec![r.constructor.name.clone(), format!("départ P{}", r.grid.as_deref().unwrap_or("-"))];
+                            let mut sub = vec![r.constructor.name.clone(), tr!("départ P{}", "started P{}", r.grid.as_deref().unwrap_or("-"))];
                             if !outcome.is_empty() { sub.push(outcome); }
                             html! {
                                 <li class="row" style={team_style(&r.constructor.constructor_id)}>
@@ -174,7 +176,7 @@ pub fn DriverPage(props: &IdProps) -> Html {
                         }) }
                     </ol>
                     <Link<Route> to={Route::DriverStandings { season: season.clone() }} classes="btn btn-ghost">
-                        { format!("Classement {season}") }
+                        { tr!("Classement {season}", "{season} standings") }
                     </Link<Route>>
                 </section>
             }

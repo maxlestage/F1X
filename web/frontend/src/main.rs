@@ -2,6 +2,7 @@
 
 mod api;
 mod components;
+mod i18n;
 mod live;
 mod models;
 mod pages;
@@ -114,12 +115,30 @@ fn switch(route: Route) -> Html {
     }
 }
 
+/// Bascule de langue partagée avec la barre du haut.
+#[derive(Clone, PartialEq)]
+pub struct LangToggle(pub Callback<()>);
+
 #[function_component]
 fn App() -> Html {
+    let lang = use_state(i18n::initial);
+    // Appliquée avant le rendu : toutes les pages lisent la langue courante.
+    i18n::apply(*lang);
+    let toggle = {
+        let lang = lang.clone();
+        LangToggle(Callback::from(move |_| {
+            let next = lang.other();
+            i18n::save(next);
+            lang.set(next);
+        }))
+    };
     html! {
-        <BrowserRouter>
-            <Switch<Route> render={switch} />
-        </BrowserRouter>
+        <ContextProvider<LangToggle> context={toggle}>
+            <BrowserRouter>
+                // La clé remonte les pages au changement de langue.
+                <Switch<Route> key={lang.code()} render={switch} />
+            </BrowserRouter>
+        </ContextProvider<LangToggle>>
     }
 }
 

@@ -7,7 +7,9 @@ use super::season_label;
 use crate::Route;
 use crate::api::{f1, use_f1};
 use crate::components::*;
+use crate::i18n::t;
 use crate::models::RaceResult;
+use crate::tr;
 use crate::util::{flag_country, local_date, now_ms};
 
 #[derive(Properties, PartialEq)]
@@ -41,11 +43,14 @@ pub fn SeasonPage(props: &SeasonProps) -> Html {
             .map(|r| r.round.clone());
         let year = races.first().map(|r| r.season.clone()).unwrap_or_default();
         if races.is_empty() {
-            return empty_card("Aucun Grand Prix pour cette saison.");
+            return empty_card(t(
+                "Aucun Grand Prix pour cette saison.",
+                "No Grand Prix this season.",
+            ));
         }
         html! {
             <>
-                <p class="section-intro">{ format!("Saison {year} · {} Grands Prix", races.len()) }</p>
+                <p class="section-intro">{ tr!("Saison {year} · {} Grands Prix", "Season {year} · {} Grands Prix", races.len()) }</p>
                 <ol class="race-list">
                     { for races.iter().map(|race| {
                         let done = race.is_over(now);
@@ -66,7 +71,7 @@ pub fn SeasonPage(props: &SeasonProps) -> Html {
                                             <span class="race-meta">{ format!("🏆 {} ({})", w.driver.full_name(), w.constructor.name) }</span>
                                         }
                                     </span>
-                                    if is_next { <span class="badge badge-live">{ "Prochain" }</span> }
+                                    if is_next { <span class="badge badge-live">{ t("Prochain", "Next") }</span> }
                                 </Link<Route>>
                             </li>
                         }
@@ -77,11 +82,11 @@ pub fn SeasonPage(props: &SeasonProps) -> Html {
     });
 
     html! {
-        <Layout title={format!("Calendrier · {}", season_label(&season))} tab={Tab::Calendar}>
+        <Layout title={tr!("Calendrier · {}", "Calendar · {}", season_label(&season))} tab={Tab::Calendar}>
             <SeasonSelect season={props.season.clone()} target={SeasonTarget::Calendar} />
             <div class="segmented">
-                <Link<Route> to={Route::DriverStandings { season: season.clone() }} classes="seg">{ "Classement pilotes" }</Link<Route>>
-                <Link<Route> to={Route::TeamStandings { season: season.clone() }} classes="seg">{ "Classement écuries" }</Link<Route>>
+                <Link<Route> to={Route::DriverStandings { season: season.clone() }} classes="seg">{ t("Classement pilotes", "Driver standings") }</Link<Route>>
+                <Link<Route> to={Route::TeamStandings { season: season.clone() }} classes="seg">{ t("Classement écuries", "Team standings") }</Link<Route>>
             </div>
             { body }
         </Layout>
@@ -113,7 +118,7 @@ pub fn StandingsPage(props: &StandingsProps) -> Html {
         let list = data.standings();
         let after = list
             .and_then(|l| l.round.clone())
-            .map(|r| format!("Après la manche {r}"))
+            .map(|r| tr!("Après la manche {r}", "After round {r}"))
             .unwrap_or_default();
         match props.kind {
             StandingsKind::Drivers => {
@@ -121,7 +126,10 @@ pub fn StandingsPage(props: &StandingsProps) -> Html {
                     .and_then(|l| l.driver_standings.clone())
                     .unwrap_or_default();
                 if rows.is_empty() {
-                    return empty_card("Le classement n'est pas encore disponible.");
+                    return empty_card(t(
+                        "Le classement n'est pas encore disponible.",
+                        "Standings are not available yet.",
+                    ));
                 }
                 html! {
                     <>
@@ -135,9 +143,10 @@ pub fn StandingsPage(props: &StandingsProps) -> Html {
                     .and_then(|l| l.constructor_standings.clone())
                     .unwrap_or_default();
                 if rows.is_empty() {
-                    return empty_card(
+                    return empty_card(t(
                         "Pas de classement des constructeurs pour cette saison (créé en 1958).",
-                    );
+                        "No constructors' championship this season (created in 1958).",
+                    ));
                 }
                 let leader = rows
                     .first()
@@ -154,8 +163,8 @@ pub fn StandingsPage(props: &StandingsProps) -> Html {
     });
 
     let (title, target) = match props.kind {
-        StandingsKind::Drivers => ("Pilotes", SeasonTarget::DriverStandings),
-        StandingsKind::Teams => ("Écuries", SeasonTarget::TeamStandings),
+        StandingsKind::Drivers => (t("Pilotes", "Drivers"), SeasonTarget::DriverStandings),
+        StandingsKind::Teams => (t("Écuries", "Teams"), SeasonTarget::TeamStandings),
     };
     let is = |k| {
         if props.kind == k {
@@ -168,8 +177,8 @@ pub fn StandingsPage(props: &StandingsProps) -> Html {
         <Layout title={format!("{title} · {}", season_label(&season))} tab={Tab::Standings}>
             <SeasonSelect season={props.season.clone()} {target} />
             <div class="segmented">
-                <Link<Route> to={Route::DriverStandings { season: season.clone() }} classes={is(StandingsKind::Drivers)}>{ "Pilotes" }</Link<Route>>
-                <Link<Route> to={Route::TeamStandings { season: season.clone() }} classes={is(StandingsKind::Teams)}>{ "Écuries" }</Link<Route>>
+                <Link<Route> to={Route::DriverStandings { season: season.clone() }} classes={is(StandingsKind::Drivers)}>{ t("Pilotes", "Drivers") }</Link<Route>>
+                <Link<Route> to={Route::TeamStandings { season: season.clone() }} classes={is(StandingsKind::Teams)}>{ t("Écuries", "Teams") }</Link<Route>>
             </div>
             { body }
         </Layout>

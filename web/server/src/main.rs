@@ -84,6 +84,7 @@ fn app(state: AppState) -> Router {
         .route("/f1/{*path}", get(f1_page))
         .route("/all/{*path}", get(f1_all))
         .route("/live/sessions/{year}", get(live_sessions))
+        .route("/track/{circuit_id}", get(track))
         .fallback(|| async { StatusCode::NOT_FOUND });
 
     Router::new()
@@ -187,6 +188,55 @@ async fn live_sessions(State(s): State<AppState>, Path(year): Path<u32>) -> Resp
             axum::Json(list),
         )
             .into_response(),
+        Err(err) => (StatusCode::BAD_GATEWAY, err).into_response(),
+    }
+}
+
+/// Tracé d'un circuit (dernière course disputée depuis 2023, données OpenF1).
+async fn track(State(s): State<AppState>, Path(id): Path<String>) -> Response {
+    if id.is_empty()
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let ok = |t: std::sync::Arc<f1x_protocol::TrackMap>| {
+        (
+            [(header::CACHE_CONTROL, "public, max-age=86400")],
+            axum::Json(t.as_ref()),
+        )
+            .into_response()
+    };
+    if let Some(t) = s.hub.openf1.cached_track(&id).await {
+        return ok(t);
+    }
+    let Some(races) = s.api.all(&format!("circuits/{id}/races.json")).await else {
+        return (StatusCode::BAD_GATEWAY, "races unavailable").into_response();
+    };
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    // Courses disputées depuis 2023 (données OpenF1), de la plus récente à la plus ancienne.
+    let candidates: Vec<(u32, String, String)> = races
+        .pointer("/MRData/RaceTable/Races")
+        .and_then(|r| r.as_array())
+        .map(|list| {
+            list.iter()
+                .rev()
+                .filter_map(|r| {
+                    let field =
+                        |k: &str| r.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let season = field("season").parse::<u32>().ok()?;
+                    let date = field("date");
+                    (season >= 2023 && date < today).then(|| (season, date, field("raceName")))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if candidates.is_empty() {
+        return (StatusCode::NOT_FOUND, "no race since 2023").into_response();
+    }
+    match s.hub.openf1.track(&id, &candidates).await {
+        Ok(t) => ok(t),
         Err(err) => (StatusCode::BAD_GATEWAY, err).into_response(),
     }
 }

@@ -10,6 +10,7 @@ use gloo_net::http::Request;
 use yew::prelude::*;
 
 use crate::models::{Envelope, MrData};
+use crate::tr;
 
 pub enum Fetch {
     Idle,
@@ -57,15 +58,16 @@ async fn get(path: &str) -> Result<MrData, String> {
         .await
         .map_err(|e| e.to_string())?;
     if !resp.ok() {
-        return Err(format!(
+        return Err(tr!(
             "Les données F1 sont momentanément indisponibles ({}).",
+            "F1 data is temporarily unavailable ({}).",
             resp.status()
         ));
     }
     resp.json::<Envelope>()
         .await
         .map(|e| e.data)
-        .map_err(|e| format!("Réponse inattendue : {e}"))
+        .map_err(|e| tr!("Réponse inattendue : {e}", "Unexpected response: {e}"))
 }
 
 /// Charge `/api/{path}` ; `None` = ne rien charger (chargement différé).
@@ -99,6 +101,40 @@ pub fn use_f1(path: Option<String>) -> Fetch {
                         }
                     });
                 }
+            }
+            move || alive.set(false)
+        });
+    }
+    (*state).clone()
+}
+
+/// Charge un JSON quelconque (`None` = ne rien charger). `Some(Err)` en cas d'échec.
+#[hook]
+pub fn use_json<T: serde::de::DeserializeOwned + 'static>(
+    url: Option<String>,
+) -> Option<Result<Rc<T>, (u16, String)>> {
+    let state = use_state(|| None);
+    {
+        let state = state.clone();
+        use_effect_with(url, move |url| {
+            let alive = Rc::new(Cell::new(true));
+            if let Some(url) = url.clone() {
+                state.set(None);
+                let alive = alive.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    let result = match Request::get(&url).send().await {
+                        Ok(r) if r.ok() => r
+                            .json::<T>()
+                            .await
+                            .map(Rc::new)
+                            .map_err(|e| (0, e.to_string())),
+                        Ok(r) => Err((r.status(), r.text().await.unwrap_or_default())),
+                        Err(e) => Err((0, e.to_string())),
+                    };
+                    if alive.get() {
+                        state.set(Some(result));
+                    }
+                });
             }
             move || alive.set(false)
         });

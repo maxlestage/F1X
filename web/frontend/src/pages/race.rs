@@ -10,7 +10,9 @@ use super::season_label;
 use crate::Route;
 use crate::api::{Fetch, all, f1, use_f1};
 use crate::components::*;
+use crate::i18n::t;
 use crate::models::{MrData, PitStop, RaceResult, translate_status};
+use crate::tr;
 use crate::util::{flag_country, now_ms, team_color, team_style};
 
 #[derive(Properties, PartialEq)]
@@ -118,7 +120,7 @@ pub fn RacePage(props: &RacePageProps) -> Html {
     html! {
         <Layout title={race.race_name.clone()} tab={Tab::Calendar}>
             <section class="card hero">
-                <p class="eyebrow">{ format!("{} · Manche {} / {total}", race.season, race.round) }</p>
+                <p class="eyebrow">{ tr!("{} · Manche {} / {total}", "{} · Round {} / {total}", race.season, race.round) }</p>
                 <h2 class="hero-title">{ format!("{} {}", flag_country(&race.circuit.location.country), race.race_name) }</h2>
                 <p class="muted">
                     <Link<Route> to={Route::circuit(&race.circuit.circuit_id)} classes="link-inline">{ &race.circuit.circuit_name }</Link<Route>>
@@ -126,19 +128,19 @@ pub fn RacePage(props: &RacePageProps) -> Html {
                 <p class="muted">{ format!("{}, {}", race.circuit.location.locality, race.circuit.location.country) }</p>
                 if !over && race.has_time() { <Countdown target_ms={race.start_ms()} /> }
                 if let Some(url) = &race.url {
-                    <a class="link" href={url.clone()} target="_blank" rel="noopener">{ "Wikipédia ↗" }</a>
+                    <a class="link" href={url.clone()} target="_blank" rel="noopener">{ t("Wikipédia ↗", "Wikipedia ↗") }</a>
                 }
             </section>
 
             <section class="card">
-                <h2>{ "Programme" }</h2>
+                <h2>{ t("Programme", "Schedule") }</h2>
                 <SessionsList race={race.clone()} />
             </section>
 
             if results.is_loading() { { loading() } }
             if !results_list.is_empty() {
                 <section class="card">
-                    <h2>{ "Course" }</h2>
+                    <h2>{ t("Course", "Race") }</h2>
                     <ol class="rows">{ for results_list.iter().map(result_row) }</ol>
                 </section>
             }
@@ -146,17 +148,17 @@ pub fn RacePage(props: &RacePageProps) -> Html {
                 <section class="card"><h2>{ "Sprint" }</h2><ol class="rows">{ for sprint_list.iter().map(result_row) }</ol></section>
             }
             if !quali_list.is_empty() {
-                <section class="card"><h2>{ "Qualifications" }</h2><ol class="rows">{ for quali_list.iter().map(qualifying_row) }</ol></section>
+                <section class="card"><h2>{ t("Qualifications", "Qualifying") }</h2><ol class="rows">{ for quali_list.iter().map(qualifying_row) }</ol></section>
             }
 
             if !fastest.is_empty() {
                 <section class="card">
-                    <h2>{ "Meilleurs tours" }</h2>
+                    <h2>{ t("Meilleurs tours", "Fastest laps") }</h2>
                     <ol class="rows">
                         { for fastest.iter().take(10).map(|r| {
                             let f = r.fastest_lap.as_ref().unwrap();
                             let mut sub = vec![r.constructor.name.clone()];
-                            if let Some(l) = &f.lap { sub.push(format!("tour {l}")); }
+                            if let Some(l) = &f.lap { sub.push(tr!("tour {l}", "lap {l}")); }
                             if let Some(s) = &f.average_speed { sub.push(format!("{} {}", s.speed, s.units.replace("kph", "km/h"))); }
                             html! {
                                 <li class="row" style={team_style(&r.constructor.constructor_id)}>
@@ -179,12 +181,12 @@ pub fn RacePage(props: &RacePageProps) -> Html {
 
             if over && year >= 1996 && !results_list.is_empty() {
                 <section class="card">
-                    <h2>{ "Tour par tour" }</h2>
+                    <h2>{ t("Tour par tour", "Lap by lap") }</h2>
                     { match &laps {
                         Fetch::Idle => html! {
                             <>
-                                <p class="muted">{ "Position de chaque pilote à chaque tour, et tours passés en tête." }</p>
-                                <button class="btn btn-ghost" onclick={show_laps_cb}>{ "Charger l'analyse" }</button>
+                                <p class="muted">{ t("Position de chaque pilote à chaque tour, et tours passés en tête.", "Each driver's position on every lap, and laps led.") }</p>
+                                <button class="btn btn-ghost" onclick={show_laps_cb}>{ t("Charger l'analyse", "Load the analysis") }</button>
                             </>
                         },
                         Fetch::Done(data) => html! {
@@ -197,13 +199,13 @@ pub fn RacePage(props: &RacePageProps) -> Html {
 
             if !statuses.is_empty() {
                 <section class="card">
-                    <h2>{ "Bilan de la course" }</h2>
+                    <h2>{ t("Bilan de la course", "Race summary") }</h2>
                     <ul class="sessions">
                         { for statuses.iter().map(|s| {
                             let label = translate_status(&s.status);
                             html! {
                                 <li class="session">
-                                    <span class="session-name">{ if label.is_empty() { "Arrivés".to_string() } else { label } }</span>
+                                    <span class="session-name">{ if label.is_empty() { t("Arrivés", "Finished").to_string() } else { label } }</span>
                                     <span class="session-time">{ &s.count }</span>
                                 </li>
                             }
@@ -213,15 +215,15 @@ pub fn RacePage(props: &RacePageProps) -> Html {
             }
 
             if over && results_list.is_empty() && !results.is_loading() {
-                { empty_card("Les résultats ne sont pas encore disponibles.") }
+                { empty_card(t("Les résultats ne sont pas encore disponibles.", "Results are not available yet.")) }
             }
 
             <nav class="pager" aria-label="Grands Prix">
                 if round > 1 {
-                    <Link<Route> to={Route::race(&season, round - 1)} classes="btn btn-ghost">{ "← Précédent" }</Link<Route>>
+                    <Link<Route> to={Route::race(&season, round - 1)} classes="btn btn-ghost">{ t("← Précédent", "← Previous") }</Link<Route>>
                 } else { <span></span> }
                 if round < total {
-                    <Link<Route> to={Route::race(&season, round + 1)} classes="btn btn-ghost">{ "Suivant →" }</Link<Route>>
+                    <Link<Route> to={Route::race(&season, round + 1)} classes="btn btn-ghost">{ t("Suivant →", "Next →") }</Link<Route>>
                 }
             </nav>
         </Layout>
@@ -254,9 +256,9 @@ fn pit_stops_card(stops: &[PitStop], results: &[RaceResult]) -> Html {
     };
     html! {
         <section class="card">
-            <h2>{ "Arrêts aux stands" }</h2>
+            <h2>{ t("Arrêts aux stands", "Pit stops") }</h2>
             if let Some((s, _)) = fastest {
-                <p class="muted">{ format!("Le plus rapide : {} — {} (tour {})", name_of(&s.driver_id), format_duration(s.duration.as_deref().unwrap_or("")), s.lap) }</p>
+                <p class="muted">{ tr!("Le plus rapide : {} — {} (tour {})", "Fastest: {} — {} (lap {})", name_of(&s.driver_id), format_duration(s.duration.as_deref().unwrap_or("")), s.lap) }</p>
             }
             <ol class="rows">
                 { for results.iter().filter_map(|r| {
@@ -274,7 +276,7 @@ fn pit_stops_card(stops: &[PitStop], results: &[RaceResult]) -> Html {
                                 <span class="row-title">{ &r.driver.given_name }{ " " }<strong>{ &r.driver.family_name }</strong></span>
                                 <span class="row-sub">{ detail }</span>
                             </Link<Route>>
-                            <span class="pts">{ n }<small>{ if n > 1 { " arrêts" } else { " arrêt" } }</small></span>
+                            <span class="pts">{ n }<small>{ if n > 1 { t(" arrêts", " stops") } else { t(" arrêt", " stop") } }</small></span>
                         </li>
                     })
                 }) }
@@ -311,7 +313,10 @@ pub fn LapAnalysis(props: &LapAnalysisProps) -> Html {
     let laps = props.laps.laps();
     let n_laps = laps.keys().max().copied().unwrap_or(0);
     if n_laps == 0 {
-        return empty_card("Pas de données tour par tour pour cette course.");
+        return empty_card(t(
+            "Pas de données tour par tour pour cette course.",
+            "No lap-by-lap data for this race.",
+        ));
     }
     let name_of = |id: &str| {
         props
@@ -382,8 +387,11 @@ pub fn LapAnalysis(props: &LapAnalysisProps) -> Html {
     let hovered = hover.and_then(|l| series.iter().find(|(lap, _, _)| *lap == l));
 
     let readout = match hovered.or(series.last()) {
-        Some((lap, pos, time)) => format!("Tour {lap} · P{pos} · {time}"),
-        None => "Pas de données pour ce pilote.".into(),
+        Some((lap, pos, time)) => tr!(
+            "Tour {lap} · P{pos} · {time}",
+            "Lap {lap} · P{pos} · {time}"
+        ),
+        None => t("Pas de données pour ce pilote.", "No data for this driver.").into(),
     };
 
     let onchange = {
@@ -423,7 +431,7 @@ pub fn LapAnalysis(props: &LapAnalysisProps) -> Html {
 
     html! {
         <>
-            <h3 class="subhead">{ format!("Tours en tête ({n_laps} tours)") }</h3>
+            <h3 class="subhead">{ tr!("Tours en tête ({n_laps} tours)", "Laps led ({n_laps} laps)") }</h3>
             <ol class="rows">
                 { for led.iter().map(|(id, n)| {
                     let pct = *n as f64 / max_led as f64 * 100.0;
@@ -434,16 +442,16 @@ pub fn LapAnalysis(props: &LapAnalysisProps) -> Html {
                                 <span class="row-title">{ name_of(id) }</span>
                                 <span class="bar" aria-hidden="true"><span class="bar-fill" style={format!("width:{pct:.1}%")}></span></span>
                             </span>
-                            <span class="pts">{ n }<small>{ if *n > 1 { " tours" } else { " tour" } }</small></span>
+                            <span class="pts">{ n }<small>{ if *n > 1 { t(" tours", " laps") } else { t(" tour", " lap") } }</small></span>
                         </li>
                     }
                 }) }
             </ol>
 
-            <h3 class="subhead">{ "Position tour par tour" }</h3>
+            <h3 class="subhead">{ t("Position tour par tour", "Position lap by lap") }</h3>
             <label class="select">
-                <span class="select-label">{ "Pilote" }</span>
-                <select {onchange} aria-label="Choisir un pilote">
+                <span class="select-label">{ t("Pilote", "Driver") }</span>
+                <select {onchange} aria-label={t("Choisir un pilote", "Choose a driver")}>
                     { for props.results.iter().map(|r| html! {
                         <option value={r.driver.driver_id.clone()} selected={r.driver.driver_id == driver_id}>
                             { format!("P{} · {}", r.position_text, r.driver.full_name()) }
@@ -453,7 +461,7 @@ pub fn LapAnalysis(props: &LapAnalysisProps) -> Html {
             </label>
             <p class="chart-readout" aria-live="polite">{ readout }</p>
             <svg class="chart" viewBox={format!("0 0 {W} {H}")} role="img"
-                 aria-label={format!("Position de {} à chaque tour", name_of(&driver_id))}
+                 aria-label={tr!("Position de {} à chaque tour", "{}'s position on every lap", name_of(&driver_id))}
                  {onpointermove} {onpointerleave}>
                 { for grid_positions.iter().map(|p| html! {
                     <g>
@@ -478,15 +486,15 @@ pub fn LapAnalysis(props: &LapAnalysisProps) -> Html {
             if !pit_laps.is_empty() {
                 <p class="muted chart-legend">
                     <span class="legend-line" style={format!("background:{color}")}></span>{ name_of(&driver_id) }
-                    <span class="legend-pit" style={format!("border-color:{color}")}></span>{ "arrêt aux stands" }
+                    <span class="legend-pit" style={format!("border-color:{color}")}></span>{ t("arrêt aux stands", "pit stop") }
                 </p>
             }
             <details class="details">
-                <summary>{ "Voir les données" }</summary>
+                <summary>{ t("Voir les données", "Show the data") }</summary>
                 <ul class="sessions">
                     { for series.iter().map(|(lap, pos, time)| html! {
                         <li class="session">
-                            <span class="session-name">{ format!("Tour {lap}") }</span>
+                            <span class="session-name">{ tr!("Tour {lap}", "Lap {lap}") }</span>
                             <span class="session-time">{ format!("P{pos} · {time}") }</span>
                         </li>
                     }) }

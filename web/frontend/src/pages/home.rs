@@ -3,6 +3,8 @@ use yew_router::prelude::*;
 
 use crate::api::{f1, use_f1};
 use crate::components::*;
+use crate::i18n::t;
+use crate::tr;
 use crate::util::{flag_country, now_ms, team_style};
 use crate::{CURRENT, Route};
 
@@ -37,7 +39,7 @@ pub fn Home() -> Html {
             <>
                 if let Some(race) = next {
                     <section class="card hero">
-                        <p class="eyebrow">{ format!("Prochain Grand Prix · Manche {}", race.round) }</p>
+                        <p class="eyebrow">{ tr!("Prochain Grand Prix · Manche {}", "Next Grand Prix · Round {}", race.round) }</p>
                         <h2 class="hero-title">{ format!("{} {}", flag_country(&race.circuit.location.country), race.race_name) }</h2>
                         <p class="muted">
                             <Link<Route> to={Route::circuit(&race.circuit.circuit_id)} classes="link-inline">{ &race.circuit.circuit_name }</Link<Route>>
@@ -45,20 +47,20 @@ pub fn Home() -> Html {
                         </p>
                         <Countdown target_ms={race.start_ms()} />
                         <SessionsList race={race.clone()} />
-                        <Link<Route> to={Route::race(CURRENT, race.round_num())} classes="btn">{ "Voir le Grand Prix" }</Link<Route>>
+                        <Link<Route> to={Route::race(CURRENT, race.round_num())} classes="btn">{ t("Voir le Grand Prix", "View the Grand Prix") }</Link<Route>>
                     </section>
                 } else {
                     <section class="card">
-                        <h2>{ format!("Saison {season} terminée") }</h2>
-                        <p class="muted">{ "Rendez-vous la saison prochaine !" }</p>
+                        <h2>{ tr!("Saison {season} terminée", "Season {season} is over") }</h2>
+                        <p class="muted">{ t("Rendez-vous la saison prochaine !", "See you next season!") }</p>
                     </section>
                 }
 
                 if let Some(race) = last_race {
                     <section class="card">
                         <div class="card-head">
-                            <h2>{ "Dernier résultat" }</h2>
-                            <Link<Route> to={Route::race(CURRENT, race.round_num())} classes="link">{ "Détails" }</Link<Route>>
+                            <h2>{ t("Dernier résultat", "Latest result") }</h2>
+                            <Link<Route> to={Route::race(CURRENT, race.round_num())} classes="link">{ t("Détails", "Details") }</Link<Route>>
                         </div>
                         <p class="muted">{ format!("{} {}", flag_country(&race.circuit.location.country), race.race_name) }</p>
                         <ol class="podium">
@@ -78,8 +80,8 @@ pub fn Home() -> Html {
                 if !drivers.is_empty() {
                     <section class="card">
                         <div class="card-head">
-                            <h2>{ "Pilotes" }</h2>
-                            <Link<Route> to={Route::DriverStandings { season: CURRENT.into() }} classes="link">{ "Tout voir" }</Link<Route>>
+                            <h2>{ t("Pilotes", "Drivers") }</h2>
+                            <Link<Route> to={Route::DriverStandings { season: CURRENT.into() }} classes="link">{ t("Tout voir", "See all") }</Link<Route>>
                         </div>
                         <ol class="rows">{ for drivers.iter().take(5).map(driver_standing_row) }</ol>
                     </section>
@@ -88,15 +90,15 @@ pub fn Home() -> Html {
                 if !teams.is_empty() {
                     <section class="card">
                         <div class="card-head">
-                            <h2>{ "Écuries" }</h2>
-                            <Link<Route> to={Route::TeamStandings { season: CURRENT.into() }} classes="link">{ "Tout voir" }</Link<Route>>
+                            <h2>{ t("Écuries", "Teams") }</h2>
+                            <Link<Route> to={Route::TeamStandings { season: CURRENT.into() }} classes="link">{ t("Tout voir", "See all") }</Link<Route>>
                         </div>
                         <ol class="rows">{ for teams.iter().take(3).map(|t| team_standing_row(t, leader)) }</ol>
                     </section>
                 }
 
-                <Link<Route> to={Route::Live} classes="btn">{ "● Direct & replays en temps réel" }</Link<Route>>
-                <Link<Route> to={Route::Archives} classes="btn btn-ghost">{ "Explorer 75 ans d'archives →" }</Link<Route>>
+                <Link<Route> to={Route::Live} classes="btn">{ t("● Direct & replays en temps réel", "● Live & real-time replays") }</Link<Route>>
+                <Link<Route> to={Route::Archives} classes="btn btn-ghost">{ t("Explorer 75 ans d'archives →", "Explore 75 years of history →") }</Link<Route>>
             </>
         }
     });

@@ -7,12 +7,17 @@ use yew::prelude::*;
 
 use crate::api::{f1, use_f1};
 use crate::components::*;
+use crate::i18n::t;
 use crate::live::use_live;
+use crate::tr;
 use crate::util::{current_year, flag_country, local_date, now_ms};
 
 const SPEEDS: [u32; 6] = [1, 2, 5, 10, 30, 60];
 
 fn session_fr(name: &str) -> String {
+    if !crate::i18n::is_fr() {
+        return name.to_string();
+    }
     match name {
         "Race" => "Course".into(),
         "Qualifying" => "Qualifications".into(),
@@ -51,7 +56,11 @@ fn use_sessions(year: u32) -> Option<Result<Vec<SessionSummary>, String>> {
                         .json::<Vec<SessionSummary>>()
                         .await
                         .map_err(|e| e.to_string()),
-                    Ok(r) => Err(format!("Sessions indisponibles ({})", r.status())),
+                    Ok(r) => Err(tr!(
+                        "Sessions indisponibles ({})",
+                        "Sessions unavailable ({})",
+                        r.status()
+                    )),
                     Err(e) => Err(e.to_string()),
                 };
                 state.set(Some(result));
@@ -65,6 +74,22 @@ fn use_sessions(year: u32) -> Option<Result<Vec<SessionSummary>, String>> {
 pub fn LivePage() -> Html {
     let live = use_live();
     let s = &*live.state;
+    // Texte d'état dans la langue choisie (le serveur n'envoie que des indicateurs utiles).
+    let status_text = if !s.live_available {
+        t(
+            "Le direct nécessite un accès OpenF1 (abonnement). En attendant, rejoue n'importe quelle session depuis 2023.",
+            "Live timing requires OpenF1 access (subscription). Meanwhile, replay any session since 2023.",
+        )
+        .to_string()
+    } else if s.live_active {
+        s.status.clone()
+    } else {
+        t(
+            "Aucune session en cours pour le moment.",
+            "No session running right now.",
+        )
+        .to_string()
+    };
 
     let body = match &s.snapshot {
         Some(snap) => html! { <Board snapshot={Rc::clone(snap)} send={live.send.clone()} /> },
@@ -72,22 +97,24 @@ pub fn LivePage() -> Html {
     };
 
     html! {
-        <Layout title="Direct" tab={Tab::Live}>
+        <Layout title={t("Direct", "Live")} tab={Tab::Live}>
             <div class="live-bar">
                 <span class={classes!("dot", s.connected.then_some("dot-on"))} aria-hidden="true"></span>
-                <span>{ if s.connected { "Connecté en temps réel" } else { "Connexion…" } }</span>
-                <span class="live-viewers">{ format!("👥 {} en ligne", s.viewers) }</span>
+                <span>{ if s.connected { t("Connecté en temps réel", "Connected in real time") } else { t("Connexion…", "Connecting…") } }</span>
+                <span class="live-viewers">{ tr!("👥 {} en ligne", "👥 {} online", s.viewers) }</span>
             </div>
             if s.snapshot.is_none() {
                 <section class={classes!("card", s.live_active.then_some("hero"))}>
-                    <h2>{ if s.live_active { "🔴 Session en cours" } else { "Direct" } }</h2>
-                    <p class="muted">{ &s.status }</p>
+                    <h2>{ if s.live_active { t("🔴 Session en cours", "🔴 Session in progress") } else { t("Direct", "Live") } }</h2>
+                    <p class="muted">{ status_text }</p>
                     if s.live_active {
-                        <button class="btn" onclick={let send = live.send.clone(); move |_| send.emit(ClientMsg::Live)}>{ "Suivre le direct" }</button>
+                        <button class="btn" onclick={let send = live.send.clone(); move |_| send.emit(ClientMsg::Live)}>{ t("Suivre le direct", "Follow live") }</button>
                     }
                 </section>
             }
-            if let Some(message) = &s.loading { <section class="card"><p class="muted">{ message }</p>{ loading() }</section> }
+            if s.loading.is_some() {
+                <section class="card"><p class="muted">{ t("Chargement des données de la session…", "Loading session data…") }</p>{ loading() }</section>
+            }
             if let Some(message) = &s.error { <ErrorCard message={message.clone()} /> }
             { body }
         </Layout>
@@ -165,7 +192,7 @@ fn Lobby(props: &LobbyProps) -> Html {
         <>
             if let Some((race, name, iso)) = next_session {
                 <section class="card">
-                    <p class="eyebrow">{ "Prochaine session" }</p>
+                    <p class="eyebrow">{ t("Prochaine session", "Next session") }</p>
                     <h2>{ format!("{} {} — {name}", flag_country(&race.circuit.location.country), race.race_name) }</h2>
                     <p class="muted">{ local_date(&iso, true) }</p>
                     <Countdown target_ms={crate::util::parse_ms(&iso)} />
@@ -173,18 +200,18 @@ fn Lobby(props: &LobbyProps) -> Html {
             }
 
             <section class="card">
-                <h2>{ "Rejouer une session" }</h2>
-                <p class="muted">{ "Revis n'importe quelle session depuis 2023 comme en direct : classement, écarts, pneus, arrêts, drapeaux, météo et direction de course, en temps réel ou en accéléré." }</p>
+                <h2>{ t("Rejouer une session", "Replay a session") }</h2>
+                <p class="muted">{ t("Revis n'importe quelle session depuis 2023 comme en direct : classement, écarts, pneus, arrêts, drapeaux, météo et direction de course, en temps réel ou en accéléré.", "Relive any session since 2023 as if it were live: order, gaps, tyres, pit stops, flags, weather and race control, in real time or sped up.") }</p>
                 <label class="select">
-                    <span class="select-label">{ "Année" }</span>
-                    <select onchange={on_year} aria-label="Année">
+                    <span class="select-label">{ t("Année", "Year") }</span>
+                    <select onchange={on_year} aria-label={t("Année", "Year")}>
                         { for (2023..=this_year).rev().map(|y| html! { <option value={y.to_string()} selected={y == *year}>{ y }</option> }) }
                     </select>
                 </label>
                 { match &sessions {
                     None => loading(),
                     Some(Err(e)) => html! { <p class="muted">{ e }</p> },
-                    Some(Ok(_)) if list.is_empty() => html! { <p class="muted">{ "Aucune session disponible pour cette année." }</p> },
+                    Some(Ok(_)) if list.is_empty() => html! { <p class="muted">{ t("Aucune session disponible pour cette année.", "No session available for this year.") }</p> },
                     Some(Ok(_)) => html! {
                         <label class="select">
                             <span class="select-label">{ "Session" }</span>
@@ -198,7 +225,7 @@ fn Lobby(props: &LobbyProps) -> Html {
                         </label>
                     },
                 } }
-                <p class="select-label">{ "Vitesse" }</p>
+                <p class="select-label">{ t("Vitesse", "Speed") }</p>
                 <div class="speed-grid">
                     { for SPEEDS.iter().map(|v| {
                         let speed = speed.clone();
@@ -210,7 +237,7 @@ fn Lobby(props: &LobbyProps) -> Html {
                         }
                     }) }
                 </div>
-                <button class="btn" onclick={start} disabled={selected.is_none()}>{ "▶ Lancer le replay" }</button>
+                <button class="btn" onclick={start} disabled={selected.is_none()}>{ t("▶ Lancer le replay", "▶ Start the replay") }</button>
             </section>
         </>
     }
@@ -224,12 +251,15 @@ struct BoardProps {
 
 fn track_banner(status: TrackStatus) -> (&'static str, &'static str) {
     match status {
-        TrackStatus::Green => ("ts-green", "Piste dégagée"),
-        TrackStatus::Yellow => ("ts-yellow", "Drapeau jaune"),
-        TrackStatus::SafetyCar => ("ts-sc", "Voiture de sécurité"),
-        TrackStatus::VirtualSafetyCar => ("ts-sc", "Voiture de sécurité virtuelle"),
-        TrackStatus::Red => ("ts-red", "Drapeau rouge"),
-        TrackStatus::Chequered => ("ts-chequered", "Drapeau à damier"),
+        TrackStatus::Green => ("ts-green", t("Piste dégagée", "Track clear")),
+        TrackStatus::Yellow => ("ts-yellow", t("Drapeau jaune", "Yellow flag")),
+        TrackStatus::SafetyCar => ("ts-sc", t("Voiture de sécurité", "Safety car")),
+        TrackStatus::VirtualSafetyCar => (
+            "ts-sc",
+            t("Voiture de sécurité virtuelle", "Virtual safety car"),
+        ),
+        TrackStatus::Red => ("ts-red", t("Drapeau rouge", "Red flag")),
+        TrackStatus::Chequered => ("ts-chequered", t("Drapeau à damier", "Chequered flag")),
     }
 }
 
@@ -245,9 +275,11 @@ fn Board(props: &BoardProps) -> Html {
     let (ts_class, ts_label) = track_banner(snap.track_status);
     let is_replay = snap.mode == Mode::Replay;
     let lap = match snap.total_laps {
-        Some(total) if snap.lap > 0 => format!("Tour {}/{total}", snap.lap.min(total)),
-        _ if snap.lap > 0 => format!("Tour {}", snap.lap),
-        _ => "Avant le départ".into(),
+        Some(total) if snap.lap > 0 => {
+            tr!("Tour {}/{total}", "Lap {}/{total}", snap.lap.min(total))
+        }
+        _ if snap.lap > 0 => tr!("Tour {}", "Lap {}", snap.lap),
+        _ => t("Avant le départ", "Before the start").into(),
     };
 
     html! {
@@ -255,15 +287,15 @@ fn Board(props: &BoardProps) -> Html {
             <section class="card hero">
                 <div class="card-head">
                     <span class={classes!("badge", if is_replay { "badge" } else { "badge-live" })}>
-                        { if is_replay { format!("Replay ×{}", snap.speed) } else { "● En direct".into() } }
+                        { if is_replay { format!("Replay ×{}", snap.speed) } else { t("● En direct", "● Live").into() } }
                     </span>
                     <span class="muted">{ clock_local(&snap.clock) }</span>
                 </div>
                 <h2 class="hero-title">{ format!("{} {} — {}", flag_country(&snap.session.country), snap.session.location, session_fr(&snap.session.session_name)) }</h2>
-                <p class="lap-counter">{ lap }{ if snap.finished { " · Terminé" } else if snap.paused { " · En pause" } else { "" } }</p>
+                <p class="lap-counter">{ lap }{ if snap.finished { t(" · Terminé", " · Finished") } else if snap.paused { t(" · En pause", " · Paused") } else { "" } }</p>
                 <div class={classes!("track-status", ts_class)} role="status">{ ts_label }</div>
                 if is_replay {
-                    <div class="progress" aria-label="Avancement du replay">
+                    <div class="progress" aria-label={t("Avancement du replay", "Replay progress")}>
                         <span style={format!("width:{:.1}%", snap.progress * 100.0)}></span>
                     </div>
                     <div class="speed-grid">
@@ -274,24 +306,24 @@ fn Board(props: &BoardProps) -> Html {
                         }) }
                     </div>
                     <div class="controls">
-                        <button class="btn btn-ghost" onclick={cmd(ClientMsg::Seek { seconds: -120 })} aria-label="Reculer de 2 minutes">{ "−2 min" }</button>
+                        <button class="btn btn-ghost" onclick={cmd(ClientMsg::Seek { seconds: -120 })} aria-label={t("Reculer de 2 minutes", "Back 2 minutes")}>{ "−2 min" }</button>
                         if snap.paused {
                             <button class="btn" onclick={cmd(ClientMsg::Resume)}>{ "▶" }</button>
                         } else {
                             <button class="btn" onclick={cmd(ClientMsg::Pause)} aria-label="Pause">{ "❚❚" }</button>
                         }
-                        <button class="btn btn-ghost" onclick={cmd(ClientMsg::Seek { seconds: 120 })} aria-label="Avancer de 2 minutes">{ "+2 min" }</button>
+                        <button class="btn btn-ghost" onclick={cmd(ClientMsg::Seek { seconds: 120 })} aria-label={t("Avancer de 2 minutes", "Forward 2 minutes")}>{ "+2 min" }</button>
                     </div>
                 }
-                <button class="btn btn-ghost" onclick={cmd(ClientMsg::Stop)}>{ if is_replay { "Quitter le replay" } else { "Quitter le direct" } }</button>
+                <button class="btn btn-ghost" onclick={cmd(ClientMsg::Stop)}>{ if is_replay { t("Quitter le replay", "Leave the replay") } else { t("Quitter le direct", "Leave live") } }</button>
             </section>
 
             if let Some(w) = &snap.weather {
                 <section class="card">
                     { stat_grid(vec![
                         ("Air", format!("{:.0}°", w.air_temperature)),
-                        ("Piste", format!("{:.0}°", w.track_temperature)),
-                        (if w.rainfall { "Pluie 🌧" } else { "Humidité" }, format!("{:.0}%", w.humidity)),
+                        (t("Piste", "Track"), format!("{:.0}°", w.track_temperature)),
+                        (if w.rainfall { t("Pluie 🌧", "Rain 🌧") } else { t("Humidité", "Humidity") }, format!("{:.0}%", w.humidity)),
                     ]) }
                 </section>
             }
@@ -302,7 +334,7 @@ fn Board(props: &BoardProps) -> Html {
 
             if !snap.race_control.is_empty() {
                 <section class="card">
-                    <h2>{ "Direction de course" }</h2>
+                    <h2>{ t("Direction de course", "Race control") }</h2>
                     <ul class="sessions">
                         { for snap.race_control.iter().map(|m| html! {
                             <li class="session rc">
@@ -343,7 +375,7 @@ fn car_row(c: &Car) -> Html {
         sub.push("Leader".into());
     }
     if let Some(l) = c.last_lap {
-        sub.push(format!("dernier {}", format_lap(l)));
+        sub.push(tr!("dernier {}", "last {}", format_lap(l)));
     }
     html! {
         <li class="row" style={format!("--team:#{}", c.colour)}>
@@ -351,13 +383,13 @@ fn car_row(c: &Car) -> Html {
             <span class="row-main">
                 <span class="row-title">
                     <strong>{ &c.code }</strong>{ " " }<span class="muted">{ &c.team }</span>
-                    if c.fastest { { " " }<span class="tag tag-purple" title="Meilleur tour">{ "⏱" }</span> }
-                    if c.in_pit { { " " }<span class="tag">{ "Stand" }</span> }
+                    if c.fastest { { " " }<span class="tag tag-purple" title={t("Meilleur tour", "Fastest lap")}>{ "⏱" }</span> }
+                    if c.in_pit { { " " }<span class="tag">{ t("Stand", "Pit") }</span> }
                 </span>
                 <span class="row-sub">{ sub.join(" · ") }</span>
             </span>
             if let Some(compound) = &c.compound {
-                <span class="tyre-cell" title={format!("{compound}, {} tours, {} arrêt(s)", c.tyre_age.unwrap_or(0), c.pits)}>
+                <span class="tyre-cell" title={tr!("{compound}, {} tours, {} arrêt(s)", "{compound}, {} laps, {} stop(s)", c.tyre_age.unwrap_or(0), c.pits)}>
                     <span class={classes!("tyre", tyre(compound).1)}>{ tyre(compound).0 }</span>
                     <small>{ format!("{}t", c.tyre_age.unwrap_or(0)) }</small>
                 </span>

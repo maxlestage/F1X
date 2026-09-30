@@ -6,7 +6,9 @@ use super::IdProps;
 use crate::Route;
 use crate::api::{f1, use_f1};
 use crate::components::*;
+use crate::i18n::t;
 use crate::models::Driver;
+use crate::tr;
 use crate::util::{flag_country, flag_nationality, team_style};
 
 /// Fiche écurie : palmarès complet et détail saison par saison.
@@ -41,7 +43,7 @@ pub fn TeamPage(props: &IdProps) -> Html {
         return match info.done() {
             Some(_) => html! { <super::NotFound /> },
             None => {
-                html! { <Layout title="Écurie" tab={Tab::Standings}>{ fetch_view(&info, |_| html! {}) }</Layout> }
+                html! { <Layout title={t("Écurie", "Team")} tab={Tab::Standings}>{ fetch_view(&info, |_| html! {}) }</Layout> }
             }
         };
     };
@@ -91,21 +93,21 @@ pub fn TeamPage(props: &IdProps) -> Html {
                 </p>
                 <h2 class="hero-title">{ format!("{} {}", flag_nationality(team.nationality.as_deref()), team.name) }</h2>
                 { stat_grid(vec![
-                    ("Victoires", total_of(&wins)),
+                    (t("Victoires", "Wins"), total_of(&wins)),
                     ("Podiums", podiums),
                     ("Poles", total_of(&poles)),
                 ]) }
                 if let Some(url) = &team.url {
-                    <a class="link" href={url.clone()} target="_blank" rel="noopener">{ "Wikipédia ↗" }</a>
+                    <a class="link" href={url.clone()} target="_blank" rel="noopener">{ t("Wikipédia ↗", "Wikipedia ↗") }</a>
                 }
             </section>
 
             if let Some(season) = &season {
                 <section class="card">
-                    <h2>{ "Saison par saison" }</h2>
+                    <h2>{ t("Saison par saison", "Season by season") }</h2>
                     <label class="select">
-                        <span class="select-label">{ "Saison" }</span>
-                        <select {onchange} aria-label="Choisir une saison">
+                        <span class="select-label">{ t("Saison", "Season") }</span>
+                        <select {onchange} aria-label={t("Choisir une saison", "Choose a season")}>
                             { for season_list.iter().rev().map(|s| html! {
                                 <option value={s.clone()} selected={s == season}>{ s }</option>
                             }) }
@@ -113,13 +115,13 @@ pub fn TeamPage(props: &IdProps) -> Html {
                     </label>
                     if let Some(s) = &season_standing {
                         { stat_grid(vec![
-                            ("Classement", format!("P{}", s.rank())),
+                            (t("Classement", "Standings"), format!("P{}", s.rank())),
                             ("Points", s.points.clone()),
-                            ("Victoires", s.wins.clone()),
+                            (t("Victoires", "Wins"), s.wins.clone()),
                         ]) }
                     }
                     if !season_drivers.is_empty() {
-                        <h3 class="subhead">{ "Pilotes" }</h3>
+                        <h3 class="subhead">{ t("Pilotes", "Drivers") }</h3>
                         <ol class="rows">
                             { for season_drivers.iter().map(|drv| html! {
                                 <li class="row" style={team_style(&team.constructor_id)}>
@@ -133,7 +135,7 @@ pub fn TeamPage(props: &IdProps) -> Html {
                             }) }
                         </ol>
                     }
-                    <h3 class="subhead">{ "Résultats" }</h3>
+                    <h3 class="subhead">{ t("Résultats", "Results") }</h3>
                     { fetch_view(&results, |d| html! {
                         <ol class="rows">
                             { for d.races().iter().rev().map(|race| {
@@ -155,7 +157,7 @@ pub fn TeamPage(props: &IdProps) -> Html {
                         </ol>
                     }) }
                     <Link<Route> to={Route::TeamStandings { season: season.clone() }} classes="btn btn-ghost">
-                        { format!("Classement {season}") }
+                        { tr!("Classement {season}", "{season} standings") }
                     </Link<Route>>
                 </section>
             }

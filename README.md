@@ -3,7 +3,8 @@
 La Formule 1 dans ta poche — **uniquement de la F1**, de 1950 à aujourd'hui : prochain Grand Prix
 avec compte à rebours, programme du week-end (à ton heure locale), résultats course / sprint / qualifs,
 meilleurs tours, arrêts aux stands, analyse tour par tour, classements de toutes les saisons, carrières
-des pilotes, palmarès des écuries et des circuits — et du **temps réel en WebSocket** (direct et replays).
+des pilotes, palmarès des écuries et des circuits (avec leur **tracé GPS coloré selon la vitesse**) — et du
+**temps réel en WebSocket** (direct et replays). **Français / English** : bouton FR/EN dans la barre du haut.
 
 | | |
 |---|---|
@@ -92,10 +93,17 @@ cargo run            # http://localhost:3000
 | `/saison/{s}/course/{manche}` | Programme, course (places gagnées/perdues), sprint, qualifs, meilleurs tours, arrêts aux stands, tours en tête + position tour par tour (graphique), bilan des abandons | `results`, `sprint`, `qualifying`, `pitstops`, `laps`, `status` |
 | `/pilote/{id}` | Carrière (départs, victoires, podiums, poles, meilleurs tours, saisons), écuries, saison par saison | `drivers/{id}/results` (toutes les pages), `driverStandings` |
 | `/ecurie/{id}` | Palmarès, pilotes et résultats saison par saison | `constructors/{id}/…` (`results/1-3`, `grid/1`, `seasons`, `constructorStandings`) |
-| `/circuit/{id}` | Localisation (carte), Grands Prix disputés, rois du circuit, palmarès | `circuits/{id}/races`, `circuits/{id}/results/1` |
+| `/circuit/{id}` | **Tracé** reconstitué depuis un vrai tour (GPS OpenF1) coloré par la vitesse, télémétrie au toucher (vitesse, rapport, gaz, freinage), stats du tour (longueur, V max/mini/moyenne, % à fond, % freinage) ; carte OpenStreetMap ; prochain GP ; record, victoires depuis la pole, rois du circuit, écuries, palmarès complet | `circuits/{id}/races`, `results/1`, `fastest/1/results` + OpenF1 `laps`, `location`, `car_data` |
 | `/archives` (+ `/saisons`, `/pilotes`, `/ecuries`, `/circuits`) | Chiffres clés, causes d'abandon, listes complètes avec recherche | `seasons`, `races`, `drivers`, `constructors`, `circuits`, `status` |
 
 Les anciennes adresses (`/calendrier`, `/course/{manche}`, `/pilotes`, `/ecuries`) restent valides.
+
+### 🌍 Français / English
+
+Toute l'interface existe dans les deux langues (dates au format local, statuts de course, noms de
+sessions et de pays). Langue par défaut = celle du téléphone ; le choix FR/EN est mémorisé. Côté code,
+les textes sont écrits en paires : `t("Calendrier", "Calendar")`, `tr!("Saison {s}", "Season {s}")`
+(module `frontend/src/i18n.rs`).
 
 ### ⚡ Direct & replay en WebSocket (`/direct`)
 
@@ -121,6 +129,7 @@ course. Le nombre de personnes connectées est diffusé en temps réel.
 | `/api/f1/{chemin}.json?limit=&offset=` | N'importe quel endpoint Jolpica (chemin validé) |
 | `/api/all/{chemin}.json` | Toutes les pages d'un endpoint, fusionnées côté serveur |
 | `/api/live/sessions/{année}` | Sessions rejouables (OpenF1) |
+| `/api/track/{circuit}` | Tracé GPS + télémétrie du meilleur tour de la dernière course (depuis 2023), mis en cache |
 | `/ws` | WebSocket direct / replay (messages JSON, voir `web/protocol`) |
 | `/healthz` | Health check |
 

@@ -3,6 +3,8 @@
 use js_sys::{Date, Object, Reflect};
 use wasm_bindgen::JsValue;
 
+use crate::i18n::{is_fr, lang, t};
+
 pub fn now_ms() -> f64 {
     Date::now()
 }
@@ -26,7 +28,7 @@ pub fn local_date(iso: &str, with_time: bool) -> String {
         return iso.to_string();
     }
     let day = options(&[("weekday", "short"), ("day", "numeric"), ("month", "short")]);
-    let mut out: String = date.to_locale_date_string("fr-FR", &day).into();
+    let mut out: String = date.to_locale_date_string(lang().locale(), &day).into();
     if with_time {
         let time = options(&[("hour", "2-digit"), ("minute", "2-digit")]);
         let t: String = date
@@ -41,7 +43,10 @@ pub fn local_date(iso: &str, with_time: bool) -> String {
 pub fn set_title(title: &str) {
     if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
         if title.is_empty() {
-            doc.set_title("F1X — La Formule 1 dans ta poche");
+            doc.set_title(t(
+                "F1X — La Formule 1 dans ta poche",
+                "F1X — Formula 1 in your pocket",
+            ));
         } else {
             doc.set_title(&format!("{title} · F1X"));
         }
@@ -159,10 +164,12 @@ pub fn flag_nationality(nationality: Option<&str>) -> &'static str {
 }
 
 pub fn wins_label(wins: &str) -> String {
-    match wins {
-        "0" => String::new(),
-        "1" => "1 victoire".into(),
-        n => format!("{n} victoires"),
+    match (wins, is_fr()) {
+        ("0", _) => String::new(),
+        ("1", true) => "1 victoire".into(),
+        ("1", false) => "1 win".into(),
+        (n, true) => format!("{n} victoires"),
+        (n, false) => format!("{n} wins"),
     }
 }
 
@@ -190,8 +197,36 @@ pub fn fold(s: &str) -> String {
         .to_string()
 }
 
-/// « 1985-01-07 » → « 7 janvier 1985 ».
+/// « 1985-01-07 » → « 7 janvier 1985 » / « 7 January 1985 ».
 pub fn format_birth(date: &str) -> String {
+    if !is_fr() {
+        const EN: [&str; 12] = [
+            "January",
+            "February",
+            "March",
+            "April",
+            "May",
+            "June",
+            "July",
+            "August",
+            "September",
+            "October",
+            "November",
+            "December",
+        ];
+        return match date.split('-').collect::<Vec<_>>().as_slice() {
+            [y, m, d] => {
+                let month = m
+                    .parse::<usize>()
+                    .ok()
+                    .and_then(|m| EN.get(m.wrapping_sub(1)))
+                    .copied()
+                    .unwrap_or(m);
+                format!("{} {month} {y}", d.trim_start_matches('0'))
+            }
+            _ => date.to_string(),
+        };
+    }
     const MONTHS: [&str; 12] = [
         "janvier",
         "février",
@@ -240,8 +275,17 @@ pub fn current_year() -> u32 {
     Date::new_0().get_full_year()
 }
 
-/// Nom français d'un pays tel qu'écrit par l'API.
+/// Nom du pays dans la langue courante (l'API l'écrit en anglais).
 pub fn country_fr(country: &str) -> &str {
+    if !is_fr() {
+        return match country {
+            "UK" => "United Kingdom",
+            "USA" => "United States",
+            "UAE" => "United Arab Emirates",
+            "Korea" => "South Korea",
+            other => other,
+        };
+    }
     match country {
         "Argentina" => "Argentine",
         "Australia" => "Australie",
@@ -273,6 +317,22 @@ pub fn country_fr(country: &str) -> &str {
         "UK" | "United Kingdom" => "Royaume-Uni",
         "USA" | "United States" => "États-Unis",
         "Vietnam" => "Viêt Nam",
+        other => other,
+    }
+}
+
+/// Nom d'une session du week-end (clé française venant de `Race::sessions`).
+pub fn session_label(name: &str) -> &str {
+    if is_fr() {
+        return name;
+    }
+    match name {
+        "Essais libres 1" => "Practice 1",
+        "Essais libres 2" => "Practice 2",
+        "Essais libres 3" => "Practice 3",
+        "Qualifs sprint" => "Sprint qualifying",
+        "Qualifications" => "Qualifying",
+        "Course" => "Race",
         other => other,
     }
 }
