@@ -48,6 +48,8 @@ pub enum ServerMsg {
     },
     /// Photo complète de la course à l'instant `clock`, envoyée chaque seconde.
     Snapshot(Box<Snapshot>),
+    /// Tracé du circuit de la session (envoyé une fois au début du replay).
+    Track(Box<TrackMap>),
     /// Fin du suivi (session terminée ou arrêt demandé).
     Stopped,
     Error {
@@ -104,7 +106,54 @@ pub struct Snapshot {
     pub weather: Option<Weather>,
     /// Derniers messages de la direction de course, du plus récent au plus ancien.
     pub race_control: Vec<RaceControl>,
+    /// Chronologie de la course (dépassements, arrêts, drapeaux…), du plus récent au plus ancien.
+    pub events: Vec<RaceEvent>,
+    /// Temps perdu estimé pour un arrêt aux stands (médiane de la course), en secondes.
+    pub pit_loss: Option<f64>,
     pub finished: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RaceEvent {
+    pub date: String,
+    pub lap: u32,
+    #[serde(flatten)]
+    pub kind: EventKind,
+}
+
+/// Événements de course (le texte est composé côté client, dans la langue choisie).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EventKind {
+    Overtake {
+        driver: String,
+        passed: String,
+        position: u32,
+    },
+    Pit {
+        driver: String,
+        duration: Option<f64>,
+    },
+    FastestLap {
+        driver: String,
+        time: f64,
+    },
+    Status {
+        status: TrackStatus,
+    },
+    Penalty {
+        message: String,
+    },
+    Retired {
+        driver: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StintInfo {
+    pub compound: String,
+    pub from: u32,
+    pub to: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -129,6 +178,15 @@ pub struct Car {
     pub tyre_age: Option<u32>,
     pub pits: u32,
     pub in_pit: bool,
+    /// Temps des 3 secteurs du dernier tour bouclé.
+    pub sectors: [Option<f64>; 3],
+    /// 0 : inconnu, 1 : normal, 2 : record personnel (vert), 3 : meilleur de la session (violet).
+    pub sector_flags: [u8; 3],
+    /// Avancement dans le tour en cours (0 → 1), pour placer la voiture sur la carte.
+    pub lap_progress: Option<f32>,
+    /// Relais de pneus jusqu'ici.
+    pub stints: Vec<StintInfo>,
+    pub retired: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

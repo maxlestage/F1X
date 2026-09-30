@@ -232,6 +232,11 @@ async fn replay(
             return;
         }
     };
+    if let Some(track) = &data.track {
+        let _ = out
+            .send(encode(&ServerMsg::Track(Box::new((**track).clone()))))
+            .await;
+    }
     let (start, end) = time_range(&data);
     let mut clock = start;
     let mut paused = false;

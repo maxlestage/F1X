@@ -336,3 +336,49 @@ button.btn:disabled { opacity: .5; }
 /* ---------- Échec de démarrage ---------- */
 .boot-error { max-width: 340px; padding: 24px; text-align: center; font-size: 1rem; display: flex; flex-direction: column; gap: 12px; }
 .boot-error small { color: var(--muted); font-size: .72rem; overflow-wrap: anywhere; }
+
+/* ---------- Race Center ---------- */
+.segmented-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.segmented-4 .seg { font-size: .82rem; padding: 9px 2px; }
+.toasts { position: fixed; top: calc(env(safe-area-inset-top) + 64px); left: 12px; right: 12px; z-index: 30; display: flex; flex-direction: column; gap: 6px; pointer-events: none; max-width: 616px; margin: 0 auto; }
+.toast { background: rgba(30, 30, 42, .96); border: 1px solid var(--line); border-left: 4px solid var(--red); border-radius: 10px; padding: 10px 12px; font-size: .88rem; box-shadow: 0 6px 20px rgba(0,0,0,.45); animation: toast-in .25s ease-out; }
+@keyframes toast-in { from { transform: translateY(-8px); opacity: 0; } }
+.row-out { opacity: .45; }
+.lap-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.sectors { display: inline-flex; gap: 3px; flex: none; }
+.sec { width: 16px; height: 6px; border-radius: 3px; background: var(--surface-2); border: 1px solid var(--line); }
+.sec-purple { background: var(--purple); border-color: var(--purple); }
+.sec-green { background: #22c55e; border-color: #22c55e; }
+.sec-yellow { background: #facc15; border-color: #facc15; }
+.legend summary { cursor: pointer; }
+.legend-list, .legend-tyres, .alert-settings { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: .86rem; color: var(--muted); }
+.legend-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.legend-key { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
+.legend-bar { width: 4px; height: 18px; border-radius: 2px; background: var(--red); flex: none; }
+.legend-tyres { flex-direction: row; flex-wrap: wrap; gap: 8px 14px; }
+.legend-tyres li { display: flex; align-items: center; gap: 6px; }
+.alert-settings label { display: flex; align-items: center; gap: 8px; color: var(--text); }
+.alert-settings input { width: 20px; height: 20px; accent-color: var(--red); flex: none; }
+.timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.timeline li { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.timeline li:last-child { border-bottom: 0; }
+.tl-icon { flex: none; width: 1.5em; text-align: center; }
+.tl-body { display: flex; flex-direction: column; gap: 1px; font-size: .9rem; }
+.tl-meta { color: var(--muted); font-size: .75rem; font-variant-numeric: tabular-nums; }
+.track-line { fill: none; stroke: #6b6b80; stroke-width: 8; stroke-linejoin: round; stroke-linecap: round; }
+.car circle { stroke: #0b0b10; stroke-width: 5; }
+.car-pit { opacity: .45; }
+.car-label { fill: #0b0b10; font-size: 26px; font-weight: 900; paint-order: stroke; stroke: rgba(255,255,255,.55); stroke-width: 2px; }
+.strategy { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.strategy li { display: grid; grid-template-columns: 3.4ch minmax(0, 1fr); gap: 8px; align-items: center; }
+.strat-code { font-weight: 800; font-size: .78rem; }
+.strat-bar { position: relative; height: 18px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+.stint { position: absolute; top: 0; bottom: 0; border-radius: 3px; border: 0; display: grid; place-items: center; font-size: .62rem; font-weight: 900; background: currentColor; }
+.stint.tyre-soft { background: #ef4444; color: #fff; }
+.stint.tyre-medium { background: #facc15; color: #111; }
+.stint.tyre-hard { background: #e5e7eb; color: #111; }
+.stint.tyre-inter { background: #22c55e; color: #111; }
+.stint.tyre-wet { background: #3b82f6; color: #fff; }
+.stint { box-shadow: inset -2px 0 0 var(--surface); }
+.strat-now { position: absolute; top: -2px; bottom: -2px; width: 2px; background: #fff; }
+.projection { font-size: 1.3rem; font-weight: 800; }

@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use f1x_protocol::{Car, Mode, Snapshot, TrackStatus};
+use f1x_protocol::{Car, EventKind, Mode, RaceControl, RaceEvent, Snapshot, TrackStatus};
 use serde_json::Value;
 
 use crate::openf1::{Dataset, Ms, iso};
@@ -81,23 +81,52 @@ pub fn snapshot(d: &Dataset, at: Ms, frame: Frame) -> Snapshot {
     }
 
     // Tours : tour en cours, dernier tour bouclé, meilleur tour.
-    let mut current_lap: HashMap<u32, u32> = HashMap::new();
-    let mut last_lap: HashMap<u32, (Ms, f64)> = HashMap::new();
+    let mut current_lap: HashMap<u32, (u32, Ms)> = HashMap::new();
+    let mut last_lap: HashMap<u32, (Ms, f64, [Option<f64>; 3])> = HashMap::new();
     let mut best_lap: HashMap<u32, f64> = HashMap::new();
+    let mut best_sector: HashMap<u32, [f64; 3]> = HashMap::new();
+    let mut overall_sector = [f64::INFINITY; 3];
+    let mut last_activity: HashMap<u32, Ms> = HashMap::new();
     for l in d.laps.iter().filter(|l| l.start <= at) {
-        let e = current_lap.entry(l.driver).or_insert(0);
-        *e = (*e).max(l.lap);
+        let e = current_lap.entry(l.driver).or_insert((0, l.start));
+        if l.lap >= e.0 {
+            *e = (l.lap, l.start);
+        }
+        let act = last_activity.entry(l.driver).or_insert(l.start);
+        *act = (*act).max(l.start);
         if let (Some(end), Some(dur)) = (l.end(), l.duration) {
             if end <= at {
-                let last = last_lap.entry(l.driver).or_insert((end, dur));
+                *act = (*act).max(end);
+                let last = last_lap.entry(l.driver).or_insert((end, dur, l.sectors));
                 if end >= last.0 {
-                    *last = (end, dur);
+                    *last = (end, dur, l.sectors);
                 }
                 let best = best_lap.entry(l.driver).or_insert(dur);
                 *best = best.min(dur);
             }
         }
+        // Secteurs : visibles une fois le tour bouclé.
+        if l.end().is_some_and(|end| end <= at) {
+            let pb = best_sector.entry(l.driver).or_insert([f64::INFINITY; 3]);
+            for (i, sec) in l.sectors.iter().enumerate() {
+                if let Some(v) = sec {
+                    pb[i] = pb[i].min(*v);
+                    overall_sector[i] = overall_sector[i].min(*v);
+                }
+            }
+        }
     }
+    let median_lap = {
+        let mut v: Vec<f64> = d
+            .laps
+            .iter()
+            .filter(|l| l.end().is_some_and(|e| e <= at))
+            .filter_map(|l| l.duration)
+            .collect();
+        v.sort_by(f64::total_cmp);
+        v.get(v.len() / 2).copied().unwrap_or(95.0)
+    };
+    let leader_lap_now = current_lap.values().map(|l| l.0).max().unwrap_or(0);
     let session_best = best_lap.values().copied().fold(f64::INFINITY, f64::min);
 
     let has_intervals = !d.intervals.is_empty();
@@ -112,7 +141,7 @@ pub fn snapshot(d: &Dataset, at: Ms, frame: Frame) -> Snapshot {
         .iter()
         .enumerate()
         .map(|(i, drv)| {
-            let lap = current_lap.get(&drv.number).copied().unwrap_or(0);
+            let (lap, lap_start) = current_lap.get(&drv.number).copied().unwrap_or((0, at));
             let stint = d
                 .stints
                 .iter()
@@ -142,6 +171,47 @@ pub fn snapshot(d: &Dataset, at: Ms, frame: Frame) -> Snapshot {
                 gap,
                 interval,
                 last_lap: last_lap.get(&drv.number).map(|l| l.1),
+                sectors: last_lap.get(&drv.number).map(|l| l.2).unwrap_or([None; 3]),
+                sector_flags: {
+                    let secs = last_lap.get(&drv.number).map(|l| l.2).unwrap_or([None; 3]);
+                    let pb = best_sector
+                        .get(&drv.number)
+                        .copied()
+                        .unwrap_or([f64::INFINITY; 3]);
+                    std::array::from_fn(|i| match secs[i] {
+                        None => 0,
+                        Some(v) if v <= overall_sector[i] => 3,
+                        Some(v) if v <= pb[i] => 2,
+                        Some(_) => 1,
+                    })
+                },
+                lap_progress: {
+                    let reference = last_lap
+                        .get(&drv.number)
+                        .map(|l| l.1)
+                        .unwrap_or(median_lap)
+                        .max(1.0);
+                    (lap > 0).then(|| {
+                        (((at - lap_start) as f64 / 1000.0) / reference).clamp(0.0, 0.999) as f32
+                    })
+                },
+                stints: d
+                    .stints
+                    .iter()
+                    .filter(|s| s.driver == drv.number && s.lap_start <= lap.max(1))
+                    .map(|s| f1x_protocol::StintInfo {
+                        compound: s.compound.clone(),
+                        from: s.lap_start,
+                        to: s.lap_end.unwrap_or(lap).min(lap.max(s.lap_start)),
+                    })
+                    .collect(),
+                // Abandon : plus aucune activité depuis ~3 tours alors que la course continue.
+                retired: has_intervals
+                    && lap > 0
+                    && leader_lap_now >= lap + 2
+                    && last_activity
+                        .get(&drv.number)
+                        .is_some_and(|t| at - t > (median_lap * 3000.0) as Ms),
                 best_lap: best,
                 fastest: best.is_some_and(|b| b == session_best),
                 lap,
@@ -161,35 +231,18 @@ pub fn snapshot(d: &Dataset, at: Ms, frame: Frame) -> Snapshot {
         }
     }
 
-    let mut track_status = TrackStatus::Green;
-    for (_, m) in rc {
-        let msg = m.message.to_uppercase();
-        match (m.category.as_str(), m.flag.as_deref()) {
-            ("SafetyCar", _) if msg.contains("VIRTUAL") && msg.contains("DEPLOYED") => {
-                track_status = TrackStatus::VirtualSafetyCar
-            }
-            ("SafetyCar", _) if msg.contains("DEPLOYED") => track_status = TrackStatus::SafetyCar,
-            (_, Some("RED")) => track_status = TrackStatus::Red,
-            (_, Some("CHEQUERED")) => track_status = TrackStatus::Chequered,
-            (_, Some("GREEN")) if track_status != TrackStatus::Chequered => {
-                track_status = TrackStatus::Green
-            }
-            // Fin de voiture de sécurité / drapeau jaune général : « TRACK CLEAR ».
-            (_, Some("CLEAR"))
-                if msg.contains("TRACK CLEAR") && track_status != TrackStatus::Chequered =>
-            {
-                track_status = TrackStatus::Green
-            }
-            (_, Some("DOUBLE YELLOW" | "YELLOW"))
-                if track_status == TrackStatus::Green
-                    && msg.contains("TRACK")
-                    && !msg.contains("SECTOR") =>
-            {
-                track_status = TrackStatus::Yellow
-            }
-            _ => {}
-        }
-    }
+    let (track_status, _) = track_status_at(rc);
+    let events = events(d, at, &cars);
+    let pit_loss = {
+        let mut v: Vec<f64> = d
+            .pits
+            .iter()
+            .filter_map(|p| p.lane)
+            .filter(|l| *l > 10.0 && *l < 60.0)
+            .collect();
+        v.sort_by(f64::total_cmp);
+        v.get(v.len() / 2).copied()
+    };
 
     let total_laps = d
         .laps
@@ -225,8 +278,220 @@ pub fn snapshot(d: &Dataset, at: Ms, frame: Frame) -> Snapshot {
         cars,
         weather: upto(&d.weather, at, |w| w.0).last().map(|w| w.1.clone()),
         race_control: rc.iter().rev().take(12).map(|m| m.1.clone()).collect(),
+        events,
+        pit_loss,
         finished: frame.finished,
     }
+}
+
+/// État de la piste après les messages `rc`, et ses changements successifs (pour la chronologie).
+fn track_status_at(rc: &[(Ms, RaceControl)]) -> (TrackStatus, Vec<(Ms, Option<u32>, TrackStatus)>) {
+    let mut status = TrackStatus::Green;
+    let mut changes = Vec::new();
+    for (date, m) in rc {
+        let before = status;
+        let msg = m.message.to_uppercase();
+        match (m.category.as_str(), m.flag.as_deref()) {
+            ("SafetyCar", _) if msg.contains("VIRTUAL") && msg.contains("DEPLOYED") => {
+                status = TrackStatus::VirtualSafetyCar
+            }
+            ("SafetyCar", _) if msg.contains("DEPLOYED") => status = TrackStatus::SafetyCar,
+            (_, Some("RED")) => status = TrackStatus::Red,
+            (_, Some("CHEQUERED")) => status = TrackStatus::Chequered,
+            (_, Some("GREEN")) if status != TrackStatus::Chequered => status = TrackStatus::Green,
+            // Fin de voiture de sécurité / drapeau jaune général : « TRACK CLEAR ».
+            (_, Some("CLEAR"))
+                if msg.contains("TRACK CLEAR") && status != TrackStatus::Chequered =>
+            {
+                status = TrackStatus::Green
+            }
+            (_, Some("DOUBLE YELLOW" | "YELLOW"))
+                if status == TrackStatus::Green
+                    && msg.contains("TRACK")
+                    && !msg.contains("SECTOR") =>
+            {
+                status = TrackStatus::Yellow
+            }
+            _ => {}
+        }
+        if status != before {
+            changes.push((*date, m.lap, status));
+        }
+    }
+    (status, changes)
+}
+
+/// Chronologie jusqu'à `at` : dépassements, arrêts, meilleurs tours, drapeaux, pénalités, abandons.
+/// Du plus récent au plus ancien, 40 au plus.
+fn events(d: &Dataset, at: Ms, cars: &[Car]) -> Vec<RaceEvent> {
+    let code = |n: u32| {
+        d.drivers
+            .iter()
+            .find(|x| x.number == n)
+            .map(|x| x.code.clone())
+            .unwrap_or_else(|| n.to_string())
+    };
+    let lap_of = |n: u32, t: Ms| {
+        d.laps
+            .iter()
+            .filter(|l| l.driver == n && l.start <= t)
+            .map(|l| l.lap)
+            .max()
+            .unwrap_or(0)
+    };
+    let leader_lap_at = |t: Ms| {
+        d.laps
+            .iter()
+            .filter(|l| l.start <= t)
+            .map(|l| l.lap)
+            .max()
+            .unwrap_or(0)
+    };
+    let mut out: Vec<(Ms, RaceEvent)> = Vec::new();
+    let pits = upto(&d.pits, at, |p| p.time);
+    let near_pit = |n: u32, t: Ms| {
+        pits.iter()
+            .any(|p| p.driver == n && (t - p.time).abs() < 45_000)
+    };
+
+    // Dépassements : une voiture gagne une place et celle qui la cède recule au même instant.
+    // Seulement une fois la course lancée (tour 2+) et hors passages aux stands.
+    let mut pos: HashMap<u32, u32> = HashMap::new();
+    let positions = upto(&d.positions, at, |p| p.0);
+    let mut i = 0;
+    while i < positions.len() {
+        let t = positions[i].0;
+        let mut j = i;
+        let mut batch = Vec::new();
+        while j < positions.len() && positions[j].0 == t {
+            batch.push((positions[j].1, positions[j].2));
+            j += 1;
+        }
+        if leader_lap_at(t) >= 2 {
+            for (driver, new) in &batch {
+                let Some(old) = pos.get(driver).copied() else {
+                    continue;
+                };
+                if *new < old && *new <= 10 && !near_pit(*driver, t) {
+                    if let Some((passed, _)) = batch
+                        .iter()
+                        .find(|(o, p)| *p == new + 1 && pos.get(o) == Some(new))
+                    {
+                        if !near_pit(*passed, t) {
+                            out.push((
+                                t,
+                                RaceEvent {
+                                    date: iso(t),
+                                    lap: lap_of(*driver, t),
+                                    kind: EventKind::Overtake {
+                                        driver: code(*driver),
+                                        passed: code(*passed),
+                                        position: *new,
+                                    },
+                                },
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        for (driver, new) in batch {
+            pos.insert(driver, new);
+        }
+        i = j;
+    }
+
+    for p in pits {
+        out.push((
+            p.time,
+            RaceEvent {
+                date: iso(p.time),
+                lap: lap_of(p.driver, p.time),
+                kind: EventKind::Pit {
+                    driver: code(p.driver),
+                    duration: p.lane,
+                },
+            },
+        ));
+    }
+
+    // Meilleurs tours successifs de la session.
+    let mut done: Vec<(Ms, u32, u32, f64)> = d
+        .laps
+        .iter()
+        .filter_map(|l| Some((l.end()?, l.driver, l.lap, l.duration?)))
+        .filter(|l| l.0 <= at && l.2 > 1)
+        .collect();
+    done.sort_by_key(|l| l.0);
+    let mut best = f64::INFINITY;
+    for (t, driver, lap, dur) in done {
+        if dur < best {
+            best = dur;
+            out.push((
+                t,
+                RaceEvent {
+                    date: iso(t),
+                    lap,
+                    kind: EventKind::FastestLap {
+                        driver: code(driver),
+                        time: dur,
+                    },
+                },
+            ));
+        }
+    }
+
+    let rc = upto(&d.race_control, at, |p| p.0);
+    for (t, lap, status) in track_status_at(rc).1 {
+        out.push((
+            t,
+            RaceEvent {
+                date: iso(t),
+                lap: lap.unwrap_or(0),
+                kind: EventKind::Status { status },
+            },
+        ));
+    }
+    for (t, m) in rc {
+        let msg = m.message.to_uppercase();
+        if msg.contains("PENALTY")
+            || msg.contains("INVESTIGATION")
+            || msg.contains("NOTED") && msg.contains("INCIDENT")
+        {
+            out.push((
+                *t,
+                RaceEvent {
+                    date: iso(*t),
+                    lap: m.lap.unwrap_or(0),
+                    kind: EventKind::Penalty {
+                        message: m.message.clone(),
+                    },
+                },
+            ));
+        }
+    }
+    for c in cars.iter().filter(|c| c.retired) {
+        let t = d
+            .laps
+            .iter()
+            .filter(|l| l.driver == c.number)
+            .filter_map(|l| l.end().or(Some(l.start)))
+            .max()
+            .unwrap_or(at);
+        out.push((
+            t,
+            RaceEvent {
+                date: iso(t),
+                lap: c.lap,
+                kind: EventKind::Retired {
+                    driver: c.code.clone(),
+                },
+            },
+        ));
+    }
+
+    out.sort_by_key(|e| std::cmp::Reverse(e.0));
+    out.into_iter().take(40).map(|e| e.1).collect()
 }
 
 #[cfg(test)]
