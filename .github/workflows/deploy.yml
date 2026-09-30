@@ -21,10 +21,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: web
       - run: cargo build --locked
+      - run: cargo clippy --locked --workspace --exclude f1x-frontend -- -D warnings
+      - run: cargo clippy --locked -p f1x-frontend --target wasm32-unknown-unknown -- -D warnings
       - run: cargo test --locked
 
   deploy:

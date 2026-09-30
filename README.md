@@ -7,7 +7,7 @@ et écuries, fiche saison de chaque pilote.
 | | |
 |---|---|
 | 📱 **App iOS native** | SwiftUI, dans [`ios/F1X.swiftpm`](ios/) |
-| 🌐 **Site web mobile first** | Rust (axum + maud), dans [`web/`](web/) |
+| 🌐 **Site web mobile first** | 100 % Rust : front **Yew 0.23** (WebAssembly) + serveur **axum**, dans [`web/`](web/) |
 | ☁️ **Déploiement** | Heroku, pilotable 100 % depuis un téléphone |
 
 Données : API publique [Jolpica F1](https://github.com/jolpica/jolpica-f1) (successeur d'Ergast), sans clé.
@@ -16,7 +16,7 @@ Données : API publique [Jolpica F1](https://github.com/jolpica/jolpica-f1) (suc
 
 C'est une règle du projet, appliquée des deux côtés :
 
-- **Web** : tout est empilé verticalement (pas de tableau, pas de carrousel), `overflow-x: hidden`,
+- **Web (Yew)** : tout est empilé verticalement (pas de tableau, pas de carrousel), `overflow-x: hidden`,
   `min-width: 0` partout, texte long qui passe à la ligne (`overflow-wrap: anywhere`), grilles en
   `minmax(0, 1fr)`. Vérifié automatiquement sur toutes les pages à 320, 375 et 430 px de large.
 - **iOS** : uniquement des `List` / `ScrollView(.vertical)`, aucune `ScrollView(.horizontal)` ni
@@ -34,7 +34,7 @@ Heroku ne reconnaît pas Rust tout seul : il faut **une fois** lui indiquer le b
 2. Onglet **Deploy** → *Deployment method* **GitHub** → repo `maxlestage/f1x`
    → branche **master** → **Enable Automatic Deploys** (et/ou **Deploy Branch**).
 
-Le premier build prend quelques minutes (compilation Rust), les suivants sont plus rapides grâce au cache.
+Le premier build prend quelques minutes (compilation Rust du serveur et du front WebAssembly), les suivants sont plus rapides grâce au cache.
 
 ### Option 2 — Bouton (repo public)
 
@@ -56,7 +56,24 @@ Le `Dockerfile` reste disponible pour un déploiement conteneur ailleurs.
 `heroku-24` (toujours supportée) : pour la passer en 26, dashboard → **Settings** → *Stack* → **Upgrade**,
 puis redéploie.
 
-## 🌐 Site web (Rust)
+## 🌐 Site web (100 % Rust)
+
+```
+web/
+├── Cargo.toml        # workspace
+├── frontend/         # Yew 0.23 + yew-router 0.20 → WebAssembly (application monopage)
+└── server/           # axum : proxy /api avec cache + sert le front
+    └── build.rs      # compile frontend/ en wasm + wasm-bindgen, embarqué dans le binaire
+```
+
+- **Front** : tout en Rust avec [Yew](https://yew.rs) (composants, routeur, hooks, compte à rebours,
+  heures locales via l'API `Intl` du navigateur). Le seul JavaScript est le petit chargeur généré par
+  wasm-bindgen qui démarre le module WebAssembly.
+- **Serveur** : axum sert le shell HTML, le `.wasm` (≈ 200 Ko gzip) et une API JSON `/api/*` qui met
+  en cache l'API Jolpica (et sert la dernière copie connue si elle tombe).
+- **Build** : un simple `cargo build` suffit — pas de trunk, pas de npm. `build.rs` installe la cible
+  `wasm32-unknown-unknown` si besoin, compile le front et génère le glue avec
+  `wasm-bindgen-cli-support` (même version que `wasm-bindgen`, épinglée dans le workspace).
 
 ```sh
 cd web
@@ -70,10 +87,10 @@ cargo run            # http://localhost:3000
 | `/course/{manche}` | Programme, résultats course, sprint et qualifications |
 | `/pilotes`, `/ecuries` | Classements |
 | `/pilote/{id}` | Saison d'un pilote |
+| `/api/…` | `schedule`, `last`, `race/{manche}/{results,sprint,qualifying}`, `drivers`, `teams`, `driver/{id}` |
 | `/healthz` | Health check |
 
 Variables d'environnement : `PORT` (fourni par Heroku), `CACHE_TTL_SECS` (défaut 300).
-Le serveur met en cache les réponses de l'API et sert la dernière copie connue si elle tombe.
 Installable sur l'écran d'accueil (manifest web).
 
 ## 📱 App iOS
