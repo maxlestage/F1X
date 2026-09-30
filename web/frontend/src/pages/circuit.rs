@@ -140,7 +140,7 @@ pub fn CircuitPage(props: &IdProps) -> Html {
                     ("Premier", race_list.first().map(|r| r.season.clone()).unwrap_or_else(|| "–".into())),
                     ("Dernier", race_list.last().map(|r| r.season.clone()).unwrap_or_else(|| "–".into())),
                     ("Pilotes vainqueurs", if winners.done().is_some() { drivers.len().to_string() } else { "–".into() }),
-                    ("Depuis la pole", if n_wins > 0 { format!("{}%", from_pole * 100 / n_wins) } else { "–".into() }),
+                    ("Depuis la pole", (from_pole * 100).checked_div(n_wins).map(|p| format!("{p}%")).unwrap_or_else(|| "–".into())),
                     ("Écuries", if winners.done().is_some() { teams.len().to_string() } else { "–".into() }),
                 ]) }
                 if let (Some(lat), Some(lon)) = (&loc.lat, &loc.long) {
