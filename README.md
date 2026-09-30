@@ -24,26 +24,33 @@ C'est une règle du projet, appliquée des deux côtés :
 
 ## ☁️ Déployer le site sur Heroku depuis ton téléphone
 
-### Option 1 — Bouton (le plus simple, repo public)
+Heroku ne reconnaît pas Rust tout seul : il faut **une fois** lui indiquer le buildpack Rust
+(`RustConfig` et `Procfile` à la racine du repo font le reste).
+
+### Option 1 — Dashboard Heroku + GitHub (tout depuis Safari)
+
+1. **dashboard.heroku.com** → ton app → **Settings** → **Buildpacks** → **Add buildpack**
+   → colle `emk/rust` → **Save changes**.
+2. Onglet **Deploy** → *Deployment method* **GitHub** → repo `maxlestage/f1x`
+   → branche **master** → **Enable Automatic Deploys** (et/ou **Deploy Branch**).
+
+Le premier build prend quelques minutes (compilation Rust), les suivants sont plus rapides grâce au cache.
+
+### Option 2 — Bouton (repo public)
 
 [![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/maxlestage/f1x)
 
-Touche le bouton depuis Safari → choisis un nom d'app → **Deploy app**. Heroku construit l'image
-Docker (`heroku.yml`) et l'app est en ligne.
+Le buildpack est déjà configuré dans `app.json`.
 
-### Option 2 — Auto-déploiement à chaque merge (GitHub Actions)
+### Option 3 — GitHub Actions
 
-À faire une seule fois, depuis le navigateur du téléphone :
+Dans **github.com/maxlestage/f1x** → *Settings* → *Secrets and variables* → *Actions* :
+secret `HEROKU_API_KEY` (heroku.com → *Account settings* → *API Key*) et variable `HEROKU_APP_NAME`.
+Chaque merge sur `master` teste puis déploie (le workflow configure lui-même le buildpack) ;
+lancement manuel possible depuis l'app GitHub : *Actions* → **Deploy Heroku** → *Run workflow*.
+N'active pas en même temps l'option 1 (Automatic Deploys), sinon chaque merge déploie deux fois.
 
-1. **heroku.com** → *New* → *Create new app* (ex. `f1x-max`).
-2. **heroku.com** → *Account settings* → *API Key* → *Reveal* et copie la clé.
-3. **github.com/maxlestage/f1x** → *Settings* → *Secrets and variables* → *Actions* :
-   - secret `HEROKU_API_KEY` = la clé copiée ;
-   - onglet *Variables* : `HEROKU_APP_NAME` = le nom de l'app.
-
-Ensuite, chaque merge sur `master` (depuis l'app GitHub) teste puis déploie automatiquement.
-Tu peux aussi lancer un déploiement à la main : app GitHub → *Actions* → **Deploy Heroku** → *Run workflow*.
-Le workflow passe lui-même l'app en stack `container`, aucun CLI n'est nécessaire.
+Le `Dockerfile` reste disponible pour un déploiement conteneur ailleurs.
 
 ## 🌐 Site web (Rust)
 

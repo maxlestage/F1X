@@ -1,0 +1,4 @@
+# Configuration du buildpack Rust Heroku (https://github.com/emk/heroku-buildpack-rust)
+VERSION=stable
+# Le projet Cargo est dans web/
+BUILD_PATH=web
