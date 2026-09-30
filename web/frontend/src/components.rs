@@ -38,6 +38,17 @@ pub struct LayoutProps {
 
 #[function_component]
 pub fn Layout(props: &LayoutProps) -> Html {
+    let location = use_location();
+    let site_href = {
+        let path = location
+            .map(|l| l.path().to_string())
+            .unwrap_or_else(|| "/".into());
+        let back: String = js_sys::encode_uri_component(&path).into();
+        format!(
+            "/presentation?lang={}&back={back}",
+            crate::i18n::lang().code()
+        )
+    };
     let toggle = use_context::<crate::LangToggle>();
     let other = crate::i18n::lang().other();
     let switch_lang = Callback::from(move |_| {
@@ -60,6 +71,10 @@ pub fn Layout(props: &LayoutProps) -> Html {
                 if !props.title.is_empty() {
                     <h1 class="topbar-title">{ props.title.clone() }</h1>
                 }
+                // Vers le site de présentation, en mémorisant la page actuelle pour y revenir.
+                <a class="site-link" href={site_href} aria-label={t("Site de présentation de F1X", "F1X presentation site")}>
+                    { t("Site", "Site") }
+                </a>
                 <button class="lang-switch" onclick={switch_lang}
                         aria-label={t("Switch to English", "Passer en français")}>
                     { other.code().to_uppercase() }

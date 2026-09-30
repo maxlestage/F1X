@@ -9,6 +9,20 @@ use serde::Deserialize;
 #[derive(Deserialize)]
 pub struct LangQuery {
     lang: Option<String>,
+    /// Page de l'app d'où l'on vient, pour y revenir.
+    back: Option<String>,
+}
+
+/// N'accepte qu'un chemin interne simple (évite toute redirection vers un autre site).
+fn safe_back(back: Option<&str>) -> Option<String> {
+    let b = back?;
+    let ok = b.starts_with('/')
+        && !b.starts_with("//")
+        && b.len() < 200
+        && !b.starts_with("/presentation")
+        && b.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.'));
+    ok.then(|| b.to_string())
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -73,12 +87,13 @@ pub async fn page(Query(q): Query<LangQuery>, headers: HeaderMap) -> Response {
             }
         }
     };
+    let back = safe_back(q.back.as_deref());
     (
         [
             (header::CACHE_CONTROL, "public, max-age=600"),
             (header::VARY, "Accept-Language"),
         ],
-        Html(render(lang)),
+        Html(render(lang, back.as_deref())),
     )
         .into_response()
 }
@@ -97,7 +112,7 @@ pub async fn shot(axum::extract::Path(name): axum::extract::Path<String>) -> Res
     }
 }
 
-fn render(lang: Lang) -> String {
+fn render(lang: Lang, back: Option<&str>) -> String {
     let fr = lang == Lang::Fr;
     let t = |f: &'static str, e: &'static str| if fr { f } else { e };
     let code = if fr { "fr" } else { "en" };
@@ -200,6 +215,15 @@ fn render(lang: Lang) -> String {
     .map(|(i, h, p)| format!(r#"<li class="mini"><span class="mini-icon" aria-hidden="true">{i}</span><strong>{h}</strong><span>{p}</span></li>"#))
     .collect::<String>();
 
+    let app = back.unwrap_or("/");
+    let back_q = back
+        .map(|b| format!("&amp;back={}", b.replace('/', "%2F")))
+        .unwrap_or_default();
+    let top_button = if back.is_some() {
+        t("← Retour à l'app", "← Back to the app")
+    } else {
+        t("Ouvrir l'app", "Open the app")
+    };
     format!(
         r##"<!doctype html>
 <html lang="{code}">
@@ -223,8 +247,8 @@ fn render(lang: Lang) -> String {
 <header class="top">
   <a class="brand" href="/presentation?lang={code}" aria-label="F1X"><span>F1</span><span class="x">X</span></a>
   <nav class="top-links">
-    <a class="lang" href="/presentation?lang={other_code}" hreflang="{other_code}">{other_label}</a>
-    <a class="btn btn-small" href="/">{open}</a>
+    <a class="lang" href="/presentation?lang={other_code}{back_q}" hreflang="{other_code}">{other_label}</a>
+    <a class="btn btn-small" href="{app}">{top_button}</a>
   </nav>
 </header>
 <main>
@@ -234,7 +258,7 @@ fn render(lang: Lang) -> String {
       <h1>{h1}</h1>
       <p class="lead">{lead}</p>
       <div class="ctas">
-        <a class="btn btn-big" href="/">{cta} <span aria-hidden="true">→</span></a>
+        <a class="btn btn-big" href="{app}">{cta} <span aria-hidden="true">→</span></a>
         <a class="btn btn-ghost" href="#fonctionnalites">{discover}</a>
       </div>
       <p class="note">{note}</p>
@@ -273,17 +297,20 @@ fn render(lang: Lang) -> String {
 
   <section class="final">
     <h2>{final_h}</h2>
-    <a class="btn btn-big" href="/">{cta} <span aria-hidden="true">→</span></a>
+    <a class="btn btn-big" href="{app}">{cta} <span aria-hidden="true">→</span></a>
   </section>
 </main>
 <footer>
   <p>{sources}</p>
   <p>{disclaimer}</p>
-  <p><a href="https://github.com/maxlestage/f1x">GitHub</a> · <a href="/">{open}</a></p>
+  <p><a href="https://github.com/maxlestage/f1x">GitHub</a> · <a href="{app}">{open}</a></p>
 </footer>
 </body>
 </html>"##,
         CSS = CSS,
+        app = app,
+        back_q = back_q,
+        top_button = top_button,
         title = t(
             "F1X — Toute la Formule 1 dans ta poche",
             "F1X — All of Formula 1 in your pocket"
@@ -420,3 +447,21 @@ footer{border-top:1px solid var(--line);padding:24px 16px calc(env(safe-area-ins
   .feature.reverse .feature-text{order:2}
 }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::safe_back;
+
+    #[test]
+    fn only_internal_paths() {
+        assert_eq!(
+            safe_back(Some("/saison/current/course/1")).as_deref(),
+            Some("/saison/current/course/1")
+        );
+        assert_eq!(safe_back(Some("//evil.com")), None);
+        assert_eq!(safe_back(Some("https://evil.com")), None);
+        assert_eq!(safe_back(Some("/a?b=c")), None);
+        assert_eq!(safe_back(Some("/presentation")), None);
+        assert_eq!(safe_back(None), None);
+    }
+}
