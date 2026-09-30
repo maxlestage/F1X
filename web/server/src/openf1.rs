@@ -46,6 +46,7 @@ pub struct LapRec {
     pub lap: u32,
     pub start: Ms,
     pub duration: Option<f64>,
+    pub sectors: [Option<f64>; 3],
 }
 
 impl LapRec {
@@ -83,6 +84,8 @@ pub struct Dataset {
     pub pits: Vec<Pit>,
     pub race_control: Vec<(Ms, RaceControl)>,
     pub weather: Vec<(Ms, Weather)>,
+    /// Tracé du circuit (meilleur tour de la session), pour la carte en direct.
+    pub track: Option<Arc<TrackMap>>,
 }
 
 fn arr(v: &Value) -> &[Value] {
@@ -177,6 +180,11 @@ impl Dataset {
                 lap,
                 start,
                 duration: f(l, "lap_duration"),
+                sectors: [
+                    f(l, "duration_sector_1"),
+                    f(l, "duration_sector_2"),
+                    f(l, "duration_sector_3"),
+                ],
             };
             // En direct, un tour déjà connu peut revenir complété : on le remplace.
             match self
@@ -464,6 +472,29 @@ impl OpenF1 {
         d.add_weather(&self.get(&format!("weather?{q}")).await?);
         if d.drivers.is_empty() {
             return Err("Pas encore de données pour cette session.".into());
+        }
+        // Tracé pour la carte : meilleur tour de la session (non bloquant si indisponible).
+        let mut best: Vec<(f64, u32, u32, Ms)> = d
+            .laps
+            .iter()
+            .filter(|l| l.lap > 1)
+            .filter_map(|l| Some((l.duration?, l.driver, l.lap, l.start)))
+            .collect();
+        best.sort_by(|a, b| a.0.total_cmp(&b.0));
+        best.dedup_by_key(|l| l.1);
+        if let Some(session) = d.session.clone() {
+            for lap in best.into_iter().take(2) {
+                match self
+                    .build_track(&session.circuit, session.year, key, &session.location, lap)
+                    .await
+                {
+                    Ok(track) => {
+                        d.track = Some(track);
+                        break;
+                    }
+                    Err(err) => tracing::warn!(key, %err, "replay track unavailable"),
+                }
+            }
         }
         tracing::info!(
             key,

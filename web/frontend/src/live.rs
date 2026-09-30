@@ -4,7 +4,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use f1x_protocol::{ClientMsg, ServerMsg, Snapshot};
+use f1x_protocol::{ClientMsg, ServerMsg, Snapshot, TrackMap};
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt, future};
 use gloo_net::websocket::{Message, futures::WebSocket};
@@ -20,6 +20,7 @@ pub struct LiveState {
     pub loading: Option<String>,
     pub error: Option<String>,
     pub snapshot: Option<Rc<Snapshot>>,
+    pub track: Option<Rc<TrackMap>>,
 }
 
 pub enum Action {
@@ -43,6 +44,7 @@ impl Reducible for LiveState {
             }
             Action::Sent(ClientMsg::Replay { .. } | ClientMsg::Live) => {
                 s.snapshot = None;
+                s.track = None;
                 s.error = None;
             }
             Action::Sent(_) => {}
@@ -62,6 +64,7 @@ impl Reducible for LiveState {
                     s.loading = None;
                     s.snapshot = Some(Rc::new(*snap));
                 }
+                ServerMsg::Track(track) => s.track = Some(Rc::new(*track)),
                 ServerMsg::Stopped => {
                     s.snapshot = None;
                     s.loading = None;
