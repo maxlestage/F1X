@@ -1,20 +1,27 @@
 //! Accès aux données via le proxy `/api` du serveur, et hook Yew de chargement.
+//!
+//! - `f1(chemin)`  → une page (`/api/f1/{chemin}?limit=…`)
+//! - `all(chemin)` → toutes les pages fusionnées par le serveur (`/api/all/{chemin}`)
 
+use std::cell::Cell;
 use std::rc::Rc;
 
 use gloo_net::http::Request;
-use serde::de::DeserializeOwned;
 use yew::prelude::*;
 
-pub enum Fetch<T> {
+use crate::models::{Envelope, MrData};
+
+pub enum Fetch {
+    Idle,
     Loading,
-    Done(Rc<T>),
+    Done(Rc<MrData>),
     Failed(String),
 }
 
-impl<T> Clone for Fetch<T> {
+impl Clone for Fetch {
     fn clone(&self) -> Self {
         match self {
+            Self::Idle => Self::Idle,
             Self::Loading => Self::Loading,
             Self::Done(v) => Self::Done(Rc::clone(v)),
             Self::Failed(e) => Self::Failed(e.clone()),
@@ -22,16 +29,29 @@ impl<T> Clone for Fetch<T> {
     }
 }
 
-impl<T> Fetch<T> {
-    pub fn done(&self) -> Option<&T> {
+impl Fetch {
+    pub fn done(&self) -> Option<&MrData> {
         match self {
             Self::Done(v) => Some(v),
             _ => None,
         }
     }
+    pub fn is_loading(&self) -> bool {
+        matches!(self, Self::Loading)
+    }
 }
 
-async fn get_json<T: DeserializeOwned>(path: &str) -> Result<T, String> {
+/// Une page d'un endpoint, ex. `f1("2026/15/results.json", 100)`.
+pub fn f1(path: impl AsRef<str>, limit: u32) -> Option<String> {
+    Some(format!("f1/{}?limit={limit}", path.as_ref()))
+}
+
+/// Toutes les pages d'un endpoint (pagination faite par le serveur).
+pub fn all(path: impl AsRef<str>) -> Option<String> {
+    Some(format!("all/{}", path.as_ref()))
+}
+
+async fn get(path: &str) -> Result<MrData, String> {
     let resp = Request::get(&format!("/api/{path}"))
         .send()
         .await
@@ -42,25 +62,45 @@ async fn get_json<T: DeserializeOwned>(path: &str) -> Result<T, String> {
             resp.status()
         ));
     }
-    resp.json::<T>()
+    resp.json::<Envelope>()
         .await
+        .map(|e| e.data)
         .map_err(|e| format!("Réponse inattendue : {e}"))
 }
 
-/// Charge `/api/{path}` et relance le chargement si `path` change.
+/// Charge `/api/{path}` ; `None` = ne rien charger (chargement différé).
+/// Relance le chargement quand `path` change.
 #[hook]
-pub fn use_api<T: DeserializeOwned + 'static>(path: String) -> Fetch<T> {
-    let state = use_state(|| Fetch::Loading);
+pub fn use_f1(path: Option<String>) -> Fetch {
+    let state = use_state(|| {
+        if path.is_some() {
+            Fetch::Loading
+        } else {
+            Fetch::Idle
+        }
+    });
     {
         let state = state.clone();
         use_effect_with(path, move |path| {
-            let path = path.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                state.set(match get_json::<T>(&path).await {
-                    Ok(v) => Fetch::Done(Rc::new(v)),
-                    Err(e) => Fetch::Failed(e),
-                });
-            });
+            let alive = Rc::new(Cell::new(true));
+            match path.clone() {
+                None => state.set(Fetch::Idle),
+                Some(path) => {
+                    state.set(Fetch::Loading);
+                    let alive_task = alive.clone();
+                    wasm_bindgen_futures::spawn_local(async move {
+                        let result = get(&path).await;
+                        // Ignore une réponse arrivée après un changement de page/paramètre.
+                        if alive_task.get() {
+                            state.set(match result {
+                                Ok(v) => Fetch::Done(Rc::new(v)),
+                                Err(e) => Fetch::Failed(e),
+                            });
+                        }
+                    });
+                }
+            }
+            move || alive.set(false)
         });
     }
     (*state).clone()

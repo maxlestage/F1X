@@ -1,14 +1,167 @@
-//! Modèles de l'API Jolpica F1 (ex-Ergast), servis via le proxy `/api` du serveur.
-//! L'API renvoie les nombres sous forme de chaînes.
+//! Modèles de l'API Jolpica F1 (ex-Ergast), servis par le proxy `/api` du serveur.
+//! Une seule enveloppe `MrData` couvre tous les endpoints ; les nombres sont des chaînes.
+
+use std::collections::BTreeMap;
 
 use serde::Deserialize;
 
 use crate::util::parse_ms;
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Envelope {
+    #[serde(rename = "MRData")]
+    pub data: MrData,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+#[serde(default)]
+pub struct MrData {
+    pub total: String,
+    #[serde(rename = "RaceTable")]
+    pub race_table: Option<RaceTable>,
+    #[serde(rename = "StandingsTable")]
+    pub standings_table: Option<StandingsTable>,
+    #[serde(rename = "DriverTable")]
+    pub driver_table: Option<DriverTable>,
+    #[serde(rename = "ConstructorTable")]
+    pub constructor_table: Option<ConstructorTable>,
+    #[serde(rename = "CircuitTable")]
+    pub circuit_table: Option<CircuitTable>,
+    #[serde(rename = "SeasonTable")]
+    pub season_table: Option<SeasonTable>,
+    #[serde(rename = "StatusTable")]
+    pub status_table: Option<StatusTable>,
+}
+
+impl MrData {
+    pub fn total(&self) -> u32 {
+        self.total.parse().unwrap_or(0)
+    }
+    pub fn races(&self) -> &[Race] {
+        self.race_table
+            .as_ref()
+            .map(|t| t.races.as_slice())
+            .unwrap_or_default()
+    }
+    pub fn race(&self) -> Option<&Race> {
+        self.races().first()
+    }
+    pub fn standings(&self) -> Option<&StandingsList> {
+        self.standings_table.as_ref().and_then(|t| t.lists.first())
+    }
+    pub fn drivers(&self) -> &[Driver] {
+        self.driver_table
+            .as_ref()
+            .map(|t| t.drivers.as_slice())
+            .unwrap_or_default()
+    }
+    pub fn constructors(&self) -> &[Constructor] {
+        self.constructor_table
+            .as_ref()
+            .map(|t| t.constructors.as_slice())
+            .unwrap_or_default()
+    }
+    pub fn circuits(&self) -> &[Circuit] {
+        self.circuit_table
+            .as_ref()
+            .map(|t| t.circuits.as_slice())
+            .unwrap_or_default()
+    }
+    pub fn seasons(&self) -> &[Season] {
+        self.season_table
+            .as_ref()
+            .map(|t| t.seasons.as_slice())
+            .unwrap_or_default()
+    }
+    pub fn statuses(&self) -> &[Status] {
+        self.status_table
+            .as_ref()
+            .map(|t| t.status.as_slice())
+            .unwrap_or_default()
+    }
+
+    /// Tours fusionnés (une réponse paginée peut répéter la course avec des tours partiels).
+    pub fn laps(&self) -> BTreeMap<u32, Vec<Timing>> {
+        let mut laps: BTreeMap<u32, Vec<Timing>> = BTreeMap::new();
+        for race in self.races() {
+            for lap in race.laps.iter().flatten() {
+                let n = lap.number.parse().unwrap_or(0);
+                laps.entry(n)
+                    .or_default()
+                    .extend(lap.timings.iter().cloned());
+            }
+        }
+        laps
+    }
+
+    /// Arrêts aux stands fusionnés.
+    pub fn pit_stops(&self) -> Vec<PitStop> {
+        self.races()
+            .iter()
+            .flat_map(|r| r.pit_stops.iter().flatten().cloned())
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+pub struct RaceTable {
+    #[serde(rename = "Races", default)]
+    pub races: Vec<Race>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+pub struct StandingsTable {
+    #[serde(rename = "StandingsLists", default)]
+    pub lists: Vec<StandingsList>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+pub struct DriverTable {
+    #[serde(rename = "Drivers", default)]
+    pub drivers: Vec<Driver>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+pub struct ConstructorTable {
+    #[serde(rename = "Constructors", default)]
+    pub constructors: Vec<Constructor>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+pub struct CircuitTable {
+    #[serde(rename = "Circuits", default)]
+    pub circuits: Vec<Circuit>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+pub struct SeasonTable {
+    #[serde(rename = "Seasons", default)]
+    pub seasons: Vec<Season>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+pub struct StatusTable {
+    #[serde(rename = "Status", default)]
+    pub status: Vec<Status>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Season {
+    pub season: String,
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Status {
+    pub status: String,
+    pub count: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Race {
     pub season: String,
     pub round: String,
+    pub url: Option<String>,
     #[serde(rename = "raceName")]
     pub race_name: String,
     #[serde(rename = "Circuit")]
@@ -33,6 +186,10 @@ pub struct Race {
     pub sprint_results: Option<Vec<RaceResult>>,
     #[serde(rename = "QualifyingResults")]
     pub qualifying_results: Option<Vec<QualifyingResult>>,
+    #[serde(rename = "Laps")]
+    pub laps: Option<Vec<Lap>>,
+    #[serde(rename = "PitStops")]
+    pub pit_stops: Option<Vec<PitStop>>,
 }
 
 impl Race {
@@ -40,7 +197,7 @@ impl Race {
         self.round.parse().unwrap_or(0)
     }
 
-    /// Race start as an ISO-8601 UTC timestamp (defaults to 00:00Z when the time is unknown).
+    /// Départ de la course en ISO-8601 UTC (00:00Z si l'heure est inconnue).
     pub fn start_iso(&self) -> String {
         iso(&self.date, self.time.as_deref())
     }
@@ -59,7 +216,11 @@ impl Race {
         self.sprint.is_some()
     }
 
-    /// Weekend sessions in chronological order, including the race itself.
+    pub fn has_time(&self) -> bool {
+        self.time.is_some()
+    }
+
+    /// Sessions du week-end dans l'ordre chronologique, course comprise.
     pub fn sessions(&self) -> Vec<(&'static str, String)> {
         let mut out: Vec<(&'static str, String)> = [
             ("Essais libres 1", &self.first_practice),
@@ -75,6 +236,10 @@ impl Race {
         out.push(("Course", self.start_iso()));
         out.sort_by(|a, b| a.1.cmp(&b.1));
         out
+    }
+
+    pub fn winner(&self) -> Option<&RaceResult> {
+        self.results.as_ref()?.first()
     }
 }
 
@@ -96,6 +261,9 @@ fn iso(date: &str, time: Option<&str>) -> String {
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Circuit {
+    #[serde(rename = "circuitId")]
+    pub circuit_id: String,
+    pub url: Option<String>,
     #[serde(rename = "circuitName")]
     pub circuit_name: String,
     #[serde(rename = "Location")]
@@ -104,6 +272,8 @@ pub struct Circuit {
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Location {
+    pub lat: Option<String>,
+    pub long: Option<String>,
     pub locality: String,
     pub country: String,
 }
@@ -114,10 +284,14 @@ pub struct Driver {
     pub driver_id: String,
     #[serde(rename = "permanentNumber")]
     pub permanent_number: Option<String>,
+    pub code: Option<String>,
+    pub url: Option<String>,
     #[serde(rename = "givenName")]
     pub given_name: String,
     #[serde(rename = "familyName")]
     pub family_name: String,
+    #[serde(rename = "dateOfBirth")]
+    pub date_of_birth: Option<String>,
     pub nationality: Option<String>,
 }
 
@@ -131,7 +305,9 @@ impl Driver {
 pub struct Constructor {
     #[serde(rename = "constructorId")]
     pub constructor_id: String,
+    pub url: Option<String>,
     pub name: String,
+    pub nationality: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -140,12 +316,24 @@ pub struct TimeValue {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct AverageSpeed {
+    pub units: String,
+    pub speed: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct FastestLap {
     pub rank: Option<String>,
+    pub lap: Option<String>,
+    #[serde(rename = "Time")]
+    pub time: Option<TimeValue>,
+    #[serde(rename = "AverageSpeed")]
+    pub average_speed: Option<AverageSpeed>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct RaceResult {
+    pub number: Option<String>,
     pub position: String,
     #[serde(rename = "positionText")]
     pub position_text: String,
@@ -155,6 +343,7 @@ pub struct RaceResult {
     #[serde(rename = "Constructor")]
     pub constructor: Constructor,
     pub grid: Option<String>,
+    pub laps: Option<String>,
     pub status: Option<String>,
     #[serde(rename = "Time")]
     pub time: Option<TimeValue>,
@@ -167,28 +356,49 @@ impl RaceResult {
         self.fastest_lap.as_ref().and_then(|f| f.rank.as_deref()) == Some("1")
     }
 
-    /// Finishing time/gap, or the retirement status.
+    /// Positions gagnées (positif) ou perdues depuis la grille ; `None` si départ des stands.
+    pub fn places_gained(&self) -> Option<i32> {
+        let grid: i32 = self.grid.as_deref()?.parse().ok()?;
+        let pos: i32 = self.position.parse().ok()?;
+        (grid > 0).then_some(grid - pos)
+    }
+
+    /// Temps / écart, ou statut d'abandon traduit.
     pub fn outcome(&self) -> String {
         if let Some(t) = &self.time {
             return t.time.clone();
         }
-        let status = self.status.as_deref().unwrap_or_default();
-        match status {
-            "Finished" => String::new(),
-            "Retired" | "Accident" | "Collision" => "Abandon".into(),
-            "Did not start" => "Non partant".into(),
-            "Disqualified" => "Disqualifié".into(),
-            "Lapped" => "Doublé".into(),
-            s if s.starts_with('+') && s.contains("Lap") => {
-                let n = s
-                    .trim_start_matches('+')
-                    .split_whitespace()
-                    .next()
-                    .unwrap_or("1");
-                format!("+{n} tour{}", if n == "1" { "" } else { "s" })
-            }
-            s => s.to_string(),
+        translate_status(self.status.as_deref().unwrap_or_default())
+    }
+}
+
+pub fn translate_status(status: &str) -> String {
+    match status {
+        "Finished" => String::new(),
+        "Retired" | "Accident" | "Collision" => "Abandon".into(),
+        "Did not start" => "Non partant".into(),
+        "Did not qualify" => "Non qualifié".into(),
+        "Did not prequalify" => "Non préqualifié".into(),
+        "Disqualified" => "Disqualifié".into(),
+        "Withdrew" => "Forfait".into(),
+        "Lapped" => "Doublé".into(),
+        "Engine" => "Moteur".into(),
+        "Gearbox" => "Boîte de vitesses".into(),
+        "Hydraulics" => "Hydraulique".into(),
+        "Brakes" => "Freins".into(),
+        "Suspension" => "Suspension".into(),
+        "Electrical" => "Électrique".into(),
+        "Spun off" => "Tête-à-queue".into(),
+        "Power Unit" => "Unité de puissance".into(),
+        s if s.starts_with('+') && s.contains("Lap") => {
+            let n = s
+                .trim_start_matches('+')
+                .split_whitespace()
+                .next()
+                .unwrap_or("1");
+            format!("+{n} tour{}", if n == "1" { "" } else { "s" })
         }
+        s => s.to_string(),
     }
 }
 
@@ -208,7 +418,7 @@ pub struct QualifyingResult {
 }
 
 impl QualifyingResult {
-    /// Best segment reached, e.g. ("Q3", "1:29.708").
+    /// Meilleur segment atteint, ex. ("Q3", "1:29.708").
     pub fn best(&self) -> Option<(&'static str, &str)> {
         [("Q3", &self.q3), ("Q2", &self.q2), ("Q1", &self.q1)]
             .into_iter()
@@ -217,7 +427,33 @@ impl QualifyingResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Lap {
+    pub number: String,
+    #[serde(rename = "Timings", default)]
+    pub timings: Vec<Timing>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Timing {
+    #[serde(rename = "driverId")]
+    pub driver_id: String,
+    pub position: String,
+    pub time: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct PitStop {
+    #[serde(rename = "driverId")]
+    pub driver_id: String,
+    pub lap: String,
+    pub stop: String,
+    pub duration: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
 pub struct StandingsList {
+    pub season: Option<String>,
+    pub round: Option<String>,
     #[serde(rename = "DriverStandings")]
     pub driver_standings: Option<Vec<DriverStanding>>,
     #[serde(rename = "ConstructorStandings")]
@@ -237,6 +473,14 @@ pub struct DriverStanding {
     pub constructors: Vec<Constructor>,
 }
 
+impl DriverStanding {
+    pub fn rank(&self) -> String {
+        self.position
+            .clone()
+            .unwrap_or_else(|| self.position_text.clone())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct ConstructorStanding {
     pub position: Option<String>,
@@ -246,4 +490,12 @@ pub struct ConstructorStanding {
     pub wins: String,
     #[serde(rename = "Constructor")]
     pub constructor: Constructor,
+}
+
+impl ConstructorStanding {
+    pub fn rank(&self) -> String {
+        self.position
+            .clone()
+            .unwrap_or_else(|| self.position_text.clone())
+    }
 }

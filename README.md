@@ -1,8 +1,9 @@
 # F1X 🏎️
 
-La Formule 1 dans ta poche — **uniquement de la F1** : prochain Grand Prix avec compte à rebours,
-programme du week-end (à ton heure locale), résultats course / sprint / qualifs, classements pilotes
-et écuries, fiche saison de chaque pilote.
+La Formule 1 dans ta poche — **uniquement de la F1**, de 1950 à aujourd'hui : prochain Grand Prix
+avec compte à rebours, programme du week-end (à ton heure locale), résultats course / sprint / qualifs,
+meilleurs tours, arrêts aux stands, analyse tour par tour, classements de toutes les saisons, carrières
+des pilotes, palmarès des écuries et des circuits.
 
 | | |
 |---|---|
@@ -80,17 +81,37 @@ cd web
 cargo run            # http://localhost:3000
 ```
 
-| Route | Contenu |
+### Pages
+
+| Route | Contenu | Endpoints Jolpica |
+|---|---|---|
+| `/` | Prochain GP + compte à rebours, dernier podium, top 5 pilotes, top 3 écuries | `current`, `current/last/results`, standings |
+| `/saison/{année\|current}` | Calendrier + vainqueur de chaque GP, sélecteur de saison (1950 →) | `{saison}`, `{saison}/results/1`, `seasons` |
+| `/saison/{s}/pilotes`, `/saison/{s}/ecuries` | Classements de n'importe quelle saison | `driverStandings`, `constructorStandings` |
+| `/saison/{s}/course/{manche}` | Programme, course (places gagnées/perdues), sprint, qualifs, meilleurs tours, arrêts aux stands, tours en tête + position tour par tour (graphique), bilan des abandons | `results`, `sprint`, `qualifying`, `pitstops`, `laps`, `status` |
+| `/pilote/{id}` | Carrière (départs, victoires, podiums, poles, meilleurs tours, saisons), écuries, saison par saison | `drivers/{id}/results` (toutes les pages), `driverStandings` |
+| `/ecurie/{id}` | Palmarès, pilotes et résultats saison par saison | `constructors/{id}/…` (`results/1-3`, `grid/1`, `seasons`, `constructorStandings`) |
+| `/circuit/{id}` | Localisation (carte), Grands Prix disputés, rois du circuit, palmarès | `circuits/{id}/races`, `circuits/{id}/results/1` |
+| `/archives` (+ `/saisons`, `/pilotes`, `/ecuries`, `/circuits`) | Chiffres clés, causes d'abandon, listes complètes avec recherche | `seasons`, `races`, `drivers`, `constructors`, `circuits`, `status` |
+
+Les anciennes adresses (`/calendrier`, `/course/{manche}`, `/pilotes`, `/ecuries`) restent valides.
+
+### API du serveur
+
+| Route | Rôle |
 |---|---|
-| `/` | Prochain GP + compte à rebours, dernier podium, top 5 pilotes, top 3 écuries |
-| `/calendrier` | Toute la saison |
-| `/course/{manche}` | Programme, résultats course, sprint et qualifications |
-| `/pilotes`, `/ecuries` | Classements |
-| `/pilote/{id}` | Saison d'un pilote |
-| `/api/…` | `schedule`, `last`, `race/{manche}/{results,sprint,qualifying}`, `drivers`, `teams`, `driver/{id}` |
+| `/api/f1/{chemin}.json?limit=&offset=` | N'importe quel endpoint Jolpica (chemin validé) |
+| `/api/all/{chemin}.json` | Toutes les pages d'un endpoint, fusionnées côté serveur |
 | `/healthz` | Health check |
 
-Variables d'environnement : `PORT` (fourni par Heroku), `CACHE_TTL_SECS` (défaut 300).
+**Quota Jolpica** (500 requêtes/heure, 4/s) : le serveur espace ses appels, met en cache
+(saisons passées 7 jours, carrières/listes 1 h, saison en cours 5 min), sert la dernière copie connue
+en cas de panne et coupe les appels pendant la durée demandée après un `429`. Les pages sont conçues
+pour limiter les requêtes (ex. la carrière d'un pilote est calculée à partir d'un seul jeu de résultats ;
+l'analyse tour par tour ne se charge qu'à la demande).
+
+Variables d'environnement : `PORT` (fourni par Heroku), `CACHE_TTL_SECS` (saison en cours, défaut 300),
+`CACHE_FILE` (optionnel : sauvegarde le cache à l'arrêt et le recharge au démarrage, pratique en local).
 Installable sur l'écran d'accueil (manifest web).
 
 ## 📱 App iOS

@@ -218,3 +218,47 @@ strong { font-weight: 800; }
 .boot .brand { animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: .35; } }
 .loading { display: grid; place-items: center; padding: 48px 0; color: var(--muted); }
+
+/* ---------- Sélecteurs, onglets segmentés, recherche ---------- */
+.select { display: flex; align-items: center; gap: 10px; }
+.select-label { color: var(--muted); font-size: .85rem; font-weight: 600; flex: none; }
+.select select, .search {
+  width: 100%; flex: 1 1 auto;
+  font: inherit; color: var(--text);
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px;
+  padding: 11px 12px;
+}
+.select select { appearance: none; -webkit-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
+  background-size: 5px 5px; background-repeat: no-repeat; padding-right: 32px; }
+.search { font-size: 16px; } /* 16px : évite le zoom automatique d'iOS */
+.segmented {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 4px;
+}
+.seg { text-align: center; padding: 9px 6px; border-radius: 9px; font-weight: 600; font-size: .9rem; color: var(--muted); }
+.seg-active { background: var(--surface-2); color: var(--text); }
+
+.subhead { font-size: 1rem; font-weight: 700; margin-top: 4px; }
+.link-inline { color: var(--text); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.row-plain { padding-left: 0; }
+.row-plain::before { display: none; }
+.bar-red { background: var(--red); }
+.podium-link { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 100%; }
+.delta { font-weight: 700; font-variant-numeric: tabular-nums; }
+.delta.up { color: #4ade80; }
+.delta.down { color: #f87171; }
+
+/* ---------- Graphique tour par tour (SVG à la largeur de l'écran) ---------- */
+.chart { display: block; width: 100%; height: auto; touch-action: pan-y; }
+.chart-grid { stroke: var(--line); stroke-width: 1; }
+.chart-axis { fill: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.chart-crosshair { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.chart-pit { fill: var(--surface); stroke-width: 2; }
+.chart-dot { stroke: var(--surface); stroke-width: 2; }
+.chart-readout { font-weight: 700; font-variant-numeric: tabular-nums; min-height: 1.45em; }
+.chart-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: .8rem; }
+.legend-line { display: inline-block; width: 16px; height: 2px; border-radius: 1px; }
+.legend-pit { display: inline-block; width: 8px; height: 8px; border-radius: 50%; border: 2px solid; margin-left: 6px; }
+.details summary { cursor: pointer; color: var(--muted); font-weight: 600; font-size: .9rem; padding: 6px 0; }
