@@ -5,7 +5,7 @@ name: Deploy Heroku
 on:
   push:
     branches: [master]
-    paths: ["web/**", "Dockerfile", "heroku.yml", ".github/workflows/deploy.yml"]
+    paths: ["web/**", "RustConfig", "Procfile", ".github/workflows/deploy.yml"]
   workflow_dispatch:
 
 concurrency:
@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Push vers Heroku (build Docker via heroku.yml)
+      - name: Push vers Heroku (buildpack Rust)
         env:
           HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
           HEROKU_APP_NAME: ${{ vars.HEROKU_APP_NAME }}
@@ -44,10 +44,10 @@ jobs:
             exit 0
           fi
           test -n "$HEROKU_APP_NAME" || { echo "Variable HEROKU_APP_NAME manquante"; exit 1; }
-          # Passe l'app sur la stack « container » (build via heroku.yml) — pas besoin du CLI Heroku.
-          curl -fsS -X PATCH "https://api.heroku.com/apps/${HEROKU_APP_NAME}" \
+          # Configure le buildpack Rust (idempotent) — pas besoin du CLI Heroku.
+          curl -fsS -X PUT "https://api.heroku.com/apps/${HEROKU_APP_NAME}/buildpack-installations" \
             -H "Accept: application/vnd.heroku+json; version=3" \
             -H "Authorization: Bearer ${HEROKU_API_KEY}" \
             -H "Content-Type: application/json" \
-            -d '{"build_stack":"container"}' > /dev/null
+            -d '{"updates":[{"buildpack":"emk/rust"}]}' > /dev/null
           git push --force "https://heroku:${HEROKU_API_KEY}@git.heroku.com/${HEROKU_APP_NAME}.git" HEAD:refs/heads/main

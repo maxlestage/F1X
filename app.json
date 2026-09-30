@@ -2,11 +2,12 @@
   "name": "F1X",
   "description": "La Formule 1 dans ta poche : calendrier, résultats et classements. Site mobile first en Rust.",
   "repository": "https://github.com/maxlestage/f1x",
-  "keywords": ["f1", "formula1", "rust", "axum"],
-  "stack": "container",
-  "healthchecks": {
-    "web": [{ "type": "startup", "name": "healthz", "path": "/healthz" }]
-  },
+  "keywords": [
+    "f1",
+    "formula1",
+    "rust",
+    "axum"
+  ],
   "env": {
     "CACHE_TTL_SECS": {
       "description": "Durée du cache des données F1 (secondes).",
@@ -14,5 +15,16 @@
       "required": false
     }
   },
-  "formation": { "web": { "quantity": 1, "size": "basic" } }
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "basic"
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "emk/rust"
+    }
+  ],
+  "stack": "heroku-24"
 }
