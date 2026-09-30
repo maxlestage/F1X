@@ -4,11 +4,11 @@ mod views;
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use axum::Router;
 use axum::extract::{Path, State};
-use axum::http::{header, HeaderValue, StatusCode};
+use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
-use axum::Router;
 use chrono::Utc;
 use tower_http::compression::CompressionLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -79,11 +79,38 @@ fn app(state: AppState) -> Router {
         .route("/pilote/{id}", get(driver))
         .route("/ecuries", get(teams))
         .route("/healthz", get(|| async { "ok" }))
-        .route("/static/app.css", get(|| static_file("text/css; charset=utf-8", include_str!("../static/app.css"))))
-        .route("/static/app.js", get(|| static_file("text/javascript; charset=utf-8", include_str!("../static/app.js"))))
-        .route("/static/icon.svg", get(|| static_file("image/svg+xml", include_str!("../static/icon.svg"))))
-        .route("/manifest.webmanifest", get(|| static_file("application/manifest+json", include_str!("../static/manifest.webmanifest"))))
-        .fallback(|| async { (StatusCode::NOT_FOUND, Html(views::not_found().into_string())) })
+        .route(
+            "/static/app.css",
+            get(|| static_file("text/css; charset=utf-8", include_str!("../static/app.css"))),
+        )
+        .route(
+            "/static/app.js",
+            get(|| {
+                static_file(
+                    "text/javascript; charset=utf-8",
+                    include_str!("../static/app.js"),
+                )
+            }),
+        )
+        .route(
+            "/static/icon.svg",
+            get(|| static_file("image/svg+xml", include_str!("../static/icon.svg"))),
+        )
+        .route(
+            "/manifest.webmanifest",
+            get(|| {
+                static_file(
+                    "application/manifest+json",
+                    include_str!("../static/manifest.webmanifest"),
+                )
+            }),
+        )
+        .fallback(|| async {
+            (
+                StatusCode::NOT_FOUND,
+                Html(views::not_found().into_string()),
+            )
+        })
         .layer(CompressionLayer::new())
         .layer(SetResponseHeaderLayer::if_not_present(
             header::CACHE_CONTROL,
@@ -113,7 +140,10 @@ async fn home(State(s): State<AppState>) -> PageResult {
     let schedule = schedule?;
     let data = views::HomeData {
         next: views::next_race(&schedule, Utc::now()).cloned(),
-        season: schedule.first().map(|r| r.season.clone()).unwrap_or_default(),
+        season: schedule
+            .first()
+            .map(|r| r.season.clone())
+            .unwrap_or_default(),
         last: last.unwrap_or_default(),
         drivers: drivers.unwrap_or_default(),
         teams: teams.unwrap_or_default(),
@@ -129,13 +159,22 @@ async fn calendar(State(s): State<AppState>) -> PageResult {
 async fn race(State(s): State<AppState>, Path(round): Path<u32>) -> Result<Response, AppError> {
     let schedule = s.api.schedule().await?;
     let Some(base) = schedule.iter().find(|r| r.round_num() == round).cloned() else {
-        return Ok((StatusCode::NOT_FOUND, Html(views::not_found().into_string())).into_response());
+        return Ok((
+            StatusCode::NOT_FOUND,
+            Html(views::not_found().into_string()),
+        )
+            .into_response());
     };
 
     let now = Utc::now();
-    let started = views::race_start(&base).is_some_and(|start| now > start - chrono::Duration::days(3));
+    let started =
+        views::race_start(&base).is_some_and(|start| now > start - chrono::Duration::days(3));
     let (results, sprint, qualifying) = if started {
-        let (r, sp, q) = tokio::join!(s.api.race_results(round), s.api.sprint(round), s.api.qualifying(round));
+        let (r, sp, q) = tokio::join!(
+            s.api.race_results(round),
+            s.api.sprint(round),
+            s.api.qualifying(round)
+        );
         (
             r.ok().flatten().and_then(|r| r.results).unwrap_or_default(),
             sp.unwrap_or_default(),
@@ -161,15 +200,26 @@ async fn drivers(State(s): State<AppState>) -> PageResult {
 }
 
 async fn driver(State(s): State<AppState>, Path(id): Path<String>) -> Result<Response, AppError> {
-    if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
-        return Ok((StatusCode::NOT_FOUND, Html(views::not_found().into_string())).into_response());
+    if !id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Ok((
+            StatusCode::NOT_FOUND,
+            Html(views::not_found().into_string()),
+        )
+            .into_response());
     }
     let (standings, races) = tokio::join!(s.api.driver_standings(), s.api.driver_results(&id));
     let standings = standings.unwrap_or_default();
     let standing = standings.iter().find(|st| st.driver.driver_id == id);
     let races = races?;
     if standing.is_none() && races.is_empty() {
-        return Ok((StatusCode::NOT_FOUND, Html(views::not_found().into_string())).into_response());
+        return Ok((
+            StatusCode::NOT_FOUND,
+            Html(views::not_found().into_string()),
+        )
+            .into_response());
     }
     Ok(Html(views::driver(standing, &races).into_string()).into_response())
 }
@@ -185,7 +235,8 @@ async fn shutdown_signal() {
     };
     #[cfg(unix)]
     let term = async {
-        if let Ok(mut s) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+        if let Ok(mut s) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        {
             s.recv().await;
         }
     };

@@ -52,6 +52,10 @@ N'active pas en même temps l'option 1 (Automatic Deploys), sinon chaque merge d
 
 Le `Dockerfile` reste disponible pour un déploiement conteneur ailleurs.
 
+**Stack :** `app.json` cible `heroku-26` (Ubuntu 26.04, la plus récente). Une app déjà créée reste sur
+`heroku-24` (toujours supportée) : pour la passer en 26, dashboard → **Settings** → *Stack* → **Upgrade**,
+puis redéploie.
+
 ## 🌐 Site web (Rust)
 
 ```sh

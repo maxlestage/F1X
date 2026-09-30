@@ -163,7 +163,7 @@ struct PointsLabel: View {
 
 func driverTitle(_ driver: Driver, flag: Bool = false) -> Text {
     let prefix = flag ? "\(Flag.nationality(driver.nationality)) " : ""
-    return Text("\(prefix)\(driver.givenName) ") + Text(driver.familyName).bold()
+    return Text("\(prefix)\(driver.givenName) \(Text(driver.familyName).bold())")
 }
 
 /// Carte avec dégradé (couleur écurie ou rouge F1).

@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use serde::de::DeserializeOwned;
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio::sync::RwLock;
 
@@ -70,9 +70,9 @@ impl F1Api {
             }
             Err(err) => {
                 tracing::warn!(%url, %err, "F1 API request failed");
-                cached
-                    .map(|(_, v)| v)
-                    .ok_or_else(|| ApiError("Les données F1 sont momentanément indisponibles.".into()))
+                cached.map(|(_, v)| v).ok_or_else(|| {
+                    ApiError("Les données F1 sont momentanément indisponibles.".into())
+                })
             }
         }
     }
@@ -80,7 +80,8 @@ impl F1Api {
     async fn get<T: DeserializeOwned>(&self, path: &str, pointer: &str) -> ApiResult<T> {
         let value = self.get_json(path).await?;
         let node = value.pointer(pointer).cloned().unwrap_or(Value::Null);
-        serde_json::from_value(node).map_err(|e| ApiError(format!("Réponse inattendue de l'API : {e}")))
+        serde_json::from_value(node)
+            .map_err(|e| ApiError(format!("Réponse inattendue de l'API : {e}")))
     }
 
     pub async fn schedule(&self) -> ApiResult<Vec<Race>> {
@@ -89,7 +90,10 @@ impl F1Api {
 
     pub async fn race_results(&self, round: u32) -> ApiResult<Option<Race>> {
         let races: Vec<Race> = self
-            .get(&format!("current/{round}/results.json"), "/MRData/RaceTable/Races")
+            .get(
+                &format!("current/{round}/results.json"),
+                "/MRData/RaceTable/Races",
+            )
             .await?;
         Ok(races.into_iter().next())
     }
@@ -103,23 +107,44 @@ impl F1Api {
 
     pub async fn qualifying(&self, round: u32) -> ApiResult<Vec<QualifyingResult>> {
         let races: Vec<Race> = self
-            .get(&format!("current/{round}/qualifying.json"), "/MRData/RaceTable/Races")
+            .get(
+                &format!("current/{round}/qualifying.json"),
+                "/MRData/RaceTable/Races",
+            )
             .await?;
-        Ok(races.into_iter().next().and_then(|r| r.qualifying_results).unwrap_or_default())
+        Ok(races
+            .into_iter()
+            .next()
+            .and_then(|r| r.qualifying_results)
+            .unwrap_or_default())
     }
 
     pub async fn sprint(&self, round: u32) -> ApiResult<Vec<RaceResult>> {
         let races: Vec<Race> = self
-            .get(&format!("current/{round}/sprint.json"), "/MRData/RaceTable/Races")
+            .get(
+                &format!("current/{round}/sprint.json"),
+                "/MRData/RaceTable/Races",
+            )
             .await?;
-        Ok(races.into_iter().next().and_then(|r| r.sprint_results).unwrap_or_default())
+        Ok(races
+            .into_iter()
+            .next()
+            .and_then(|r| r.sprint_results)
+            .unwrap_or_default())
     }
 
     pub async fn driver_standings(&self) -> ApiResult<Vec<DriverStanding>> {
         let lists: Vec<StandingsList> = self
-            .get("current/driverStandings.json", "/MRData/StandingsTable/StandingsLists")
+            .get(
+                "current/driverStandings.json",
+                "/MRData/StandingsTable/StandingsLists",
+            )
             .await?;
-        Ok(lists.into_iter().next().and_then(|l| l.driver_standings).unwrap_or_default())
+        Ok(lists
+            .into_iter()
+            .next()
+            .and_then(|l| l.driver_standings)
+            .unwrap_or_default())
     }
 
     pub async fn constructor_standings(&self) -> ApiResult<Vec<ConstructorStanding>> {
@@ -294,10 +319,7 @@ pub struct RaceResult {
 
 impl RaceResult {
     pub fn has_fastest_lap(&self) -> bool {
-        self.fastest_lap
-            .as_ref()
-            .and_then(|f| f.rank.as_deref())
-            == Some("1")
+        self.fastest_lap.as_ref().and_then(|f| f.rank.as_deref()) == Some("1")
     }
 
     /// Finishing time/gap, or the retirement status.
@@ -313,7 +335,11 @@ impl RaceResult {
             "Disqualified" => "Disqualifié".into(),
             "Lapped" => "Doublé".into(),
             s if s.starts_with('+') && s.contains("Lap") => {
-                let n = s.trim_start_matches('+').split_whitespace().next().unwrap_or("1");
+                let n = s
+                    .trim_start_matches('+')
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("1");
                 format!("+{n} tour{}", if n == "1" { "" } else { "s" })
             }
             s => s.to_string(),

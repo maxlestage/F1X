@@ -4,7 +4,7 @@
 //! the viewport — long content wraps instead of scrolling sideways.
 
 use chrono::{DateTime, Datelike, Duration, Timelike, Utc};
-use maud::{html, Markup, PreEscaped, DOCTYPE};
+use maud::{DOCTYPE, Markup, PreEscaped, html};
 
 use crate::api::{
     Constructor, ConstructorStanding, Driver, DriverStanding, QualifyingResult, Race, RaceResult,
@@ -287,12 +287,17 @@ pub fn teams(standings: &[ConstructorStanding]) -> Markup {
 }
 
 pub fn driver(standing: Option<&DriverStanding>, races: &[Race]) -> Markup {
-    let d: Option<&Driver> = standing
-        .map(|s| &s.driver)
-        .or_else(|| races.iter().find_map(|r| r.results.as_ref()?.first().map(|x| &x.driver)));
-    let team = standing
-        .and_then(|s| s.constructors.last())
-        .or_else(|| races.iter().rev().find_map(|r| r.results.as_ref()?.first().map(|x| &x.constructor)));
+    let d: Option<&Driver> = standing.map(|s| &s.driver).or_else(|| {
+        races
+            .iter()
+            .find_map(|r| r.results.as_ref()?.first().map(|x| &x.driver))
+    });
+    let team = standing.and_then(|s| s.constructors.last()).or_else(|| {
+        races
+            .iter()
+            .rev()
+            .find_map(|r| r.results.as_ref()?.first().map(|x| &x.constructor))
+    });
     let name = d.map(|d| d.full_name()).unwrap_or_else(|| "Pilote".into());
     let body = html! {
         section.card.hero style=[team.map(team_style)] {
@@ -460,12 +465,18 @@ fn local_time(iso: &str, style: &str) -> Markup {
 fn format_fr(dt: DateTime<Utc>, with_time: bool) -> String {
     const DAYS: [&str; 7] = ["lun.", "mar.", "mer.", "jeu.", "ven.", "sam.", "dim."];
     const MONTHS: [&str; 12] = [
-        "janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc.",
+        "janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.",
+        "déc.",
     ];
     let day = DAYS[dt.weekday().num_days_from_monday() as usize];
     let month = MONTHS[dt.month0() as usize];
     if with_time {
-        format!("{day} {} {month} · {:02}:{:02} UTC", dt.day(), dt.hour(), dt.minute())
+        format!(
+            "{day} {} {month} · {:02}:{:02} UTC",
+            dt.day(),
+            dt.hour(),
+            dt.minute()
+        )
     } else {
         format!("{day} {} {month}", dt.day())
     }
@@ -573,4 +584,5 @@ fn flag_nationality(nationality: &str) -> &'static str {
 const ICON_HOME: &str = r#"<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>"#;
 const ICON_CAL: &str = r#"<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg>"#;
 const ICON_HELMET: &str = r#"<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15a9 9 0 0 1 18-2v4a1 1 0 0 1-1 1H9l-3 2H4a1 1 0 0 1-1-1zM12 11h8"/></svg>"#;
-const ICON_TEAM: &str = r#"<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>"#;
+const ICON_TEAM: &str =
+    r#"<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>"#;

@@ -100,7 +100,9 @@ private struct ResultRow: View {
             StandingRow(
                 position: result.positionText,
                 teamId: result.constructor.constructorId,
-                title: driverTitle(result.driver) + (result.hasFastestLap ? Text("  ⏱").foregroundColor(.f1Purple) : Text("")),
+                title: result.hasFastestLap
+                    ? Text("\(driverTitle(result.driver))  \(Text("⏱").foregroundStyle(Color.f1Purple))")
+                    : driverTitle(result.driver),
                 subtitle: [result.constructor.name, result.outcome].filter { !$0.isEmpty }.joined(separator: " · ")
             ) {
                 if result.scoredPoints {

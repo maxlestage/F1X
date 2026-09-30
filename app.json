@@ -26,5 +26,5 @@
       "url": "emk/rust"
     }
   ],
-  "stack": "heroku-24"
+  "stack": "heroku-26"
 }
