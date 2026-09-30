@@ -137,11 +137,18 @@ pub fn RacePage(props: &RacePageProps) -> Html {
                 <SessionsList race={race.clone()} />
             </section>
 
+            if !over { <super::WeekendWeather race={race.clone()} /> }
+
             if results.is_loading() { { loading() } }
             if !results_list.is_empty() {
                 <section class="card">
                     <h2>{ t("Course", "Race") }</h2>
                     <ol class="rows">{ for results_list.iter().map(result_row) }</ol>
+                    <ExportCsv filename={format!("f1x-{}-{}.csv", race.season, race.round)} rows={
+                        std::iter::once(vec!["Pos".into(), t("Pilote", "Driver").into(), t("Écurie", "Team").into(), t("Grille", "Grid").into(), t("Temps / statut", "Time / status").into(), "Points".into()])
+                            .chain(results_list.iter().map(|r| vec![r.position_text.clone(), r.driver.full_name(), r.constructor.name.clone(), r.grid.clone().unwrap_or_default(), r.outcome(), r.points.clone()]))
+                            .collect::<Vec<Vec<String>>>()
+                    } />
                 </section>
             }
             if !sprint_list.is_empty() {

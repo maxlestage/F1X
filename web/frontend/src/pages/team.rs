@@ -4,7 +4,7 @@ use yew_router::prelude::*;
 
 use super::IdProps;
 use crate::Route;
-use crate::api::{f1, use_f1};
+use crate::api::{f1, use_f1, use_json};
 use crate::components::*;
 use crate::i18n::t;
 use crate::models::Driver;
@@ -18,6 +18,7 @@ pub fn TeamPage(props: &IdProps) -> Html {
     let p = |suffix: &str| format!("constructors/{id}{suffix}.json");
 
     let info = use_f1(f1(p(""), 1));
+    let champions = use_json::<Vec<super::stats::Champion>>(Some("/api/champions".into()));
     let wins = use_f1(f1(p("/results/1"), 1));
     let seconds = use_f1(f1(p("/results/2"), 1));
     let thirds = use_f1(f1(p("/results/3"), 1));
@@ -97,6 +98,12 @@ pub fn TeamPage(props: &IdProps) -> Html {
                     ("Podiums", podiums),
                     ("Poles", total_of(&poles)),
                 ]) }
+                if let Some(Ok(c)) = &champions {
+                    if let titles @ [_, ..] = super::stats::team_titles(c, &team.constructor_id).as_slice() {
+                        <p class="titles">{ tr!("🏆 Champion constructeurs ×{} : {}", "🏆 Constructors' champion ×{}: {}", titles.len(), titles.join(", ")) }</p>
+                    }
+                }
+                <FavButton kind="team" id={team.constructor_id.clone()} />
                 if let Some(url) = &team.url {
                     <a class="link" href={url.clone()} target="_blank" rel="noopener">{ t("Wikipédia ↗", "Wikipedia ↗") }</a>
                 }

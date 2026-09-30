@@ -28,6 +28,7 @@ pub struct F1Api {
     http: reqwest::Client,
     cache: Arc<RwLock<HashMap<String, (Instant, Value)>>>,
     last_call: Arc<Mutex<Instant>>,
+    champions: Arc<Mutex<Option<(Instant, Value)>>>,
     /// Coupe-circuit : pas d'appel à Jolpica avant cet instant (après un 429).
     blocked_until: Arc<Mutex<Option<Instant>>>,
     ttl: Duration,
@@ -44,6 +45,7 @@ impl F1Api {
             http,
             cache: Arc::new(RwLock::new(HashMap::new())),
             last_call: Arc::new(Mutex::new(Instant::now() - MIN_SPACING)),
+            champions: Arc::new(Mutex::new(None)),
             blocked_until: Arc::new(Mutex::new(None)),
             ttl,
         }
@@ -244,6 +246,81 @@ pub fn valid_path(path: &str) -> bool {
         && path
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '/' | '.'))
+}
+
+// ---------- Champions (agrégés saison par saison) ----------
+
+impl F1Api {
+    /// Champions pilotes et constructeurs de chaque saison depuis 1950.
+    /// Les saisons terminées viennent de `static/champions.json` (généré une fois depuis l'API :
+    /// le passé ne change pas) ; seules les saisons suivantes sont demandées à Jolpica.
+    pub async fn champions(&self) -> Value {
+        let mut guard = self.champions.lock().await;
+        if let Some((at, value)) = guard.as_ref() {
+            if at.elapsed() < Duration::from_secs(3600) {
+                return value.clone();
+            }
+        }
+        let mut out: Vec<Value> =
+            serde_json::from_str(include_str!("../static/champions.json")).unwrap_or_default();
+        let last_static = out
+            .last()
+            .and_then(|c| c.get("season")?.as_str()?.parse::<u32>().ok())
+            .unwrap_or(1949);
+        for year in last_static + 1..=current_year() {
+            let first = |v: Option<Value>, list: &str| -> Option<Value> {
+                v?.pointer(&format!("/MRData/StandingsTable/StandingsLists/0/{list}/0"))
+                    .cloned()
+            };
+            let driver = first(
+                self.page(&format!("{year}/driverStandings.json"), 1, 0)
+                    .await,
+                "DriverStandings",
+            );
+            let Some(driver) = driver else { continue };
+            let constructor = first(
+                self.page(&format!("{year}/constructorStandings.json"), 1, 0)
+                    .await,
+                "ConstructorStandings",
+            );
+            // Saison en cours tant que le calendrier n'est pas terminé.
+            let schedule = self.page(&format!("{year}.json"), 100, 0).await;
+            let total = schedule
+                .as_ref()
+                .and_then(|v| v.pointer("/MRData/total")?.as_str()?.parse::<u32>().ok())
+                .unwrap_or(0);
+            let round = driver_round(
+                &self
+                    .page(&format!("{year}/driverStandings.json"), 1, 0)
+                    .await,
+            );
+            out.push(serde_json::json!({
+                "season": year.to_string(),
+                "in_progress": round < total,
+                "driver": driver.get("Driver"),
+                "driver_team": driver.pointer("/Constructors/0"),
+                "driver_points": driver.get("points"),
+                "driver_wins": driver.get("wins"),
+                "constructor": constructor.as_ref().and_then(|c| c.get("Constructor")),
+                "constructor_points": constructor.as_ref().and_then(|c| c.get("points")),
+            }));
+        }
+        let value = Value::Array(out);
+        *guard = Some((Instant::now(), value.clone()));
+        value
+    }
+}
+
+/// Manche après laquelle un classement a été établi.
+fn driver_round(v: &Option<Value>) -> u32 {
+    v.as_ref()
+        .and_then(|v| {
+            v.pointer("/MRData/StandingsTable/StandingsLists/0/round")?
+                .as_str()?
+                .parse()
+                .ok()
+        })
+        .unwrap_or(0)
 }
 
 #[cfg(test)]

@@ -336,3 +336,72 @@ pub fn session_label(name: &str) -> &str {
         other => other,
     }
 }
+
+// ---------- Données personnelles (stockées sur l'appareil) ----------
+
+fn local_storage() -> Option<web_sys::Storage> {
+    web_sys::window()?.local_storage().ok().flatten()
+}
+
+/// Lit une valeur JSON enregistrée dans le navigateur.
+pub fn load<T: serde::de::DeserializeOwned>(key: &str) -> Option<T> {
+    let text = local_storage()?.get_item(key).ok().flatten()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// Enregistre une valeur JSON dans le navigateur.
+pub fn store<T: serde::Serialize>(key: &str, value: &T) {
+    if let (Some(s), Ok(text)) = (local_storage(), serde_json::to_string(value)) {
+        let _ = s.set_item(key, &text);
+    }
+}
+
+pub fn fav_driver() -> Option<String> {
+    load("f1x-fav-driver")
+}
+
+pub fn fav_team() -> Option<String> {
+    load("f1x-fav-team")
+}
+
+/// Télécharge un fichier CSV (séparateur « ; », compatible Excel FR / Numbers).
+pub fn download_csv(filename: &str, rows: &[Vec<String>]) {
+    use wasm_bindgen::JsCast;
+    let esc = |c: &String| {
+        if c.contains([';', '"', '\n']) {
+            format!("\"{}\"", c.replace('"', "\"\""))
+        } else {
+            c.clone()
+        }
+    };
+    let text = String::from("\u{feff}")
+        + &rows
+            .iter()
+            .map(|r| r.iter().map(esc).collect::<Vec<_>>().join(";"))
+            .collect::<Vec<_>>()
+            .join("\n");
+    let parts = js_sys::Array::of1(&JsValue::from_str(&text));
+    let opts = web_sys::BlobPropertyBag::new();
+    opts.set_type("text/csv;charset=utf-8");
+    let Ok(blob) = web_sys::Blob::new_with_str_sequence_and_options(&parts, &opts) else {
+        return;
+    };
+    let Ok(url) = web_sys::Url::create_object_url_with_blob(&blob) else {
+        return;
+    };
+    let doc = web_sys::window().and_then(|w| w.document());
+    if let Some(a) = doc
+        .and_then(|d| d.create_element("a").ok())
+        .and_then(|e| e.dyn_into::<web_sys::HtmlAnchorElement>().ok())
+    {
+        a.set_href(&url);
+        a.set_download(filename);
+        a.click();
+    }
+    let _ = web_sys::Url::revoke_object_url(&url);
+}
+
+/// Nombre aléatoire dans [0, n).
+pub fn random(n: usize) -> usize {
+    ((js_sys::Math::random() * n as f64) as usize).min(n.saturating_sub(1))
+}

@@ -15,6 +15,8 @@ pub fn Home() -> Html {
     let drivers = use_f1(f1("current/driverStandings.json", 100));
     let teams = use_f1(f1("current/constructorStandings.json", 100));
 
+    let fav_driver = crate::util::fav_driver();
+    let fav_team = crate::util::fav_team();
     let body = fetch_view(&schedule, |data| {
         let races = data.races();
         let now = now_ms();
@@ -31,6 +33,12 @@ pub fn Home() -> Html {
             .and_then(|d| d.standings())
             .and_then(|l| l.constructor_standings.clone())
             .unwrap_or_default();
+        let fav_d = fav_driver
+            .as_ref()
+            .and_then(|id| drivers.iter().find(|s| &s.driver.driver_id == id));
+        let fav_t = fav_team
+            .as_ref()
+            .and_then(|id| teams.iter().find(|s| &s.constructor.constructor_id == id));
         let leader = teams
             .first()
             .and_then(|t| t.points.parse().ok())
@@ -56,6 +64,10 @@ pub fn Home() -> Html {
                     </section>
                 }
 
+                if let Some(race) = next {
+                    <super::WeekendWeather race={race.clone()} full={false} />
+                }
+
                 if let Some(race) = last_race {
                     <section class="card">
                         <div class="card-head">
@@ -73,6 +85,16 @@ pub fn Home() -> Html {
                                     </Link<Route>>
                                 </li>
                             }) }
+                        </ol>
+                    </section>
+                }
+
+                if fav_d.is_some() || fav_t.is_some() {
+                    <section class="card">
+                        <h2>{ t("⭐ Mes favoris", "⭐ My favourites") }</h2>
+                        <ol class="rows">
+                            if let Some(d) = fav_d { { driver_standing_row(d) } }
+                            if let Some(tm) = fav_t { { team_standing_row(tm, leader) } }
                         </ol>
                     </section>
                 }
@@ -97,6 +119,7 @@ pub fn Home() -> Html {
                     </section>
                 }
 
+                <Link<Route> to={Route::Predict} classes="btn btn-ghost">{ t("🔮 Pronostiquer le prochain GP", "🔮 Predict the next GP") }</Link<Route>>
                 <Link<Route> to={Route::Live} classes="btn">{ t("● Direct & replays en temps réel", "● Live & real-time replays") }</Link<Route>>
                 <Link<Route> to={Route::Archives} classes="btn btn-ghost">{ t("Explorer 75 ans d'archives →", "Explore 75 years of history →") }</Link<Route>>
             </>

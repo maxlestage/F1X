@@ -2,23 +2,40 @@
 
 mod archives;
 mod circuit;
+mod compare;
 mod driver;
+mod fantasy;
+mod glossary;
 mod home;
 mod live;
+mod news;
+mod predict;
+mod quiz;
 mod race;
+mod records;
 mod season;
+pub mod stats;
 mod team;
 mod track;
+mod weather;
 
 pub use archives::*;
 pub use circuit::*;
+pub use compare::*;
 pub use driver::*;
+pub use fantasy::*;
+pub use glossary::*;
 pub use home::*;
 pub use live::*;
+pub use news::*;
+pub use predict::*;
+pub use quiz::*;
 pub use race::*;
+pub use records::*;
 pub use season::*;
 pub use team::*;
 pub use track::*;
+pub use weather::*;
 
 use yew::prelude::*;
 use yew_router::prelude::*;
