@@ -1,10 +1,10 @@
 name: Deploy Heroku
 
-# Déclenché à chaque merge sur main, ou à la main depuis l'app GitHub mobile
+# Déclenché à chaque merge sur master, ou à la main depuis l'app GitHub mobile
 # (onglet Actions → « Deploy Heroku » → Run workflow).
 on:
   push:
-    branches: [main]
+    branches: [master]
     paths: ["web/**", "Dockerfile", "heroku.yml", ".github/workflows/deploy.yml"]
   workflow_dispatch:
 

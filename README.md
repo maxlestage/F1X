@@ -41,7 +41,7 @@ Docker (`heroku.yml`) et l'app est en ligne.
    - secret `HEROKU_API_KEY` = la clé copiée ;
    - onglet *Variables* : `HEROKU_APP_NAME` = le nom de l'app.
 
-Ensuite, chaque merge sur `main` (depuis l'app GitHub) teste puis déploie automatiquement.
+Ensuite, chaque merge sur `master` (depuis l'app GitHub) teste puis déploie automatiquement.
 Tu peux aussi lancer un déploiement à la main : app GitHub → *Actions* → **Deploy Heroku** → *Run workflow*.
 Le workflow passe lui-même l'app en stack `container`, aucun CLI n'est nécessaire.
 
