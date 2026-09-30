@@ -372,34 +372,113 @@ impl RaceResult {
     }
 }
 
+/// Arrivée classée (« Finished », « +2 Laps », « Lapped »), par opposition aux abandons.
+pub fn is_classified(status: &str) -> bool {
+    status == "Finished"
+        || status == "Lapped"
+        || (status.starts_with('+') && status.contains("Lap"))
+}
+
+/// Traduction de tous les statuts d'arrivée de l'API (136 en 2026).
+/// Les statuts synonymes reçoivent le même libellé (ex. « Puncture » / « Tyre puncture »).
 pub fn translate_status(status: &str) -> String {
-    match status {
-        "Finished" => String::new(),
-        "Retired" | "Accident" | "Collision" => "Abandon".into(),
-        "Did not start" => "Non partant".into(),
-        "Did not qualify" => "Non qualifié".into(),
-        "Did not prequalify" => "Non préqualifié".into(),
-        "Disqualified" => "Disqualifié".into(),
-        "Withdrew" => "Forfait".into(),
-        "Lapped" => "Doublé".into(),
-        "Engine" => "Moteur".into(),
-        "Gearbox" => "Boîte de vitesses".into(),
-        "Hydraulics" => "Hydraulique".into(),
-        "Brakes" => "Freins".into(),
-        "Suspension" => "Suspension".into(),
-        "Electrical" => "Électrique".into(),
-        "Spun off" => "Tête-à-queue".into(),
-        "Power Unit" => "Unité de puissance".into(),
+    let fr = match status {
+        "Finished" => "",
+        "Lapped" => "Doublé",
+        "Engine" => "Moteur",
+        "Accident" => "Accident",
+        "Fatal accident" => "Accident mortel",
+        "Collision" => "Accrochage",
+        "Collision damage" | "Damage" => "Dégâts après contact",
+        "Gearbox" => "Boîte de vitesses",
+        "Spun off" => "Tête-à-queue",
+        "Suspension" => "Suspension",
+        "Transmission" | "Drivetrain" => "Transmission",
+        "Electrical" | "Electronics" => "Électronique",
+        "Retired" => "Abandon (non précisé)",
+        "Brakes" => "Freins",
+        "Brake duct" => "Écope de frein",
+        "Withdrew" => "Forfait",
+        "Clutch" => "Embrayage",
+        "Not classified" => "Non classé",
+        "Fuel system" => "Circuit d'essence",
+        "Disqualified" => "Disqualifié",
+        "Excluded" => "Exclu",
+        "Underweight" => "Poids insuffisant",
+        "Turbo" => "Turbo",
+        "Hydraulics" => "Hydraulique",
+        "Pneumatics" => "Pneumatique",
+        "Overheating" => "Surchauffe",
+        "Cooling system" => "Refroidissement",
+        "Ignition" => "Allumage",
+        "Spark plugs" => "Bougies",
+        "Magneto" => "Magnéto",
+        "Distributor" => "Distributeur",
+        "Oil leak" => "Fuite d'huile",
+        "Oil pressure" => "Pression d'huile",
+        "Oil pump" => "Pompe à huile",
+        "Oil pipe" | "Oil line" => "Durite d'huile",
+        "Throttle" => "Accélérateur",
+        "Out of fuel" | "Fuel" => "Panne d'essence",
+        "Fuel pump" => "Pompe à essence",
+        "Fuel leak" => "Fuite d'essence",
+        "Fuel pressure" => "Pression d'essence",
+        "Fuel pipe" => "Durite d'essence",
+        "Fuel rig" | "Refuelling" => "Ravitaillement",
+        "Injection" => "Injection",
+        "Halfshaft" | "Driveshaft" | "CV joint" | "Axle" => "Arbre de transmission",
+        "Differential" => "Différentiel",
+        "Crankshaft" => "Vilebrequin",
+        "Wheel" | "Wheel rim" => "Roue",
+        "Wheel nut" => "Écrou de roue",
+        "Wheel bearing" => "Roulement de roue",
+        "Tyre" => "Pneu",
+        "Puncture" | "Tyre puncture" => "Crevaison",
+        "Handling" => "Tenue de route",
+        "Steering" | "Track rod" => "Direction",
+        "Radiator" => "Radiateur",
+        "Water leak" => "Fuite d'eau",
+        "Water pressure" => "Pression d'eau",
+        "Water pump" => "Pompe à eau",
+        "Water pipe" => "Durite d'eau",
+        "Power Unit" => "Unité de puissance",
+        "ERS" => "Système hybride (ERS)",
+        "Battery" => "Batterie",
+        "Alternator" => "Alternateur",
+        "Power loss" => "Perte de puissance",
+        "Supercharger" => "Compresseur",
+        "Exhaust" => "Échappement",
+        "Chassis" => "Châssis",
+        "Undertray" => "Fond plat",
+        "Mechanical" | "Technical" => "Problème mécanique",
+        "Vibrations" => "Vibrations",
+        "Physical" | "Driver unwell" | "Illness" => "Malaise du pilote",
+        "Injury" | "Injured" | "Eye injury" => "Blessure",
+        "Heat shield fire" | "Fire" | "Engine fire" => "Incendie",
+        "Engine misfire" => "Ratés moteur",
+        "Did not start" => "Non partant",
+        "Did not qualify" => "Non qualifié",
+        "Did not prequalify" => "Non préqualifié",
+        "Not restarted" => "Non reparti",
+        "Stalled" => "Calé",
+        "Launch control" => "Aide au départ",
+        "Broken wing" | "Front wing" => "Aileron avant",
+        "Rear wing" => "Aileron arrière",
+        "Debris" => "Débris",
+        "Safety" | "Safety concerns" => "Raisons de sécurité",
+        "Safety belt" => "Harnais",
+        "Seat" | "Driver Seat" => "Siège",
         s if s.starts_with('+') && s.contains("Lap") => {
             let n = s
                 .trim_start_matches('+')
                 .split_whitespace()
                 .next()
                 .unwrap_or("1");
-            format!("+{n} tour{}", if n == "1" { "" } else { "s" })
+            return format!("+{n} tour{}", if n == "1" { "" } else { "s" });
         }
-        s => s.to_string(),
-    }
+        s => return s.to_string(),
+    };
+    fr.to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]

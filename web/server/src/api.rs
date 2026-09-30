@@ -17,8 +17,8 @@ const MAX_PAGES: u32 = 30;
 const MIN_SPACING: Duration = Duration::from_millis(260);
 /// Données des saisons passées : elles ne changent plus.
 const HISTORICAL_TTL: Duration = Duration::from_secs(7 * 24 * 3600);
-/// Données de carrière / globales (changent au plus une fois par Grand Prix).
-const GLOBAL_TTL: Duration = Duration::from_secs(3600);
+/// Données de carrière / globales (changent au plus une fois par Grand Prix) : 3 h.
+const GLOBAL_TTL: Duration = Duration::from_secs(3 * 3600);
 /// Pause par défaut après une réponse 429 de Jolpica.
 const DEFAULT_BACKOFF: Duration = Duration::from_secs(60);
 const MAX_ENTRIES: usize = 3000;

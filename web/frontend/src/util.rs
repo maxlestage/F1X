@@ -239,3 +239,40 @@ pub fn age(date: &str) -> Option<u32> {
 pub fn current_year() -> u32 {
     Date::new_0().get_full_year()
 }
+
+/// Nom français d'un pays tel qu'écrit par l'API.
+pub fn country_fr(country: &str) -> &str {
+    match country {
+        "Argentina" => "Argentine",
+        "Australia" => "Australie",
+        "Austria" => "Autriche",
+        "Azerbaijan" => "Azerbaïdjan",
+        "Bahrain" => "Bahreïn",
+        "Belgium" => "Belgique",
+        "Brazil" => "Brésil",
+        "China" => "Chine",
+        "Germany" => "Allemagne",
+        "Hungary" => "Hongrie",
+        "India" => "Inde",
+        "Italy" => "Italie",
+        "Japan" => "Japon",
+        "Korea" => "Corée du Sud",
+        "Malaysia" => "Malaisie",
+        "Mexico" => "Mexique",
+        "Morocco" => "Maroc",
+        "Netherlands" => "Pays-Bas",
+        "Russia" => "Russie",
+        "Saudi Arabia" => "Arabie saoudite",
+        "Singapore" => "Singapour",
+        "South Africa" => "Afrique du Sud",
+        "Spain" => "Espagne",
+        "Sweden" => "Suède",
+        "Switzerland" => "Suisse",
+        "Turkey" => "Turquie",
+        "UAE" | "United Arab Emirates" => "Émirats arabes unis",
+        "UK" | "United Kingdom" => "Royaume-Uni",
+        "USA" | "United States" => "États-Unis",
+        "Vietnam" => "Viêt Nam",
+        other => other,
+    }
+}
