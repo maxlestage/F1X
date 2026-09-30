@@ -537,16 +537,27 @@ impl OpenF1 {
             let Some(day) = parse_date(&format!("{date}T12:00:00Z")) else {
                 continue;
             };
-            let Some(session) = self
+            // Sessions terminées du week-end (jusqu'à 3,5 jours avant la course) : course d'abord,
+            // puis qualifications, sprint et essais (utile pour un GP pas encore couru).
+            let rank = |name: &str| match name {
+                "Race" => 0,
+                "Qualifying" => 1,
+                "Sprint" => 2,
+                "Sprint Qualifying" | "Sprint Shootout" => 3,
+                _ => 4,
+            };
+            let mut weekend: Vec<SessionSummary> = self
                 .sessions(*year)
                 .await?
                 .into_iter()
-                .filter(|s| s.session_name == "Race")
-                .find(|s| {
-                    parse_date(&s.date_start)
-                        .is_some_and(|start| (start - day).abs() < 36 * 3_600_000)
+                .filter(|s| {
+                    parse_date(&s.date_start).is_some_and(|start| {
+                        start - day < 36 * 3_600_000 && day - start < 84 * 3_600_000
+                    })
                 })
-            else {
+                .collect();
+            weekend.sort_by_key(|s| rank(&s.session_name));
+            let Some(session) = weekend.into_iter().next() else {
                 continue;
             };
             let key = session.session_key;

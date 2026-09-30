@@ -270,7 +270,6 @@ async fn track(State(s): State<AppState>, Path(id): Path<String>) -> Response {
     let Some(races) = s.api.all(&format!("circuits/{id}/races.json")).await else {
         return (StatusCode::BAD_GATEWAY, "races unavailable").into_response();
     };
-    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
     // Courses disputées depuis 2023 (données OpenF1), de la plus récente à la plus ancienne.
     let candidates: Vec<(u32, String, String)> = races
         .pointer("/MRData/RaceTable/Races")
@@ -283,7 +282,8 @@ async fn track(State(s): State<AppState>, Path(id): Path<String>) -> Response {
                         |k: &str| r.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
                     let season = field("season").parse::<u32>().ok()?;
                     let date = field("date");
-                    (season >= 2023 && date < today).then(|| (season, date, field("raceName")))
+                    // Depuis 2023 (données OpenF1), y compris le GP à venir (essais déjà courus).
+                    (season >= 2023).then(|| (season, date, field("raceName")))
                 })
                 .collect()
         })
@@ -293,6 +293,10 @@ async fn track(State(s): State<AppState>, Path(id): Path<String>) -> Response {
     }
     match s.hub.openf1.track(&id, &candidates).await {
         Ok(t) => ok(t),
+        // Aucune session exploitable (ex. GP pas encore couru) : 404, rien à réessayer.
+        Err(err) if err.starts_with("Pas de données") => {
+            (StatusCode::NOT_FOUND, err).into_response()
+        }
         Err(err) => (StatusCode::BAD_GATEWAY, err).into_response(),
     }
 }
