@@ -1,0 +1,194 @@
+import SwiftUI
+import UIKit
+
+/// État de chargement générique pour les écrans alimentés par l'API.
+enum Loadable<Value> {
+    case loading
+    case loaded(Value)
+    case failed(String)
+}
+
+struct LoadableView<Value, Content: View>: View {
+    let state: Loadable<Value>
+    let retry: () async -> Void
+    @ViewBuilder let content: (Value) -> Content
+
+    var body: some View {
+        switch state {
+        case .loading:
+            ProgressView("Chargement…")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .failed(let message):
+            ContentUnavailableView {
+                Label("Drapeau rouge", systemImage: "flag.fill")
+            } description: {
+                Text(message)
+            } actions: {
+                Button("Réessayer") { Task { await retry() } }
+                    .buttonStyle(.borderedProminent)
+            }
+        case .loaded(let value):
+            content(value)
+        }
+    }
+}
+
+func loadErrorMessage(_ error: Error) -> String {
+    "Les données F1 sont momentanément indisponibles.\n\(error.localizedDescription)"
+}
+
+/// Compte à rebours jusqu'à `target`, 4 cases de largeur égale (jamais plus large que l'écran).
+struct CountdownView: View {
+    let target: Date
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let s = max(0, Int(target.timeIntervalSince(context.date)))
+            HStack(spacing: 8) {
+                cell(String(s / 86400), "jours")
+                cell(String(format: "%02d", (s % 86400) / 3600), "heures")
+                cell(String(format: "%02d", (s % 3600) / 60), "min")
+                cell(String(format: "%02d", s % 60), "sec")
+            }
+        }
+    }
+
+    private func cell(_ value: String, _ label: String) -> some View {
+        VStack(spacing: 2) {
+            Text(value)
+                .font(.title2.weight(.heavy).monospacedDigit())
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text(label.uppercased())
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+/// Programme du week-end.
+struct SessionsList: View {
+    let race: Race
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(race.sessions.enumerated()), id: \.offset) { index, session in
+                let isRace = session.name == "Course"
+                // ViewThatFits : sur une ligne si possible, sinon empilé verticalement.
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        sessionName(session.name, isRace: isRace)
+                        Spacer(minLength: 12)
+                        sessionDate(session.date, isRace: isRace)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        sessionName(session.name, isRace: isRace)
+                        sessionDate(session.date, isRace: isRace)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.vertical, 10)
+                if index < race.sessions.count - 1 { Divider() }
+            }
+        }
+    }
+
+    private func sessionName(_ name: String, isRace: Bool) -> some View {
+        Text(name)
+            .fontWeight(.semibold)
+            .foregroundStyle(isRace ? Color.f1Red : Color.primary)
+    }
+
+    private func sessionDate(_ date: Date, isRace: Bool) -> some View {
+        Text(date.f1DayTime)
+            .monospacedDigit()
+            .fontWeight(isRace ? .semibold : .regular)
+            .foregroundStyle(isRace ? Color.primary : Color.secondary)
+    }
+}
+
+/// Ligne de classement / résultat : position, liseré couleur écurie, nom, points.
+struct StandingRow<Trailing: View>: View {
+    let position: String
+    let teamId: String?
+    let title: Text
+    let subtitle: String
+    @ViewBuilder let trailing: () -> Trailing
+
+    var body: some View {
+        HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(Team.color(teamId))
+                .frame(width: 4)
+                .padding(.vertical, 2)
+            Text(position)
+                .font(.body.weight(.heavy).monospacedDigit())
+                .frame(minWidth: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                title
+                    .fixedSize(horizontal: false, vertical: true)
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            trailing()
+                .layoutPriority(1)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+struct PointsLabel: View {
+    let value: String
+    var suffix: String = "pts"
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 2) {
+            Text(value).font(.body.weight(.heavy).monospacedDigit())
+            if !suffix.isEmpty {
+                Text(suffix).font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+func driverTitle(_ driver: Driver, flag: Bool = false) -> Text {
+    let prefix = flag ? "\(Flag.nationality(driver.nationality)) " : ""
+    return Text("\(prefix)\(driver.givenName) ") + Text(driver.familyName).bold()
+}
+
+/// Carte avec dégradé (couleur écurie ou rouge F1).
+struct HeroCard<Content: View>: View {
+    var accent: Color = .f1Red
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12, content: content)
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                LinearGradient(colors: [accent.opacity(0.3), .clear], startPoint: .topLeading, endPoint: .center),
+                in: RoundedRectangle(cornerRadius: 16)
+            )
+            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+struct Eyebrow: View {
+    let text: String
+    var body: some View {
+        Text(text.uppercased())
+            .font(.caption.weight(.bold))
+            .tracking(1)
+            .foregroundStyle(.secondary)
+    }
+}

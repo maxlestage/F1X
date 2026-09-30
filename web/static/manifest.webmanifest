@@ -1,0 +1,12 @@
+{
+  "name": "F1X",
+  "short_name": "F1X",
+  "description": "Calendrier, résultats et classements de Formule 1.",
+  "lang": "fr",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0b10",
+  "theme_color": "#0b0b10",
+  "icons": [{ "src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
