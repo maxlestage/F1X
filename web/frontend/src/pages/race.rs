@@ -132,6 +132,8 @@ pub fn RacePage(props: &RacePageProps) -> Html {
                 }
             </section>
 
+            <super::CircuitTrack circuit_id={race.circuit.circuit_id.clone()} name={race.circuit.circuit_name.clone()} />
+
             <section class="card">
                 <h2>{ t("Programme", "Schedule") }</h2>
                 <SessionsList race={race.clone()} />

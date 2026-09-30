@@ -130,15 +130,28 @@ pub fn use_json<T: serde::de::DeserializeOwned + 'static>(
                 state.set(None);
                 let alive = alive.clone();
                 wasm_bindgen_futures::spawn_local(async move {
-                    let result = match Request::get(&url).send().await {
-                        Ok(r) if r.ok() => r
-                            .json::<T>()
-                            .await
-                            .map(Rc::new)
-                            .map_err(|e| (0, e.to_string())),
-                        Ok(r) => Err((r.status(), r.text().await.unwrap_or_default())),
-                        Err(e) => Err((0, e.to_string())),
+                    let fetch = || async {
+                        match Request::get(&url).send().await {
+                            Ok(r) if r.ok() => r
+                                .json::<T>()
+                                .await
+                                .map(Rc::new)
+                                .map_err(|e| (0, e.to_string())),
+                            Ok(r) => Err((r.status(), r.text().await.unwrap_or_default())),
+                            Err(e) => Err((0, e.to_string())),
+                        }
                     };
+                    // Réessaie les erreurs temporaires (serveur limité par une API), pas les 404.
+                    let mut result = fetch().await;
+                    for delay in [8_000, 20_000] {
+                        match &result {
+                            Err((status, _)) if *status != 404 && alive.get() => {
+                                gloo_timers::future::TimeoutFuture::new(delay).await;
+                                result = fetch().await;
+                            }
+                            _ => break,
+                        }
+                    }
                     if alive.get() {
                         state.set(Some(result));
                     }

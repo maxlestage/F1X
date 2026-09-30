@@ -53,6 +53,9 @@ pub fn Home() -> Html {
                             <Link<Route> to={Route::circuit(&race.circuit.circuit_id)} classes="link-inline">{ &race.circuit.circuit_name }</Link<Route>>
                             { format!(" — {}", race.circuit.location.locality) }
                         </p>
+                        <Link<Route> to={Route::circuit(&race.circuit.circuit_id)} classes="outline-link">
+                            <super::TrackOutline circuit_id={race.circuit.circuit_id.clone()} />
+                        </Link<Route>>
                         <Countdown target_ms={race.start_ms()} />
                         <SessionsList race={race.clone()} />
                         <Link<Route> to={Route::race(CURRENT, race.round_num())} classes="btn">{ t("Voir le Grand Prix", "View the Grand Prix") }</Link<Route>>

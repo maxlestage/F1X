@@ -186,3 +186,66 @@ pub fn osm_embed(lat: &str, lon: &str) -> Html {
                 title={t("Carte du circuit (OpenStreetMap)", "Circuit map (OpenStreetMap)")}></iframe>
     }
 }
+
+/// Silhouette du circuit (sans télémétrie), pour les cartes compactes.
+#[derive(Properties, PartialEq)]
+pub struct OutlineProps {
+    pub circuit_id: AttrValue,
+}
+
+#[function_component]
+pub fn TrackOutline(props: &OutlineProps) -> Html {
+    let track = crate::api::use_json::<TrackMap>(Some(format!("/api/track/{}", props.circuit_id)));
+    let Some(Ok(map)) = &track else {
+        return html! {};
+    };
+    let pts = &map.points;
+    if pts.len() < 2 {
+        return html! {};
+    }
+    let (w, h) = (map.width + 2.0 * PAD, map.height + 2.0 * PAD);
+    let line = pts
+        .iter()
+        .map(|p| format!("{:.0},{:.0}", p.x as f64 + PAD, p.y as f64 + PAD))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let (x0, y0) = (pts[0].x as f64 + PAD, pts[0].y as f64 + PAD);
+    html! {
+        <svg class="outline" viewBox={format!("0 0 {w:.0} {h:.0}")} role="img"
+             aria-label={t("Tracé du circuit", "Circuit layout")}>
+            <polyline class="outline-base" points={line.clone()} />
+            <polyline class="outline-line" points={line} />
+            <circle class="outline-start" cx={format!("{x0:.0}")} cy={format!("{y0:.0}")} r="16" />
+        </svg>
+    }
+}
+
+/// Carte « Circuit » d'une page de Grand Prix : tracé GPS complet + lien vers la fiche.
+#[derive(Properties, PartialEq)]
+pub struct CircuitTrackProps {
+    pub circuit_id: AttrValue,
+    pub name: AttrValue,
+}
+
+#[function_component]
+pub fn CircuitTrack(props: &CircuitTrackProps) -> Html {
+    let track = crate::api::use_json::<TrackMap>(Some(format!("/api/track/{}", props.circuit_id)));
+    let body = match &track {
+        None => crate::components::loading(),
+        Some(Ok(map)) => html! { <TrackView track={map.clone()} /> },
+        // Circuit jamais utilisé depuis 2023 (pas de données GPS) : rien à dessiner.
+        Some(Err(_)) => return html! {},
+    };
+    html! {
+        <section class="card">
+            <div class="card-head">
+                <h2>{ t("Le circuit", "The circuit") }</h2>
+                <yew_router::prelude::Link<crate::Route> to={crate::Route::circuit(&props.circuit_id)} classes="link">
+                    { t("Fiche complète", "Full details") }
+                </yew_router::prelude::Link<crate::Route>>
+            </div>
+            <p class="muted">{ props.name.clone() }</p>
+            { body }
+        </section>
+    }
+}
