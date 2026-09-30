@@ -141,7 +141,7 @@ strong { font-weight: 800; }
 }
 .row:last-child { border-bottom: 0; }
 .pos { flex: none; width: 2ch; text-align: center; font-weight: 800; font-variant-numeric: tabular-nums; }
-.pos-sm { width: 3ch; font-size: .9rem; }
+.pos-sm { width: 4.2ch; font-size: .9rem; }
 .row-main { flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; }
 .row-title { line-height: 1.25; }
 .row-sub { color: var(--muted); font-size: .82rem; }
@@ -298,3 +298,12 @@ button.btn:disabled { opacity: .5; }
 .rc { flex-direction: column; align-items: flex-start; }
 .rc-msg { font-size: .88rem; }
 @media (max-width: 340px) { .tab { font-size: .62rem; } }
+
+/* Colonne de valeurs de largeur fixe : les barres restent alignées quel que soit le nombre de chiffres. */
+.row .pts { min-width: 4.2ch; }
+.row-main .bar { width: 100%; }
+.segmented-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.segmented button.seg { border: 0; background: transparent; font: inherit; font-weight: 600; font-size: .9rem; cursor: pointer; }
+.segmented button.seg-active { background: var(--surface-2); color: var(--text); }
+/* Les nombres ne se coupent jamais au milieu (ex. un temps au tour). */
+.stats dd, .pts { overflow-wrap: normal; word-break: keep-all; }
