@@ -72,4 +72,28 @@ fn main() {
         .typescript(false)
         .generate(&pkg_dir)
         .expect("wasm-bindgen a échoué");
+
+    // Empreintes de contenu : les URL des fichiers changent dès que leur contenu change,
+    // donc un navigateur ne peut jamais mélanger un ancien glue JS avec un nouveau wasm.
+    let read = |p: PathBuf| {
+        std::fs::read(&p).unwrap_or_else(|e| panic!("lecture de {}: {e}", p.display()))
+    };
+    let mut app = read(pkg_dir.join("f1x_frontend.js"));
+    app.extend(read(pkg_dir.join("f1x_frontend_bg.wasm")));
+    println!("cargo:rustc-env=F1X_APP_HASH={}", fnv1a(&app));
+    println!("cargo:rerun-if-changed=static/app.css");
+    println!(
+        "cargo:rustc-env=F1X_CSS_HASH={}",
+        fnv1a(&read(manifest_dir.join("static/app.css")))
+    );
+}
+
+/// Hachage FNV-1a 64 bits (suffisant pour invalider un cache), en hexadécimal.
+fn fnv1a(bytes: &[u8]) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in bytes {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{h:016x}")
 }

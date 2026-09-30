@@ -79,7 +79,7 @@ async fn main() {
 }
 
 fn app(state: AppState) -> Router {
-    let version = env!("CARGO_PKG_VERSION");
+    let app_hash = env!("F1X_APP_HASH");
     let api = Router::new()
         .route("/f1/{*path}", get(f1_page))
         .route("/all/{*path}", get(f1_all))
@@ -92,11 +92,11 @@ fn app(state: AppState) -> Router {
         .route("/healthz", get(|| async { "ok" }))
         .route("/ws", get(ws))
         .route(
-            &format!("/pkg/{version}/f1x_frontend.js"),
+            &format!("/pkg/{app_hash}/f1x_frontend.js"),
             get(|| asset("text/javascript; charset=utf-8", FRONTEND_JS.as_bytes())),
         )
         .route(
-            &format!("/pkg/{version}/f1x_frontend_bg.wasm"),
+            &format!("/pkg/{app_hash}/f1x_frontend_bg.wasm"),
             get(|| asset("application/wasm", FRONTEND_WASM)),
         )
         .route(
@@ -110,32 +110,57 @@ fn app(state: AppState) -> Router {
         )
         .route(
             "/static/icon.svg",
-            get(|| asset("image/svg+xml", include_bytes!("../static/icon.svg"))),
+            get(|| plain_asset("image/svg+xml", include_bytes!("../static/icon.svg"))),
         )
         .route(
             "/manifest.webmanifest",
             get(|| {
-                asset(
+                plain_asset(
                     "application/manifest+json",
                     include_bytes!("../static/manifest.webmanifest"),
                 )
             }),
         )
+        // Fichiers inconnus (ex. ancienne empreinte) : vrai 404, jamais la page HTML à la place
+        // d'un script (sinon le navigateur resterait bloqué sur l'écran de démarrage).
+        .route("/pkg/{*rest}", get(|| async { StatusCode::NOT_FOUND }))
+        .route("/static/{*rest}", get(|| async { StatusCode::NOT_FOUND }))
         // Application monopage : toutes les autres URL servent le shell, le routeur Yew prend le relais.
         .fallback(get(index))
         .layer(CompressionLayer::new())
         .with_state(state)
 }
 
-async fn index() -> Html<String> {
-    Html(INDEX_HTML.replace("{{VERSION}}", env!("CARGO_PKG_VERSION")))
+async fn index() -> impl IntoResponse {
+    // La page elle-même n'est jamais mise en cache : elle pointe toujours vers les bons fichiers.
+    (
+        [(header::CACHE_CONTROL, "no-cache")],
+        Html(
+            INDEX_HTML
+                .replace("{{APP}}", env!("F1X_APP_HASH"))
+                .replace("{{CSS}}", env!("F1X_CSS_HASH")),
+        ),
+    )
 }
 
+/// Fichier à adresse « empreinte » (`/pkg/{hash}/…`, `app.css?v={hash}`) : son contenu ne change jamais.
 async fn asset(content_type: &'static str, body: &'static [u8]) -> Response {
     (
         [
             (header::CONTENT_TYPE, content_type),
-            (header::CACHE_CONTROL, "public, max-age=604800"),
+            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+        ],
+        body,
+    )
+        .into_response()
+}
+
+/// Fichier sans empreinte (icône, manifeste) : cache court.
+async fn plain_asset(content_type: &'static str, body: &'static [u8]) -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, content_type),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
         ],
         body,
     )
