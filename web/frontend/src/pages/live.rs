@@ -336,7 +336,9 @@ fn alert_enabled(kind: AlertKind) -> bool {
                 .ok()
                 .flatten()
         })
-        .is_none_or(|v| v != "0")
+        .map(|v| v != "0")
+        // Par défaut, seulement l'important : drapeaux / voiture de sécurité et abandons.
+        .unwrap_or(matches!(kind, AlertKind::Flags | AlertKind::Retirements))
 }
 
 fn set_alert(kind: AlertKind, on: bool) {
@@ -418,14 +420,15 @@ fn event_text(kind: &EventKind) -> String {
 fn Board(props: &BoardProps) -> Html {
     let snap = &props.snapshot;
     let view = use_state(|| View::Order);
-    let toasts = use_state(Vec::<(u32, String)>::new);
+    let banner = use_state(|| None::<(u32, String)>);
     let seen = use_mut_ref(std::collections::HashSet::<String>::new);
     let first = use_mut_ref(|| true);
-    let toast_id = use_mut_ref(|| 0u32);
+    let banner_id = use_mut_ref(|| 0u32);
+    let last_banner = use_mut_ref(|| 0.0f64);
 
-    // Alertes : nouveaux événements depuis la dernière image (pas au premier affichage).
+    // Alerte : au plus une à la fois, une toutes les 8 s, jamais au premier affichage.
     {
-        let toasts = toasts.clone();
+        let banner = banner.clone();
         let snap = Rc::clone(snap);
         use_effect_with(snap.clock.clone(), move |_| {
             let mut fresh = Vec::new();
@@ -435,35 +438,43 @@ fn Board(props: &BoardProps) -> Html {
                     fresh.push(e.clone());
                 }
             }
-            if *first.borrow() {
-                *first.borrow_mut() = false;
-            } else {
-                let mut list = (*toasts).clone();
-                for e in fresh.iter().take(2) {
-                    if AlertKind::of(&e.kind).is_some_and(alert_enabled) {
-                        *toast_id.borrow_mut() += 1;
-                        list.push((
-                            *toast_id.borrow(),
-                            format!("{} {}", event_icon(&e.kind), event_text(&e.kind)),
-                        ));
-                    }
-                }
-                let len = list.len();
-                if len > 3 {
-                    list.drain(..len - 3);
-                }
-                if list != *toasts {
-                    let expire = list.last().map(|x| x.0);
-                    toasts.set(list);
-                    if let Some(id) = expire {
-                        let toasts = toasts.clone();
-                        gloo_timers::callback::Timeout::new(5_000, move || {
-                            toasts.set(toasts.iter().filter(|x| x.0 > id).cloned().collect());
-                        })
-                        .forget();
-                    }
-                }
+            if std::mem::replace(&mut *first.borrow_mut(), false) {
+                return;
             }
+            let now = now_ms();
+            if now - *last_banner.borrow() < 8_000.0 {
+                return;
+            }
+            // Le plus important des nouveaux événements activés.
+            let rank = |k: &EventKind| match k {
+                EventKind::Status { .. } => 0,
+                EventKind::Retired { .. } => 1,
+                EventKind::Penalty { .. } => 2,
+                EventKind::Overtake { .. } => 3,
+                EventKind::Pit { .. } => 4,
+                EventKind::FastestLap { .. } => 5,
+            };
+            let Some(e) = fresh
+                .iter()
+                .filter(|e| AlertKind::of(&e.kind).is_some_and(alert_enabled))
+                .min_by_key(|e| rank(&e.kind))
+            else {
+                return;
+            };
+            *last_banner.borrow_mut() = now;
+            *banner_id.borrow_mut() += 1;
+            let id = *banner_id.borrow();
+            banner.set(Some((
+                id,
+                format!("{} {}", event_icon(&e.kind), event_text(&e.kind)),
+            )));
+            let banner = banner.clone();
+            gloo_timers::callback::Timeout::new(4_000, move || {
+                if banner.as_ref().is_some_and(|b| b.0 == id) {
+                    banner.set(None);
+                }
+            })
+            .forget();
         });
     }
 
@@ -490,10 +501,12 @@ fn Board(props: &BoardProps) -> Html {
 
     html! {
         <>
-            if !toasts.is_empty() {
-                <div class="toasts" role="status" aria-live="polite">
-                    { for toasts.iter().map(|(id, text)| html! { <div class="toast" key={*id}>{ text }</div> }) }
-                </div>
+            if let Some((id, text)) = (*banner).clone() {
+                <button class="banner" key={id} role="status" aria-live="polite"
+                        onclick={let banner = banner.clone(); move |_| banner.set(None)}
+                        aria-label={t("Fermer l'alerte", "Dismiss alert")}>
+                    <span class="banner-text">{ text }</span><span class="banner-x" aria-hidden="true">{ "✕" }</span>
+                </button>
             }
             <section class="card hero">
                 <div class="card-head">
@@ -505,6 +518,13 @@ fn Board(props: &BoardProps) -> Html {
                 <h2 class="hero-title">{ format!("{} {} — {}", flag_country(&snap.session.country), snap.session.location, session_fr(&snap.session.session_name)) }</h2>
                 <p class="lap-counter">{ lap }{ if snap.finished { t(" · Terminé", " · Finished") } else if snap.paused { t(" · En pause", " · Paused") } else { "" } }</p>
                 <div class={classes!("track-status", ts_class)} role="status">{ ts_label }</div>
+                if let Some(e) = snap.events.first() {
+                    <p class="ticker" key={e.date.clone()}>
+                        <span aria-hidden="true">{ event_icon(&e.kind) }</span>
+                        <span class="ticker-text">{ event_text(&e.kind) }</span>
+                        if e.lap > 0 { <span class="ticker-lap">{ tr!("T{}", "L{}", e.lap) }</span> }
+                    </p>
+                }
                 if is_replay {
                     <div class="progress" aria-label={t("Avancement du replay", "Replay progress")}>
                         <span style={format!("width:{:.1}%", snap.progress * 100.0)}></span>
@@ -530,7 +550,7 @@ fn Board(props: &BoardProps) -> Html {
             </section>
 
             <div class="segmented segmented-4" role="tablist">
-                { tab(View::Order, t("Classement", "Order")) }
+                { tab(View::Order, t("Ordre", "Order")) }
                 { tab(View::Map, t("Carte", "Map")) }
                 { tab(View::Strategy, t("Stratégie", "Strategy")) }
                 { tab(View::Timeline, t("Chrono", "Timeline")) }
@@ -652,7 +672,7 @@ fn legend() -> Html {
             <ul class="legend-tyres">
                 { tyre_item("SOFT") }{ tyre_item("MEDIUM") }{ tyre_item("HARD") }{ tyre_item("INTERMEDIATE") }{ tyre_item("WET") }
             </ul>
-            <p class="muted">{ t("Alertes :", "Alerts:") }</p>
+            <p class="muted">{ t("Alertes (une petite bannière en bas de l'écran, 8 s minimum entre deux) :", "Alerts (a small banner at the bottom, at least 8 s apart):") }</p>
             <AlertSettings />
         </details>
     }
