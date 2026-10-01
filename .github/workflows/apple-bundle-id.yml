@@ -1,0 +1,67 @@
+name: Identifiant d'app Apple
+
+# Enregistre l'identifiant de l'app (com.maxlestage.f1x) dans le compte Apple Developer via l'API
+# App Store Connect, pour pouvoir créer la fiche de l'app. Sans effet s'il existe déjà.
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths: [".github/workflows/apple-bundle-id.yml"]
+
+jobs:
+  register:
+    runs-on: ubuntu-latest
+    env:
+      ISSUER_ID: ${{ secrets.ASC_ISSUER_ID || secrets.ASC_ISSUER }}
+      KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      KEY_CONTENT: ${{ secrets.ASC_KEY_P8 || secrets.ASC_KEY_CONTENT || secrets.ASC_KEY_BASE64 || secrets.ASC_KEY_PRIVATE || secrets.ASC_KEY_FILE || secrets.ASC_KEY }}
+      BUNDLE_ID: com.maxlestage.f1x
+      APP_NAME: F1X
+    steps:
+      - name: Installer les outils
+        run: pip install --quiet "pyjwt[crypto]" requests
+      - name: Enregistrer l'identifiant
+        shell: python
+        run: |
+          import base64, os, sys, time
+          import jwt, requests
+
+          key = os.environ["KEY_CONTENT"]
+          if "BEGIN PRIVATE KEY" not in key:
+              key = base64.b64decode(key).decode()
+          token = jwt.encode(
+              {"iss": os.environ["ISSUER_ID"], "iat": int(time.time()),
+               "exp": int(time.time()) + 600, "aud": "appstoreconnect-v1"},
+              key, algorithm="ES256",
+              headers={"kid": os.environ["KEY_ID"], "typ": "JWT"},
+          )
+          api = "https://api.appstoreconnect.apple.com/v1"
+          h = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+          bundle = os.environ["BUNDLE_ID"]
+
+          r = requests.get(f"{api}/bundleIds", headers=h,
+                           params={"filter[identifier]": bundle, "limit": 200})
+          if r.status_code != 200:
+              print(f"::error::API App Store Connect : {r.status_code} {r.text[:500]}")
+              sys.exit(1)
+          found = [b for b in r.json()["data"] if b["attributes"]["identifier"] == bundle]
+          if found:
+              a = found[0]["attributes"]
+              print(f"::notice::Déjà enregistré : {a['name']} ({a['identifier']}, {a['platform']})")
+          else:
+              r = requests.post(f"{api}/bundleIds", headers=h, json={"data": {
+                  "type": "bundleIds",
+                  "attributes": {"identifier": bundle, "name": os.environ["APP_NAME"],
+                                 "platform": "IOS"}}})
+              if r.status_code not in (200, 201):
+                  print(f"::error::Création impossible : {r.status_code} {r.text[:800]}")
+                  sys.exit(1)
+              print(f"::notice::Identifiant {bundle} enregistré.")
+
+          # Fiche de l'app déjà créée dans App Store Connect ?
+          r = requests.get(f"{api}/apps", headers=h, params={"filter[bundleId]": bundle})
+          apps = r.json().get("data", []) if r.status_code == 200 else []
+          if apps:
+              print(f"::notice::Fiche App Store Connect trouvée : {apps[0]['attributes']['name']}")
+          else:
+              print("::notice::Fiche de l'app pas encore créée : App Store Connect → Apps → + → Nouvelle app.")
