@@ -766,6 +766,26 @@ fn LiveMap(props: &MapProps) -> Html {
                 },
                 format!("{:.0}%", w.humidity),
             ),
+            (
+                t("Vent", "Wind"),
+                format!(
+                    "{:.0} km/h{}",
+                    w.wind_speed * 3.6,
+                    w.wind_direction
+                        .map(|d| format!(" {}", super::compass(d)))
+                        .unwrap_or_default()
+                ),
+            ),
+            (
+                t("Écart piste/air", "Track vs air"),
+                format!("{:+.0}°", w.track_temperature - w.air_temperature),
+            ),
+            (
+                t("Pression", "Pressure"),
+                w.pressure
+                    .map(|p| format!("{p:.0} hPa"))
+                    .unwrap_or_else(|| "–".into()),
+            ),
         ])
     });
     let Some(track) = &props.track else {
