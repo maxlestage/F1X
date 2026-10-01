@@ -17,6 +17,7 @@ struct HomeView: View {
                 VStack(spacing: 16) {
                     if let race = data.next {
                         NextRaceCard(race: race)
+                        WeatherCard(race: race, full: false)
                     } else {
                         HeroCard {
                             Text("Saison \(data.season) terminée").font(.title2.bold())
@@ -34,7 +35,8 @@ struct HomeView: View {
                                         position: s.rank,
                                         teamId: s.team?.constructorId,
                                         title: driverTitle(s.driver, flag: true),
-                                        subtitle: s.team?.name ?? ""
+                                        subtitle: s.team?.name ?? "",
+                                        avatar: s.driver
                                     ) { PointsLabel(value: s.points) }
                                 }
                                 .buttonStyle(.plain)
@@ -44,12 +46,15 @@ struct HomeView: View {
                     if !data.teams.isEmpty {
                         SectionCard(title: "Écuries") {
                             ForEach(data.teams.prefix(3)) { s in
-                                StandingRow(
-                                    position: s.rank,
-                                    teamId: s.constructor.constructorId,
-                                    title: Text(s.constructor.name),
-                                    subtitle: winsLabel(s.wins)
-                                ) { PointsLabel(value: s.points) }
+                                NavigationLink(value: s.constructor) {
+                                    StandingRow(
+                                        position: s.rank,
+                                        teamId: s.constructor.constructorId,
+                                        title: Text(s.constructor.name),
+                                        subtitle: winsLabel(s.wins)
+                                    ) { PointsLabel(value: s.points) }
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
                     }
@@ -59,8 +64,7 @@ struct HomeView: View {
             .refreshable { await load(force: true) }
         }
         .navigationTitle("F1X")
-        .navigationDestination(for: Race.self) { RaceDetailView(race: $0) }
-        .navigationDestination(for: Driver.self) { DriverDetailView(driver: $0) }
+        .f1Destinations()
         .task { if case .loading = state { await load(force: false) } }
     }
 
@@ -88,8 +92,8 @@ struct HomeView: View {
 func winsLabel(_ wins: String) -> String {
     switch wins {
     case "0": ""
-    case "1": "1 victoire"
-    default: "\(wins) victoires"
+    case "1": L("1 victoire", "1 win")
+    default: L("\(wins) victoires", "\(wins) wins")
     }
 }
 
@@ -161,6 +165,8 @@ private struct PodiumStep: View {
 
     var body: some View {
         VStack(spacing: 2) {
+            Avatar(name: result.driver.fullName, wikipedia: result.driver.url,
+                   color: Team.color(result.constructor.constructorId), size: tall ? 56 : 46)
             Text(result.position).font(.title2.weight(.black)).italic()
             Text(result.driver.familyName)
                 .font(.subheadline.bold())
@@ -176,6 +182,7 @@ private struct PodiumStep: View {
         .padding(.vertical, tall ? 20 : 12)
         .padding(.horizontal, 4)
         .background(Color(uiColor: .tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+        .contentShape(Rectangle())
         .overlay(alignment: .top) {
             UnevenRoundedRectangle(topLeadingRadius: 12, topTrailingRadius: 12)
                 .fill(Team.color(result.constructor.constructorId))

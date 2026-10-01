@@ -19,6 +19,7 @@ struct Race: Decodable, Identifiable, Hashable, Sendable {
     let results: [RaceResult]?
     let sprintResults: [RaceResult]?
     let qualifyingResults: [QualifyingResult]?
+    let pitStops: [PitStop]?
 
     var id: String { "\(season)-\(round)" }
     var roundNumber: Int { Int(round) ?? 0 }
@@ -66,6 +67,7 @@ struct Race: Decodable, Identifiable, Hashable, Sendable {
         case results = "Results"
         case sprintResults = "SprintResults"
         case qualifyingResults = "QualifyingResults"
+        case pitStops = "PitStops"
     }
 }
 
@@ -91,19 +93,26 @@ struct Session: Decodable, Sendable {
     }()
 }
 
-struct Circuit: Decodable, Sendable {
+struct Circuit: Decodable, Hashable, Sendable {
+    let circuitId: String
     let circuitName: String
+    let url: String?
     let location: Location
 
     enum CodingKeys: String, CodingKey {
-        case circuitName
+        case circuitId, circuitName, url
         case location = "Location"
     }
+
+    static func == (lhs: Circuit, rhs: Circuit) -> Bool { lhs.circuitId == rhs.circuitId }
+    func hash(into hasher: inout Hasher) { hasher.combine(circuitId) }
 }
 
 struct Location: Decodable, Sendable {
     let locality: String
     let country: String
+    let lat: String?
+    let long: String?
 }
 
 struct Driver: Decodable, Hashable, Sendable {
@@ -113,13 +122,31 @@ struct Driver: Decodable, Hashable, Sendable {
     let givenName: String
     let familyName: String
     let nationality: String?
+    let url: String?
+    let dateOfBirth: String?
 
     var fullName: String { "\(givenName) \(familyName)" }
+
+    static func == (lhs: Driver, rhs: Driver) -> Bool { lhs.driverId == rhs.driverId }
+    func hash(into hasher: inout Hasher) { hasher.combine(driverId) }
 }
 
 struct Constructor: Decodable, Hashable, Sendable {
     let constructorId: String
     let name: String
+    let nationality: String?
+    let url: String?
+
+    static func == (lhs: Constructor, rhs: Constructor) -> Bool { lhs.constructorId == rhs.constructorId }
+    func hash(into hasher: inout Hasher) { hasher.combine(constructorId) }
+}
+
+struct PitStop: Decodable, Identifiable, Sendable {
+    let driverId: String
+    let lap: String
+    let stop: String
+    let duration: String?
+    var id: String { "\(driverId)-\(stop)" }
 }
 
 struct TimeValue: Decodable, Sendable {
@@ -128,6 +155,13 @@ struct TimeValue: Decodable, Sendable {
 
 struct FastestLap: Decodable, Sendable {
     let rank: String?
+    let lap: String?
+    let time: TimeValue?
+
+    enum CodingKeys: String, CodingKey {
+        case rank, lap
+        case time = "Time"
+    }
 }
 
 struct RaceResult: Decodable, Identifiable, Sendable {
