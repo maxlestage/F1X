@@ -76,7 +76,11 @@ jobs:
             CODE_SIGN_STYLE=Automatic \
             CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
             | tee "$RUNNER_TEMP/archive.log" | grep -E "error:|warning: .*signing|\*\* ARCHIVE" || true
-          test -d "$RUNNER_TEMP/F1X.xcarchive" || { tail -80 "$RUNNER_TEMP/archive.log"; exit 1; }
+          if [ ! -d "$RUNNER_TEMP/F1X.xcarchive" ]; then
+            grep -E "^/.*(error|warning): " "$RUNNER_TEMP/archive.log" | grep -v "^/Applications" | sort -u | head -80
+            grep -A3 -E "^/.*error: " "$RUNNER_TEMP/archive.log" | grep -v "^/Applications" | head -150
+            exit 1
+          fi
 
       - name: Envoyer sur TestFlight
         run: |

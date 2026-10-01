@@ -141,7 +141,9 @@ struct TeamDetailView: View {
     let team: Constructor
 
     @State private var info: Constructor?
-    @State private var wins = "–", podiums = "–", poles = "–"
+    @State private var wins = "–"
+    @State private var podiums = "–"
+    @State private var poles = "–"
     @State private var titles: [String] = []
     @State private var drivers: [DriverStanding] = []
     @State private var standing: ConstructorStanding?
