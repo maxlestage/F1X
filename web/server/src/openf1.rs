@@ -624,9 +624,16 @@ impl OpenF1 {
             .await?;
         let info = arr(&drivers).first();
 
-        let mut raw: Vec<(Ms, f64, f64)> = arr(&location)
+        let mut raw: Vec<(Ms, f64, f64, f64)> = arr(&location)
             .iter()
-            .filter_map(|p| Some((t(p, "date")?, f(p, "x")?, f(p, "y")?)))
+            .filter_map(|p| {
+                Some((
+                    t(p, "date")?,
+                    f(p, "x")?,
+                    f(p, "y")?,
+                    f(p, "z").unwrap_or(0.0),
+                ))
+            })
             .filter(|p| p.1 != 0.0 || p.2 != 0.0)
             .collect();
         raw.sort_by_key(|p| p.0);
@@ -659,11 +666,12 @@ impl OpenF1 {
             .fold((f64::MAX, f64::MIN), |a, p| (a.0.min(p.2), a.1.max(p.2)));
         let scale = 1000.0 / (max_x - min_x).max(1.0);
         let height = ((max_y - min_y) * scale).max(1.0);
+        let min_z = raw.iter().map(|p| p.3).fold(f64::MAX, f64::min);
 
         let mut j = 0;
         let points: Vec<TrackPoint> = raw
             .iter()
-            .map(|(time, x, y)| {
+            .map(|(time, x, y, z)| {
                 while j + 1 < samples.len()
                     && (samples[j + 1].0 - time).abs() <= (samples[j].0 - time).abs()
                 {
@@ -673,6 +681,7 @@ impl OpenF1 {
                 TrackPoint {
                     x: ((x - min_x) * scale) as f32,
                     y: ((max_y - y) * scale) as f32,
+                    z: ((z - min_z) * scale) as f32,
                     t: ((time - start).max(0) as f32) / 1000.0,
                     speed: c.1,
                     gear: c.2,

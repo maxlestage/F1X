@@ -109,6 +109,8 @@ pub fn TeamPage(props: &IdProps) -> Html {
                 }
             </section>
 
+            { crate::gl3d::car_card(crate::util::team_color(&team.constructor_id), &team.name) }
+
             if let Some(season) = &season {
                 <section class="card">
                     <h2>{ t("Saison par saison", "Season by season") }</h2>

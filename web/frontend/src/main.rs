@@ -2,6 +2,7 @@
 
 mod api;
 mod components;
+mod gl3d;
 mod i18n;
 mod live;
 mod models;

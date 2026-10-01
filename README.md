@@ -99,6 +99,20 @@ cargo run            # http://localhost:3000
 
 Les anciennes adresses (`/calendrier`, `/course/{manche}`, `/pilotes`, `/ecuries`) restent valides.
 
+### 🏎️ 3D et photos (gratuit, sans service externe payant)
+
+- **Monoplaces en 3D** (pages écurie et pilote) : F1 stylisée générée par le code aux couleurs de
+  l'écurie (aucun modèle officiel), rendue en **WebGL 2 depuis Rust** (`frontend/src/gl3d.rs`).
+  Glisser horizontalement pour la faire tourner ; le défilement vertical de la page reste libre.
+- **Circuits en relief** (fiche circuit, page GP) : le tracé GPS OpenF1 avec son **altitude réelle**
+  (dénivelé exagéré ×4), coloré par la vitesse ; une voiture rejoue le meilleur tour à vitesse réelle,
+  avec une **caméra embarquée**.
+- **Race Center** : vue « Relief 3D » de la carte, les voitures roulent sur le circuit aux couleurs
+  de leur écurie.
+- **Photos et avatars** : images libres de **Wikimedia Commons** (crédit et licence en lien), via
+  `/api/photo/{titre}` (cache serveur partagé, une requête Wikipédia par photo). Sinon, initiales
+  sur la couleur de l'écurie.
+
 ### 🧭 Explorer (outils et jeux, sans coût supplémentaire)
 
 | Page | Contenu |
@@ -148,6 +162,7 @@ course. Le nombre de personnes connectées est diffusé en temps réel.
 | Route | Rôle |
 |---|---|
 | `/api/f1/{chemin}.json?limit=&offset=` | N'importe quel endpoint Jolpica (chemin validé) |
+| `/api/photo/{titre}` | Photo libre (Wikimedia Commons) d'un article Wikipédia `{src, credit}`, 404 sinon |
 | `/api/all/{chemin}.json` | Toutes les pages d'un endpoint, fusionnées côté serveur |
 | `/api/live/sessions/{année}` | Sessions rejouables (OpenF1) |
 | `/api/track/{circuit}` | Tracé GPS + télémétrie du meilleur tour de la dernière course (depuis 2023), mis en cache |

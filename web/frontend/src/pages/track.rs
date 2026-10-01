@@ -168,6 +168,57 @@ pub fn TrackView(props: &TrackProps) -> Html {
     }
 }
 
+/// Tracé en plan (télémétrie) ou en relief 3D, au choix.
+#[derive(Properties, PartialEq)]
+pub struct PanelProps {
+    pub track: Rc<TrackMap>,
+    #[prop_or_default]
+    pub start_3d: bool,
+}
+
+#[function_component]
+pub fn TrackPanel(props: &PanelProps) -> Html {
+    let three = use_state(|| props.start_3d);
+    let tab = |on: bool, label: &'static str| {
+        let three = three.clone();
+        html! {
+            <button class={classes!("seg", (*three == on).then_some("seg-active"))} aria-pressed={(*three == on).to_string()}
+                onclick={move |_| three.set(on)}>{ label }</button>
+        }
+    };
+    let relief = props
+        .track
+        .points
+        .iter()
+        .map(|p| p.z)
+        .fold(0.0f32, f32::max)
+        > 1.0;
+    html! {
+        <>
+            <div class="segmented">
+                { tab(false, t("Plan 2D", "2D map")) }
+                { tab(true, t("Relief 3D", "3D relief")) }
+            </div>
+            if *three {
+                <crate::gl3d::View3D scene={crate::gl3d::Scene::Track { map: props.track.clone(), ghost: true }} />
+                <p class="muted">{ if relief {
+                    t(
+                        "Tracé GPS réel avec son relief (dénivelé exagéré ×4), coloré selon la vitesse. La voiture rejoue le meilleur tour à vitesse réelle.",
+                        "Real GPS layout with its elevation (exaggerated ×4), coloured by speed. The car replays the fastest lap at real speed.",
+                    )
+                } else {
+                    t(
+                        "Tracé GPS réel coloré selon la vitesse. La voiture rejoue le meilleur tour à vitesse réelle.",
+                        "Real GPS layout coloured by speed. The car replays the fastest lap at real speed.",
+                    )
+                } }</p>
+            } else {
+                <TrackView track={props.track.clone()} />
+            }
+        </>
+    }
+}
+
 /// Carte OpenStreetMap intégrée, centrée sur le circuit.
 pub fn osm_embed(lat: &str, lon: &str) -> Html {
     let (Ok(la), Ok(lo)) = (lat.parse::<f64>(), lon.parse::<f64>()) else {
@@ -232,7 +283,7 @@ pub fn CircuitTrack(props: &CircuitTrackProps) -> Html {
     let track = crate::api::use_json::<TrackMap>(Some(format!("/api/track/{}", props.circuit_id)));
     let body = match &track {
         None => crate::components::loading(),
-        Some(Ok(map)) => html! { <TrackView track={map.clone()} /> },
+        Some(Ok(map)) => html! { <TrackPanel track={map.clone()} /> },
         // Circuit jamais utilisé depuis 2023 (pas de données GPS) : rien à dessiner.
         Some(Err(_)) => return html! {},
     };

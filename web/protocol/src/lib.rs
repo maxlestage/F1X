@@ -255,6 +255,9 @@ pub struct TrackMap {
 pub struct TrackPoint {
     pub x: f32,
     pub y: f32,
+    /// Altitude relative (même échelle que x et y, 0 = point le plus bas).
+    #[serde(default)]
+    pub z: f32,
     /// Secondes écoulées depuis le début du tour.
     pub t: f32,
     pub speed: u16,

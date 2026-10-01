@@ -753,6 +753,7 @@ struct MapProps {
 #[function_component]
 fn LiveMap(props: &MapProps) -> Html {
     let snap = &props.snapshot;
+    let three = use_state(|| false);
     let weather = snap.weather.as_ref().map(|w| {
         stat_grid(vec![
             ("Air", format!("{:.0}°", w.air_temperature)),
@@ -794,9 +795,40 @@ fn LiveMap(props: &MapProps) -> Html {
         .filter(|c| c.lap_progress.is_some() && !c.retired)
         .collect();
     cars.reverse(); // le leader dessiné en dernier (au-dessus)
+    let tab = |on: bool, label: &'static str| {
+        let three = three.clone();
+        html! {
+            <button class={classes!("seg", (*three == on).then_some("seg-active"))} aria-pressed={(*three == on).to_string()}
+                onclick={move |_| three.set(on)}>{ label }</button>
+        }
+    };
+    if *three {
+        let markers: Vec<crate::gl3d::Marker> = cars
+            .iter()
+            .map(|c| crate::gl3d::Marker {
+                key: c.code.clone(),
+                label: c.position.to_string(),
+                colour: c.colour.clone(),
+                fraction: c.lap_progress.unwrap_or(0.0),
+            })
+            .collect();
+        return html! {
+            <section class="card">
+                <h2>{ t("Carte en direct", "Live map") }</h2>
+                <div class="segmented">{ tab(false, t("Plan 2D", "2D map")) }{ tab(true, t("Relief 3D", "3D relief")) }</div>
+                <crate::gl3d::View3D scene={crate::gl3d::Scene::Track { map: track.clone(), ghost: false }} markers={Rc::new(markers)} />
+                <p class="muted">{ t(
+                    "Voitures aux couleurs de leur écurie (chiffre = position), placées d'après l'avancement de chaque pilote dans son tour. Glisse pour tourner autour du circuit.",
+                    "Cars in team colours (number = position), placed from each driver's progress through the lap. Drag to orbit the circuit.",
+                ) }</p>
+                { weather.unwrap_or_default() }
+            </section>
+        };
+    }
     html! {
         <section class="card">
             <h2>{ t("Carte en direct", "Live map") }</h2>
+            <div class="segmented">{ tab(false, t("Plan 2D", "2D map")) }{ tab(true, t("Relief 3D", "3D relief")) }</div>
             <svg class="track" viewBox={format!("0 0 {w:.0} {h:.0}")} role="img"
                  aria-label={t("Position des voitures sur le circuit", "Car positions on the circuit")}>
                 <polyline class="track-base" points={line.clone()} />

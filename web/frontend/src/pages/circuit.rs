@@ -4,7 +4,7 @@ use yew::prelude::*;
 use yew_router::prelude::*;
 
 use super::IdProps;
-use super::{TrackView, osm_embed};
+use super::{TrackPanel, osm_embed};
 use crate::api::{all, f1, use_f1, use_json};
 use crate::components::*;
 use crate::i18n::t;
@@ -179,7 +179,7 @@ pub fn CircuitPage(props: &IdProps) -> Html {
                             "Layout available for circuits used since 2023 (OpenF1 GPS data).",
                         ) }</p>
                     },
-                    Some(Ok(map)) => html! { <TrackView track={map.clone()} /> },
+                    Some(Ok(map)) => html! { <TrackPanel track={map.clone()} start_3d=true /> },
                     Some(Err((404, _))) => html! {
                         <p class="muted">{ t(
                             "Tracé disponible pour les circuits utilisés depuis 2023 (données GPS OpenF1).",

@@ -481,3 +481,17 @@ button.btn:disabled { opacity: .5; }
 .wiki-photo img { width: 100%; max-height: 340px; object-fit: cover; object-position: center 25%; border-radius: 14px; background: var(--surface-2); }
 .wiki-photo-wide img { object-fit: contain; max-height: 260px; background: #f4f4f8; padding: 8px; }
 .wiki-photo figcaption { font-size: .72rem; color: var(--muted); }
+
+/* ---------- Vues 3D (WebGL) ---------- */
+.scene { position: relative; margin: 10px 0 6px; border-radius: 14px; overflow: hidden;
+  background: radial-gradient(120% 90% at 50% 20%, #23232f 0%, #101016 70%); }
+.scene-canvas { display: block; width: 100%; aspect-ratio: 16 / 10; touch-action: pan-y; cursor: grab; }
+.scene-canvas:active { cursor: grabbing; }
+.scene-track .scene-canvas { aspect-ratio: 1 / 1; max-height: 70vh; }
+.scene-labels { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.scene-label { position: absolute; left: 0; top: 0; min-width: 18px; padding: 1px 4px; text-align: center; border-radius: 999px; font-size: .62rem; font-weight: 700;
+  white-space: nowrap; color: #0b0b10; background: var(--team, #fff); box-shadow: 0 1px 3px rgba(0,0,0,.6); visibility: hidden; }
+.scene-tools { position: absolute; right: 8px; bottom: 8px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: calc(100% - 16px); }
+.scene-btn { min-height: 36px; min-width: 36px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line);
+  background: rgba(11, 11, 16, .78); color: var(--text); font: inherit; font-size: .82rem; font-weight: 600; cursor: pointer; }
+.scene-btn.on { background: var(--red); border-color: var(--red); }
