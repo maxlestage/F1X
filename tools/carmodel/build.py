@@ -465,6 +465,38 @@ def build():
         # Porte-moyeu et écope de frein.
         m.ellipsoid((1.75, 0.36, s * 0.66), (0.10, 0.12, 0.05), lambda i, j: CARBON, 8, 16)
         m.ellipsoid((-1.85, 0.36, s * 0.58), (0.12, 0.13, 0.06), lambda i, j: CARBON, 8, 16)
+
+    # ----- Détails
+    for s in (-1, 1):
+        # Ouïes de refroidissement sur le dessus des pontons (lamelles sombres).
+        for k in range(6):
+            x = -0.30 - 0.11 * k
+            t = (x + 0.32) / (-0.82 + 0.32)
+            y = lerp(0.470, 0.370, t) - 0.012
+            zc = s * lerp(0.522, 0.432, t)
+            m.plate_xz(DARK, [(x, zc - 0.075), (x, zc + 0.075), (x - 0.045, zc + 0.075), (x - 0.045, zc - 0.075)], y, y + 0.014)
+        # Bord de fond avant (« edge wing ») et déflecteurs devant les pontons.
+        m.extrude(PAINT, [(1.10, 0.058), (1.10, 0.10), (0.55, 0.14), (0.40, 0.14), (0.40, 0.058)], s * 0.70, s * 0.712)
+        m.extrude(SECOND, [(1.30, 0.20), (1.30, 0.40), (1.16, 0.44), (1.10, 0.24)], s * 0.43, s * 0.44)
+        # Ailettes sous le nez (« floor fences »).
+        for z in (0.24, 0.36):
+            m.extrude(CARBON, [(1.55, 0.03), (1.55, 0.12), (1.10, 0.16), (0.90, 0.09), (0.90, 0.03)], s * z - 0.004, s * z + 0.004)
+        # Écopes de frein avant et arrière (entrées d'air sombres).
+        m.ellipsoid((1.88, 0.30, s * 0.62), (0.07, 0.05, 0.035), lambda i, j: CARBON_GLOSS, 8, 14)
+        m.ellipsoid((1.95, 0.30, s * 0.62), (0.008, 0.035, 0.022), lambda i, j: DARK, 6, 12)
+        m.extrude(CARBON, [(-1.62, 0.18), (-1.62, 0.56), (-2.06, 0.56), (-2.06, 0.18)], s * 0.585, s * 0.60)
+        m.extrude(ACCENT, [(-1.64, 0.50), (-1.64, 0.54), (-2.04, 0.54), (-2.04, 0.50)], s * 0.600, s * 0.603)
+        # Petites ailettes sur le capot moteur (« T-wing ») et antennes.
+        m.tube(TITANIUM, [(1.40, 0.505, s * 0.06), (1.40, 0.60, s * 0.06)], 0.004, 6, 1)
+    # Volant devant le pilote.
+    m.extrude(CARBON_GLOSS, [(0.47, 0.68), (0.47, 0.75), (0.45, 0.76), (0.45, 0.67)], -0.09, 0.09)
+    m.extrude(ACCENT, [(0.475, 0.70), (0.475, 0.73), (0.471, 0.73), (0.471, 0.70)], -0.05, 0.05)
+    # Tube de Pitot au bout du nez, antenne derrière l'arceau, aileron en T.
+    m.tube(TITANIUM, [(2.80, 0.235, 0.0), (3.05, 0.24, 0.0)], 0.006, 6, 1)
+    m.tube(TITANIUM, [(-0.50, 0.94, 0.0), (-0.56, 1.06, 0.0)], 0.005, 6, 1)
+    wing(m, CARBON_GLOSS, span(-0.16, 0.16, lambda t: (-1.88, 0.66, 0.08, 6, 0.10), 4))
+    # Structure anti-écrasement arrière et feu de pluie.
+    m.ellipsoid((-2.48, 0.33, 0.0), (0.20, 0.055, 0.075), lambda i, j: CARBON, 8, 16)
     return m
 
 

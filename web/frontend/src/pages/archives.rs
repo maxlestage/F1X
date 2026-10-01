@@ -90,6 +90,7 @@ pub fn ArchivesPage() -> Html {
 
             <h2 class="section-title">{ t("Archives", "Archive") }</h2>
             <ol class="rows rows-card">
+                { entry(Route::Data, t("📊 Données OpenF1", "📊 OpenF1 data"), t("Chaque séance depuis 2023 : télémétrie, pneus, écarts, radios…", "Every session since 2023: telemetry, tyres, gaps, radio…"), "→".into()) }
                 { entry(Route::AllSeasons, t("Saisons", "Seasons"), t("Calendriers, vainqueurs et classements", "Calendars, winners and standings"), total_of(&seasons)) }
                 { entry(Route::AllDrivers, t("Pilotes", "Drivers"), t("Tous les pilotes, avec recherche", "Every driver, searchable"), total_of(&drivers)) }
                 { entry(Route::AllTeams, t("Écuries", "Teams"), t("Tous les constructeurs", "Every constructor"), total_of(&teams)) }

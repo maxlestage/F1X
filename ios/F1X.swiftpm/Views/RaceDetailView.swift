@@ -46,6 +46,12 @@ struct RaceDetailView: View {
                 NavigationLink(value: race.circuit) { Text(L("Fiche complète du circuit", "Full circuit details")) }
             }
 
+            if race.isOver(), let year = Int(race.season), year >= 2023 {
+                Section(L("Données OpenF1", "OpenF1 data")) {
+                    MeetingLinkButton(year: year, date: race.date)
+                }
+            }
+
             if !results.isEmpty {
                 Section(L("Course", "Race")) {
                     ForEach(results) { ResultRow(result: $0) }

@@ -61,6 +61,14 @@ pub enum Route {
     AllTeams,
     #[at("/archives/circuits")]
     AllCircuits,
+    #[at("/donnees")]
+    Data,
+    #[at("/donnees/:year")]
+    DataYear { year: u32 },
+    #[at("/donnees/reunion/:key")]
+    DataMeeting { key: u32 },
+    #[at("/donnees/session/:key")]
+    DataSession { key: u32 },
     // Anciennes adresses (saison en cours), conservées pour les liens existants.
     #[at("/calendrier")]
     LegacyCalendar,
@@ -138,6 +146,10 @@ fn switch(route: Route) -> Html {
         Route::AllDrivers => html! { <AllDriversPage /> },
         Route::AllTeams => html! { <AllTeamsPage /> },
         Route::AllCircuits => html! { <AllCircuitsPage /> },
+        Route::Data => html! { <DataYearPage year={util::current_year()} /> },
+        Route::DataYear { year } => html! { <DataYearPage {year} /> },
+        Route::DataMeeting { key } => html! { <DataMeetingPage key_={key} /> },
+        Route::DataSession { key } => html! { <DataSessionPage key_={key} /> },
         Route::NotFound => html! { <NotFound /> },
     }
 }

@@ -227,6 +227,12 @@ pub fn RacePage(props: &RacePageProps) -> Html {
                 { empty_card(t("Les résultats ne sont pas encore disponibles.", "Results are not available yet.")) }
             }
 
+            if over {
+                if let Ok(year) = race.season.parse::<u32>() {
+                    <div class="of1-link"><super::MeetingLink {year} date={race.date.clone()} /></div>
+                }
+            }
+
             <nav class="pager" aria-label="Grands Prix">
                 if round > 1 {
                     <Link<Route> to={Route::race(&season, round - 1)} classes="btn btn-ghost">{ t("← Précédent", "← Previous") }</Link<Route>>

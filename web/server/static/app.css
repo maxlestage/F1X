@@ -550,3 +550,21 @@ button.btn:disabled { opacity: .5; }
 .chart-readout-hint { font-weight: 500; color: var(--muted); font-size: .85rem; }
 /* Ciel des circuits 3D (se fond dans le brouillard à l'horizon). */
 .scene.scene-track, .scene-full.scene-track { background: linear-gradient(180deg, #33476b 0%, #24314a 45%, #1f2a3e 70%, #161c29 100%); }
+
+/* Données OpenF1 */
+.year-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.pill { padding: 6px 12px; border-radius: 999px; background: var(--surface-2); color: var(--text); font-weight: 700; font-size: .85rem; text-decoration: none; }
+.pill-on { background: var(--red); color: #fff; }
+.of1-tabs { margin: 0 0 12px; row-gap: 4px; }
+.of1-chart { margin: 6px 0 4px; min-width: 0; }
+.of1-chart .chart { width: 100%; height: auto; touch-action: pan-y; display: block; }
+.strat-row .strat-bar { display: flex; }
+.strat-stint { height: 100%; box-shadow: inset -2px 0 0 var(--surface); flex: none; }
+.tel-pick { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-bottom: 8px; }
+.tel-pick select { width: 100%; min-width: 0; padding: 8px; border-radius: 8px; background: var(--surface-2); color: var(--text); border: 1px solid var(--line); font: inherit; }
+.of1-details summary { cursor: pointer; font-weight: 700; padding: 8px 0; }
+.radio-row { border-left: 3px solid var(--team, transparent); }
+.radio-row audio { width: 100%; height: 34px; margin-top: 6px; }
+.row-meta { font-size: .8rem; color: var(--muted); white-space: nowrap; }
+.of1-link { display: flex; justify-content: center; margin: 4px 0 12px; }
+.of1-link .btn { max-width: 100%; white-space: normal; text-align: center; }
