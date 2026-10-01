@@ -62,6 +62,32 @@ fn image(name: &str) -> Response {
     }
 }
 
+/// Modèle 3D de la monoplace (généré par tools/carmodel/build.py), partagé avec l'app iOS.
+const CAR: &[u8] = include_bytes!("../static/car.bin");
+
+/// Empreinte du modèle, pour une mise en cache permanente côté navigateur.
+pub fn car_hash() -> &'static str {
+    static HASH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    HASH.get_or_init(|| {
+        let mut h: u64 = 0xcbf29ce484222325;
+        for b in CAR {
+            h = (h ^ *b as u64).wrapping_mul(0x100000001b3);
+        }
+        format!("{h:016x}")
+    })
+}
+
+pub async fn car() -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "application/octet-stream"),
+            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+        ],
+        CAR,
+    )
+        .into_response()
+}
+
 pub async fn img(Path(name): Path<String>) -> Response {
     image(&name)
 }

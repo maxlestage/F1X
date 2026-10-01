@@ -47,6 +47,7 @@
   <script>
     (function () {
       var started = false;
+      window.__f1xCar = "/static/car.bin?v={{CAR}}";
       window.__f1xStarted = function () { started = true; };
       function fail(reason, force) {
         if (started && !force) return;

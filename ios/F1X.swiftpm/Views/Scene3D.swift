@@ -290,11 +290,82 @@ final class MeshBuilder {
 
 // MARK: - Monoplace
 
+/// Modèle détaillé partagé avec le site (`car.bin`, généré par tools/carmodel/build.py).
+enum CarFile {
+    struct Group {
+        let mat: Mat
+        let positions: [SCNVector3]
+        let normals: [SCNVector3]
+        let indices: [UInt16]
+    }
+
+    static let groups: [Group]? = {
+        guard let url = Bundle.main.url(forResource: "car", withExtension: "bin"),
+              let data = try? Data(contentsOf: url) else { return nil }
+        return parse([UInt8](data))
+    }()
+
+    static func parse(_ b: [UInt8]) -> [Group]? {
+        guard b.count > 12, b[0] == 0x46, b[1] == 0x31, b[2] == 0x58, b[3] == 0x43 else { return nil }
+        func u32(_ o: Int) -> Int { Int(b[o]) | Int(b[o + 1]) << 8 | Int(b[o + 2]) << 16 | Int(b[o + 3]) << 24 }
+        func i16(_ o: Int) -> Float { Float(Int16(bitPattern: UInt16(b[o]) | UInt16(b[o + 1]) << 8)) }
+        var off = 12
+        var out: [Group] = []
+        for _ in 0..<u32(8) {
+            guard off + 16 <= b.count else { return nil }
+            let kind = b[off], gloss = Int(b[off + 4])
+            let hex = UInt32(b[off + 1]) << 16 | UInt32(b[off + 2]) << 8 | UInt32(b[off + 3])
+            let mat: Mat = kind == 1 ? .paint : kind == 2 ? .second : kind == 3 ? .accent : .fixed(hex, gloss)
+            let nv = u32(off + 8), ni = u32(off + 12)
+            off += 16
+            guard off + nv * 9 + ni * 2 <= b.count else { return nil }
+            var pos: [SCNVector3] = [], nrm: [SCNVector3] = []
+            pos.reserveCapacity(nv)
+            nrm.reserveCapacity(nv)
+            for i in 0..<nv {
+                let o = off + i * 6
+                pos.append(SCNVector3(i16(o) / 4096, i16(o + 2) / 4096, i16(o + 4) / 4096))
+            }
+            off += nv * 6
+            for i in 0..<nv {
+                let o = off + i * 3
+                nrm.append(SCNVector3(Float(Int8(bitPattern: b[o])) / 127, Float(Int8(bitPattern: b[o + 1])) / 127, Float(Int8(bitPattern: b[o + 2])) / 127))
+            }
+            off += nv * 3
+            var idx: [UInt16] = []
+            idx.reserveCapacity(ni)
+            for i in 0..<ni {
+                let o = off + i * 2
+                idx.append(UInt16(b[o]) | UInt16(b[o + 1]) << 8)
+            }
+            off += ni * 2
+            out.append(Group(mat: mat, positions: pos, normals: nrm, indices: idx))
+        }
+        return out
+    }
+
+    static func geometry(livery: Livery) -> SCNGeometry? {
+        guard let groups else { return nil }
+        var pos: [SCNVector3] = [], nrm: [SCNVector3] = []
+        var elements: [SCNGeometryElement] = [], materials: [SCNMaterial] = []
+        for g in groups {
+            let base = UInt32(pos.count)
+            pos += g.positions
+            nrm += g.normals
+            elements.append(SCNGeometryElement(indices: g.indices.map { base + UInt32($0) }, primitiveType: .triangles))
+            materials.append(MeshBuilder.material(g.mat, livery))
+        }
+        let geo = SCNGeometry(sources: [SCNGeometrySource(vertices: pos), SCNGeometrySource(normals: nrm)], elements: elements)
+        geo.materials = materials
+        return geo
+    }
+}
+
 enum CarModel {
     private static let base: MeshBuilder = build()
 
     static func node(livery: Livery) -> SCNNode {
-        SCNNode(geometry: base.geometry(livery: livery))
+        SCNNode(geometry: CarFile.geometry(livery: livery) ?? base.geometry(livery: livery))
     }
 
     private static func build() -> MeshBuilder {

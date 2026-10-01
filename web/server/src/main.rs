@@ -165,6 +165,7 @@ fn app(state: AppState) -> Router {
             get(|| plain_asset("image/svg+xml", include_bytes!("../static/icon.svg"))),
         )
         .route("/static/img/{name}", get(assets::img))
+        .route("/static/car.bin", get(assets::car))
         .route("/favicon.ico", get(assets::favicon))
         .route("/apple-touch-icon.png", get(assets::apple_touch_icon))
         .route(
@@ -208,7 +209,8 @@ async fn index(headers: axum::http::HeaderMap) -> impl IntoResponse {
             INDEX_HTML
                 .replace("{{APP}}", env!("F1X_APP_HASH"))
                 .replace("{{CSS}}", env!("F1X_CSS_HASH"))
-                .replace("{{ORIGIN}}", &assets::origin(&headers)),
+                .replace("{{ORIGIN}}", &assets::origin(&headers))
+                .replace("{{CAR}}", assets::car_hash()),
         ),
     )
 }

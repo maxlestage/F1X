@@ -112,7 +112,8 @@ Les anciennes adresses (`/calendrier`, `/course/{manche}`, `/pilotes`, `/ecuries
 
 ### 🏎️ 3D et photos (gratuit, sans service externe payant)
 
-- **Monoplaces en 3D** (pages écurie et pilote) : F1 stylisée générée par le code aux couleurs de
+- **Monoplaces en 3D** (pages écurie et pilote) : modèle détaillé (~44 000 triangles) généré par
+  `tools/carmodel/build.py` dans `car.bin`, partagé par le site et l'app iOS. F1 stylisée aux couleurs de
   l'écurie (aucun modèle officiel), rendue en **WebGL 2 depuis Rust** (`frontend/src/gl3d.rs`).
   Livrée bicolore par écurie, carrosserie lissée, vernis et reflets. Dans la page : glisser
   horizontalement pour tourner ; en **plein écran** : 1 doigt pour tourner, 2 doigts pour zoomer
