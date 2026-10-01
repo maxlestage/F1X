@@ -21,6 +21,8 @@ targets:
       - path: F1X.swiftpm/Data
       - path: F1X.swiftpm/Views
       - path: Resources/Assets.xcassets
+      - path: Resources/car.bin
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.maxlestage.f1x

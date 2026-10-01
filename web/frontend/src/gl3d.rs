@@ -1066,6 +1066,8 @@ struct Gpu {
 struct Vao {
     vao: WebGlVertexArrayObject,
     count: i32,
+    /// Dessin indexé (indices u32) plutôt que des triangles à plat.
+    indexed: bool,
 }
 
 /// Couleurs d'une livrée (RVB 0–1).
@@ -1138,6 +1140,33 @@ impl Gpu {
         Some(Vao {
             vao,
             count: mesh.count(),
+            indexed: false,
+        })
+    }
+
+    /// Maillage indexé (modèle de monoplace détaillé).
+    fn upload_indexed(&self, verts: &[f32], indices: &[u32]) -> Option<Vao> {
+        let gl = &self.gl;
+        let vao = gl.create_vertex_array()?;
+        gl.bind_vertex_array(Some(&vao));
+        let buf = gl.create_buffer()?;
+        gl.bind_buffer(Gl::ARRAY_BUFFER, Some(&buf));
+        let data = js_sys::Float32Array::from(verts);
+        gl.buffer_data_with_array_buffer_view(Gl::ARRAY_BUFFER, &data, Gl::STATIC_DRAW);
+        let stride = (STRIDE * 4) as i32;
+        for (index, size, offset) in [(0, 3, 0), (1, 3, 3), (2, 4, 6), (3, 1, 10)] {
+            gl.enable_vertex_attrib_array(index);
+            gl.vertex_attrib_pointer_with_i32(index, size, Gl::FLOAT, false, stride, offset * 4);
+        }
+        let ibuf = gl.create_buffer()?;
+        gl.bind_buffer(Gl::ELEMENT_ARRAY_BUFFER, Some(&ibuf));
+        let idx = js_sys::Uint32Array::from(indices);
+        gl.buffer_data_with_array_buffer_view(Gl::ELEMENT_ARRAY_BUFFER, &idx, Gl::STATIC_DRAW);
+        gl.bind_vertex_array(None);
+        Some(Vao {
+            vao,
+            count: indices.len() as i32,
+            indexed: true,
         })
     }
 
@@ -1153,8 +1182,93 @@ impl Gpu {
             gl.uniform3f(loc.as_ref(), c[0], c[1], c[2]);
         }
         gl.bind_vertex_array(Some(&vao.vao));
-        gl.draw_arrays(Gl::TRIANGLES, 0, vao.count);
+        if vao.indexed {
+            gl.draw_elements_with_i32(Gl::TRIANGLES, vao.count, Gl::UNSIGNED_INT, 0);
+        } else {
+            gl.draw_arrays(Gl::TRIANGLES, 0, vao.count);
+        }
     }
+}
+
+// ---------- Modèle détaillé (fichier partagé avec l'app iOS) ----------
+
+/// Décode `car.bin` (voir tools/carmodel/build.py) en sommets (format STRIDE) et indices.
+fn parse_car(b: &[u8]) -> Option<CarData> {
+    let rd = |o: usize, n: usize| b.get(o..o + n);
+    if rd(0, 4)? != b"F1XC" {
+        return None;
+    }
+    let u32_at = |o: usize| Some(u32::from_le_bytes(rd(o, 4)?.try_into().ok()?));
+    let groups = u32_at(8)? as usize;
+    let mut off = 12;
+    let (mut verts, mut indices) = (Vec::new(), Vec::new());
+    for _ in 0..groups {
+        let h = rd(off, 8)?;
+        let kind = match h[0] {
+            1 => PAINT,
+            2 => SECOND,
+            3 => ACCENT,
+            _ => FIXED,
+        };
+        let colour = [
+            h[1] as f32 / 255.0,
+            h[2] as f32 / 255.0,
+            h[3] as f32 / 255.0,
+            h[4] as f32 / 100.0,
+        ];
+        let nv = u32_at(off + 8)? as usize;
+        let ni = u32_at(off + 12)? as usize;
+        off += 16;
+        let base = (verts.len() / STRIDE) as u32;
+        let pos = rd(off, nv * 6)?;
+        let nrm = rd(off + nv * 6, nv * 3)?;
+        for i in 0..nv {
+            for k in 0..3 {
+                let v = i16::from_le_bytes([pos[i * 6 + k * 2], pos[i * 6 + k * 2 + 1]]);
+                verts.push(v as f32 / 4096.0);
+            }
+            for k in 0..3 {
+                verts.push(nrm[i * 3 + k] as i8 as f32 / 127.0);
+            }
+            verts.extend_from_slice(&colour);
+            verts.push(kind);
+        }
+        off += nv * 9;
+        let idx = rd(off, ni * 2)?;
+        for i in 0..ni {
+            indices.push(base + u16::from_le_bytes([idx[i * 2], idx[i * 2 + 1]]) as u32);
+        }
+        off += ni * 2;
+    }
+    Some((verts, indices))
+}
+
+/// Sommets (format STRIDE) et indices du modèle détaillé.
+type CarData = (Vec<f32>, Vec<u32>);
+
+thread_local! {
+    static CAR_FILE: RefCell<Option<Rc<CarData>>> = const { RefCell::new(None) };
+}
+
+/// Télécharge (une fois) le modèle détaillé ; adresse fournie par la page (`window.__f1xCar`).
+async fn load_car() -> Option<Rc<CarData>> {
+    if let Some(hit) = CAR_FILE.with(|c| c.borrow().clone()) {
+        return Some(hit);
+    }
+    let url = web_sys::window()
+        .and_then(|w| js_sys::Reflect::get(&w, &"__f1xCar".into()).ok())
+        .and_then(|v| v.as_string())
+        .unwrap_or_else(|| "/static/car.bin".into());
+    let bytes = gloo_net::http::Request::get(&url)
+        .send()
+        .await
+        .ok()?
+        .binary()
+        .await
+        .ok()?;
+    let parsed = Rc::new(parse_car(&bytes)?);
+    CAR_FILE.with(|c| *c.borrow_mut() = Some(parsed.clone()));
+    Some(parsed)
 }
 
 pub fn parse_colour(hex: &str) -> [f32; 3] {
@@ -1356,7 +1470,9 @@ impl State {
         let fov = 0.62f32;
         let (eye, target, near, far) = match &self.track {
             None => {
-                let dist = 3.0 / ((fov / 2.0).tan() * aspect.min(1.8)) * self.cam.zoom;
+                let dist = 3.0 / ((fov / 2.0).tan() * aspect.min(1.8))
+                    * self.cam.zoom
+                    * if aspect < 0.8 { 0.85 } else { 1.0 };
                 self.dist = dist;
                 let target = add([0.0, 0.35, 0.0], self.cam.pan);
                 (
@@ -1447,6 +1563,12 @@ impl State {
                     }
                 }
             }
+        }
+    }
+
+    fn set_car(&mut self, car: &CarData) {
+        if let Some(vao) = self.gpu.upload_indexed(&car.0, &car.1) {
+            self.car = vao;
         }
     }
 
@@ -1606,7 +1728,10 @@ impl Viewer {
         scene: &Scene,
     ) -> Option<Viewer> {
         let gpu = Gpu::new(&canvas)?;
-        let car = gpu.upload(&car_mesh())?;
+        let car = match CAR_FILE.with(|c| c.borrow().clone()) {
+            Some(file) => gpu.upload_indexed(&file.0, &file.1)?,
+            None => gpu.upload(&car_mesh())?,
+        };
         let mut sh = Mesh::default();
         sh.shadow([0.0, 0.002, 0.0], 3.4, 1.4);
         let shadow = gpu.upload(&sh)?;
@@ -1723,6 +1848,17 @@ pub fn View3D(props: &ViewProps) -> Html {
                 failed.set(true);
             }
             *viewer.borrow_mut() = made;
+            {
+                // Modèle détaillé : chargé en arrière-plan, remplace la version simplifiée.
+                let viewer = viewer.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    if let Some(car) = load_car().await {
+                        if let Some(v) = viewer.borrow().as_ref() {
+                            v.state.borrow_mut().set_car(&car);
+                        }
+                    }
+                });
+            }
             move || {
                 viewer.borrow_mut().take();
             }
