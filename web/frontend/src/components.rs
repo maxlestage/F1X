@@ -312,6 +312,8 @@ pub fn driver_standing_row(s: &DriverStanding) -> Html {
     html! {
         <li class={classes!("row", fav.then_some("row-fav"))} style={team.map(|t| team_style(&t.constructor_id))}>
             <span class="pos">{ s.rank() }</span>
+            <crate::photo::Avatar name={s.driver.full_name()} url={s.driver.url.clone().map(AttrValue::from)}
+                colour={team.map(|t| crate::util::team_color(&t.constructor_id)).unwrap_or("#8a8a99")} />
             <Link<Route> to={Route::driver(&s.driver.driver_id)} classes="row-main">
                 <span class="row-title">
                     { flag_nationality(s.driver.nationality.as_deref()) }{ " " }

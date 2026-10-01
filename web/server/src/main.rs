@@ -3,6 +3,7 @@ mod landing;
 mod live;
 mod news;
 mod openf1;
+mod photos;
 mod race;
 
 use std::net::SocketAddr;
@@ -27,6 +28,7 @@ struct AppState {
     api: F1Api,
     hub: std::sync::Arc<live::Hub>,
     news: news::News,
+    photos: photos::Photos,
 }
 
 #[tokio::main]
@@ -55,6 +57,7 @@ async fn main() {
         api: F1Api::new(Duration::from_secs(ttl)),
         hub: live::Hub::new(openf1),
         news: news::News::new(),
+        photos: photos::Photos::new(),
     };
     // Cache persistant optionnel (utile en local pour ne pas épuiser le quota Jolpica).
     let cache_file = std::env::var("CACHE_FILE").ok();
@@ -101,6 +104,26 @@ fn app(state: AppState) -> Router {
                         [(header::CACHE_CONTROL, "public, max-age=300")],
                         axum::Json(list.as_ref().clone()),
                     )
+                },
+            ),
+        )
+        .route(
+            "/photo/{title}",
+            get(
+                |State(s): State<AppState>, Path(title): Path<String>| async move {
+                    match s.photos.get(&title).await {
+                        Ok(Some(photo)) => (
+                            [(header::CACHE_CONTROL, "public, max-age=604800")],
+                            axum::Json(photo),
+                        )
+                            .into_response(),
+                        Ok(None) => (
+                            StatusCode::NOT_FOUND,
+                            [(header::CACHE_CONTROL, "public, max-age=86400")],
+                        )
+                            .into_response(),
+                        Err(()) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+                    }
                 },
             ),
         )

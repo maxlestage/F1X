@@ -6,6 +6,7 @@ mod i18n;
 mod live;
 mod models;
 mod pages;
+mod photo;
 mod util;
 
 use yew::prelude::*;
