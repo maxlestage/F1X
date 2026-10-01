@@ -6,17 +6,20 @@ struct RaceDetailView: View {
     @State private var results: [RaceResult] = []
     @State private var sprint: [RaceResult] = []
     @State private var qualifying: [QualifyingResult] = []
+    @State private var pits: [PitStop] = []
     @State private var isLoading = true
 
     var body: some View {
         List {
             Section {
                 VStack(alignment: .leading, spacing: 8) {
-                    Eyebrow(text: "Manche \(race.round)")
+                    Eyebrow(text: "\(race.season) · \(L("Manche", "Round")) \(race.round)")
                     Text("\(Flag.country(race.circuit.location.country)) \(race.raceName)")
                         .font(.title2.weight(.heavy))
                         .fixedSize(horizontal: false, vertical: true)
-                    Text(race.circuit.circuitName).foregroundStyle(.secondary)
+                    NavigationLink(value: race.circuit) {
+                        Text(race.circuit.circuitName).foregroundStyle(Color.f1Red)
+                    }
                     Text("\(race.circuit.location.locality), \(race.circuit.location.country)")
                         .foregroundStyle(.secondary)
                     if !race.isOver(), let start = race.start {
@@ -26,12 +29,25 @@ struct RaceDetailView: View {
                 .padding(.vertical, 4)
             }
 
-            Section("Programme") {
+            Section(L("Programme", "Schedule")) {
                 SessionsList(race: race)
             }
 
+            if !race.isOver() {
+                Section {
+                    WeatherCard(race: race)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                }
+            }
+
+            Section(L("Le circuit", "The circuit")) {
+                TrackPanel(circuitId: race.circuit.circuitId)
+                NavigationLink(value: race.circuit) { Text(L("Fiche complète du circuit", "Full circuit details")) }
+            }
+
             if !results.isEmpty {
-                Section("Course") {
+                Section(L("Course", "Race")) {
                     ForEach(results) { ResultRow(result: $0) }
                 }
             }
@@ -43,7 +59,7 @@ struct RaceDetailView: View {
             }
 
             if !qualifying.isEmpty {
-                Section("Qualifications") {
+                Section(L("Qualifications", "Qualifying")) {
                     ForEach(qualifying) { q in
                         NavigationLink(value: q.driver) {
                             StandingRow(
@@ -61,9 +77,29 @@ struct RaceDetailView: View {
                 }
             }
 
+            if !pits.isEmpty {
+                Section(L("Arrêts aux stands", "Pit stops")) {
+                    let fastest = pits.compactMap { p in p.duration.flatMap(Double.init).map { (p, $0) } }.min { $0.1 < $1.1 }
+                    if let f = fastest {
+                        Text(L("Arrêt le plus court : \(name(f.0.driverId)) en \(String(format: "%.3f", f.1)) s (tour \(f.0.lap))",
+                               "Quickest stop: \(name(f.0.driverId)) in \(String(format: "%.3f", f.1)) s (lap \(f.0.lap))"))
+                            .font(.subheadline.bold())
+                    }
+                    ForEach(pits) { p in
+                        HStack {
+                            Text(name(p.driverId)).bold()
+                            Spacer()
+                            Text(L("Tour \(p.lap) · arrêt \(p.stop) · \(p.duration ?? "–") s", "Lap \(p.lap) · stop \(p.stop) · \(p.duration ?? "–") s"))
+                                .font(.footnote.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
             if !isLoading && race.isOver() && results.isEmpty {
                 Section {
-                    Text("Les résultats ne sont pas encore disponibles.").foregroundStyle(.secondary)
+                    Text(L("Les résultats ne sont pas encore disponibles.", "Results are not available yet.")).foregroundStyle(.secondary)
                 }
             }
         }
@@ -78,21 +114,27 @@ struct RaceDetailView: View {
         }
     }
 
+    private func name(_ driverId: String) -> String {
+        (results + sprint).first { $0.driver.driverId == driverId }?.driver.familyName ?? driverId.capitalized
+    }
+
     private func load() async {
         defer { isLoading = false }
         // Pas de résultats à chercher plus de 3 jours avant la course.
         guard let start = race.start, Date.now > start.addingTimeInterval(-3 * 86400) else { return }
-        let round = race.roundNumber
-        async let r = try? F1API.shared.results(round: round)
-        async let s = try? F1API.shared.sprint(round: round)
-        async let q = try? F1API.shared.qualifying(round: round)
+        let round = race.roundNumber, season = race.season
+        async let r = try? F1API.shared.results(season: season, round: round)
+        async let s = try? F1API.shared.sprint(season: season, round: round)
+        async let q = try? F1API.shared.qualifying(season: season, round: round)
+        async let p = try? F1API.shared.pitStops(season: season, round: round)
         results = await r ?? []
         sprint = await s ?? []
         qualifying = await q ?? []
+        pits = await p ?? []
     }
 }
 
-private struct ResultRow: View {
+struct ResultRow: View {
     let result: RaceResult
 
     var body: some View {
@@ -103,12 +145,20 @@ private struct ResultRow: View {
                 title: result.hasFastestLap
                     ? Text("\(driverTitle(result.driver))  \(Text("⏱").foregroundStyle(Color.f1Purple))")
                     : driverTitle(result.driver),
-                subtitle: [result.constructor.name, result.outcome].filter { !$0.isEmpty }.joined(separator: " · ")
+                subtitle: [result.constructor.name, gained, result.outcome].filter { !$0.isEmpty }.joined(separator: " · "),
+                avatar: result.driver
             ) {
                 if result.scoredPoints {
                     PointsLabel(value: "+\(result.points)", suffix: "")
                 }
             }
         }
+    }
+
+    /// Places gagnées ou perdues depuis la grille.
+    private var gained: String {
+        guard let g = result.grid.flatMap(Int.init), g > 0, let p = Int(result.position) else { return "" }
+        let d = g - p
+        return d > 0 ? "▲\(d)" : (d < 0 ? "▼\(-d)" : "")
     }
 }

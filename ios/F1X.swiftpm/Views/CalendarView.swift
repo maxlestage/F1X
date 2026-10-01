@@ -1,32 +1,51 @@
 import SwiftUI
 
 struct CalendarView: View {
+    @State private var season = "current"
     @State private var state: Loadable<[Race]> = .loading
+    @State private var winners: [String: RaceResult] = [:]
 
     var body: some View {
-        LoadableView(state: state, retry: load) { races in
-            let nextId = races.first { !$0.isOver() }?.id
-            List(races) { race in
-                NavigationLink(value: race) {
-                    CalendarRow(race: race, isNext: race.id == nextId)
+        List {
+            Section { SeasonPicker(season: $season) }
+            switch state {
+            case .loading:
+                Section { ProgressView().frame(maxWidth: .infinity) }
+            case .failed(let message):
+                Section {
+                    Text(message).foregroundStyle(.secondary)
+                    Button(L("Réessayer", "Retry")) { Task { await load() } }
                 }
-                .listRowBackground(race.id == nextId ? Color.f1Red.opacity(0.18) : nil)
-            }
-            .listStyle(.insetGrouped)
-            .refreshable {
-                await F1API.shared.clearCache()
-                await load()
+            case .loaded(let races):
+                let nextId = races.first { !$0.isOver() }?.id
+                Section {
+                    ForEach(races) { race in
+                        NavigationLink(value: race) {
+                            CalendarRow(race: race, isNext: race.id == nextId, winner: winners[race.round])
+                        }
+                        .listRowBackground(race.id == nextId ? Color.f1Red.opacity(0.18) : nil)
+                    }
+                }
             }
         }
-        .navigationTitle("Calendrier")
-        .navigationDestination(for: Race.self) { RaceDetailView(race: $0) }
-        .navigationDestination(for: Driver.self) { DriverDetailView(driver: $0) }
-        .task { if case .loading = state { await load() } }
+        .listStyle(.insetGrouped)
+        .navigationTitle(L("Calendrier", "Calendar"))
+        .f1Destinations()
+        .refreshable {
+            await F1API.shared.clearCache()
+            await load()
+        }
+        .task(id: season) { await load() }
     }
 
     private func load() async {
         do {
-            state = .loaded(try await F1API.shared.schedule())
+            async let w = try? F1API.shared.winners(season)
+            let races = try await F1API.shared.schedule(season: season)
+            state = .loaded(races)
+            var map: [String: RaceResult] = [:]
+            for r in await w ?? [] { if let first = r.results?.first { map[r.round] = first } }
+            winners = map
         } catch {
             state = .failed(loadErrorMessage(error))
         }
@@ -36,6 +55,7 @@ struct CalendarView: View {
 private struct CalendarRow: View {
     let race: Race
     let isNext: Bool
+    let winner: RaceResult?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -61,10 +81,16 @@ private struct CalendarRow: View {
                 }
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+                if let w = winner {
+                    Text("🏆 \(w.driver.fullName) · \(w.constructor.name)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if isNext {
-                Text("Prochain")
+                Text(L("Prochain", "Next"))
                     .font(.caption2.bold())
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
@@ -72,6 +98,6 @@ private struct CalendarRow: View {
                     .foregroundStyle(.white)
             }
         }
-        .opacity(race.isOver() ? 0.6 : 1)
+        .opacity(race.isOver() && winner == nil ? 0.6 : 1)
     }
 }

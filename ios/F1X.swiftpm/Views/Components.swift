@@ -118,6 +118,8 @@ struct StandingRow<Trailing: View>: View {
     let teamId: String?
     let title: Text
     let subtitle: String
+    /// Avatar facultatif (photo du pilote).
+    var avatar: Driver? = nil
     @ViewBuilder let trailing: () -> Trailing
 
     var body: some View {
@@ -129,6 +131,9 @@ struct StandingRow<Trailing: View>: View {
             Text(position)
                 .font(.body.weight(.heavy).monospacedDigit())
                 .frame(minWidth: 24)
+            if let d = avatar {
+                Avatar(name: d.fullName, wikipedia: d.url, color: Team.color(teamId), size: 36)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 title
                     .fixedSize(horizontal: false, vertical: true)
@@ -191,4 +196,32 @@ struct Eyebrow: View {
             .tracking(1)
             .foregroundStyle(.secondary)
     }
+}
+
+
+/// Destinations de navigation communes à tous les onglets.
+struct F1Destinations: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .navigationDestination(for: Race.self) { RaceDetailView(race: $0) }
+            .navigationDestination(for: Driver.self) { DriverDetailView(driver: $0) }
+            .navigationDestination(for: Constructor.self) { TeamDetailView(team: $0) }
+            .navigationDestination(for: Circuit.self) { CircuitDetailView(circuit: $0) }
+    }
+}
+
+extension View {
+    func f1Destinations() -> some View { modifier(F1Destinations()) }
+}
+
+/// Âge à partir d'une date « 1985-01-07 ».
+func age(_ dob: String?) -> Int? {
+    guard let dob, let date = ISO8601DateFormatter().date(from: dob + "T00:00:00Z") else { return nil }
+    return Calendar.current.dateComponents([.year], from: date, to: .now).year
+}
+
+/// « 7 janvier 1985 ».
+func longDate(_ iso: String?) -> String {
+    guard let iso, let date = ISO8601DateFormatter().date(from: iso + "T12:00:00Z") else { return iso ?? "" }
+    return date.formatted(.dateTime.day().month(.wide).year().locale(Locale(identifier: isFrench ? "fr_FR" : "en_GB")))
 }
