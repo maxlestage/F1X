@@ -256,6 +256,8 @@ impl Dataset {
                     track_temperature: f(w, "track_temperature")?,
                     humidity: f(w, "humidity").unwrap_or(0.0),
                     wind_speed: f(w, "wind_speed").unwrap_or(0.0),
+                    wind_direction: f(w, "wind_direction"),
+                    pressure: f(w, "pressure"),
                     rainfall: f(w, "rainfall").unwrap_or(0.0) > 0.0,
                 },
             ))

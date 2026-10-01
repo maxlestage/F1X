@@ -194,7 +194,14 @@ pub struct Weather {
     pub air_temperature: f64,
     pub track_temperature: f64,
     pub humidity: f64,
+    /// Vent moyen en m/s (OpenF1).
     pub wind_speed: f64,
+    /// Direction d'où vient le vent, en degrés.
+    #[serde(default)]
+    pub wind_direction: Option<f64>,
+    /// Pression atmosphérique (hPa).
+    #[serde(default)]
+    pub pressure: Option<f64>,
     pub rainfall: bool,
 }
 
