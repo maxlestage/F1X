@@ -309,9 +309,13 @@ enum CarFile {
         guard b.count > 12, b[0] == 0x46, b[1] == 0x31, b[2] == 0x58, b[3] == 0x43 else { return nil }
         func u32(_ o: Int) -> Int { Int(b[o]) | Int(b[o + 1]) << 8 | Int(b[o + 2]) << 16 | Int(b[o + 3]) << 24 }
         func i16(_ o: Int) -> Float { Float(Int16(bitPattern: UInt16(b[o]) | UInt16(b[o + 1]) << 8)) }
-        var off = 12
+        // Version 1 : échelle fixe (monoplace) ; version 2 : échelle en tête (décor de circuit).
+        let version = u32(4)
+        let scale: Float = version >= 2 ? Float(bitPattern: UInt32(u32(8))) : 4096
+        let count = version >= 2 ? u32(12) : u32(8)
+        var off = version >= 2 ? 16 : 12
         var out: [Group] = []
-        for _ in 0..<u32(8) {
+        for _ in 0..<count {
             guard off + 16 <= b.count else { return nil }
             let kind = b[off], gloss = Int(b[off + 4])
             let hex = UInt32(b[off + 1]) << 16 | UInt32(b[off + 2]) << 8 | UInt32(b[off + 3])
@@ -324,7 +328,7 @@ enum CarFile {
             nrm.reserveCapacity(nv)
             for i in 0..<nv {
                 let o = off + i * 6
-                pos.append(SCNVector3(i16(o) / 4096, i16(o + 2) / 4096, i16(o + 4) / 4096))
+                pos.append(SCNVector3(i16(o) / scale, i16(o + 2) / scale, i16(o + 4) / scale))
             }
             off += nv * 6
             for i in 0..<nv {
@@ -346,6 +350,10 @@ enum CarFile {
 
     static func geometry(livery: Livery) -> SCNGeometry? {
         guard let groups else { return nil }
+        return geometry(groups, livery: livery)
+    }
+
+    static func geometry(_ groups: [Group], livery: Livery) -> SCNGeometry {
         var pos: [SCNVector3] = [], nrm: [SCNVector3] = []
         var elements: [SCNGeometryElement] = [], materials: [SCNMaterial] = []
         for g in groups {
@@ -487,6 +495,18 @@ enum Studio {
         }
     }()
 
+    /// Ciel du soir pour les circuits.
+    static let sky: UIImage = {
+        let size = CGSize(width: 16, height: 256)
+        return UIGraphicsImageRenderer(size: size).image { ctx in
+            let colors = [UIColor(red: 0.20, green: 0.28, blue: 0.42, alpha: 1).cgColor,
+                          UIColor(red: 0.12, green: 0.165, blue: 0.24, alpha: 1).cgColor,
+                          UIColor(red: 0.08, green: 0.10, blue: 0.15, alpha: 1).cgColor] as CFArray
+            let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 0.55, 1])!
+            ctx.cgContext.drawLinearGradient(g, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
+        }
+    }()
+
     static func scene() -> SCNScene {
         let scene = SCNScene()
         scene.lightingEnvironment.contents = environment
@@ -571,7 +591,7 @@ final class TrackPath {
 
     static let relief: Float = 4
     static let halfWidth: Float = 8
-    static let carScale: Float = 7
+    static let carScale: Float = 5
 
     init(_ map: TrackMap) {
         let cx = Float(map.width / 2), cz = Float(map.height / 2)
@@ -745,7 +765,27 @@ struct TrackSceneView: UIViewRepresentable {
             path = TrackPath(map)
             ghostCar = ghost ? CarModel.node(livery: .single(UIColor(Color(hexString: map.colour)))) : nil
             super.init()
-            scene.rootNode.addChildNode(TrackModel.node(map, path: path))
+            let simple = TrackModel.node(map, path: path)
+            scene.rootNode.addChildNode(simple)
+            // Ciel et brouillard de distance.
+            scene.background.contents = Studio.sky
+            scene.fogColor = UIColor(red: 0.12, green: 0.165, blue: 0.24, alpha: 1)
+            scene.fogStartDistance = CGFloat(path.radius * 0.6)
+            scene.fogEndDistance = CGFloat(path.radius * 6)
+            // Décor détaillé (relief, vibreurs, tribunes, arbres) calculé par le serveur.
+            let id = map.circuit_id
+            Task { [weak self] in
+                guard let url = URL(string: "api/track3d/\(id)", relativeTo: Server.base),
+                      let result = try? await URLSession.shared.data(from: url),
+                      (result.1 as? HTTPURLResponse)?.statusCode == 200,
+                      let groups = CarFile.parse([UInt8](result.0)) else { return }
+                let node = SCNNode(geometry: CarFile.geometry(groups, livery: .single(.gray)))
+                await MainActor.run {
+                    guard let self else { return }
+                    self.scene.rootNode.addChildNode(node)
+                    simple.removeFromParentNode()
+                }
+            }
             let dist = path.radius / sin(20 * .pi / 180) * 0.95
             overview.position = SCNVector3(dist * 0.45, path.centreY + dist * 0.75, dist * 0.5)
             overview.look(at: SCNVector3(0, path.centreY, 0))

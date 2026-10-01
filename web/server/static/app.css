@@ -548,3 +548,5 @@ button.btn:disabled { opacity: .5; }
 .wx-guide { stroke: #f4f4f8; stroke-opacity: .7; stroke-width: 1; }
 .wx-dot { stroke: var(--surface); stroke-width: 2; }
 .chart-readout-hint { font-weight: 500; color: var(--muted); font-size: .85rem; }
+/* Ciel des circuits 3D (se fond dans le brouillard à l'horizon). */
+.scene.scene-track, .scene-full.scene-track { background: linear-gradient(180deg, #33476b 0%, #24314a 45%, #1f2a3e 70%, #161c29 100%); }
