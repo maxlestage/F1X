@@ -114,7 +114,9 @@ Les anciennes adresses (`/calendrier`, `/course/{manche}`, `/pilotes`, `/ecuries
 
 - **Monoplaces en 3D** (pages écurie et pilote) : F1 stylisée générée par le code aux couleurs de
   l'écurie (aucun modèle officiel), rendue en **WebGL 2 depuis Rust** (`frontend/src/gl3d.rs`).
-  Glisser horizontalement pour la faire tourner ; le défilement vertical de la page reste libre.
+  Livrée bicolore par écurie, carrosserie lissée, vernis et reflets. Dans la page : glisser
+  horizontalement pour tourner ; en **plein écran** : 1 doigt pour tourner, 2 doigts pour zoomer
+  et déplacer, double toucher pour recentrer.
 - **Circuits en relief** (fiche circuit, page GP) : le tracé GPS OpenF1 avec son **altitude réelle**
   (dénivelé exagéré ×4), coloré par la vitesse ; une voiture rejoue le meilleur tour à vitesse réelle,
   avec une **caméra embarquée**.

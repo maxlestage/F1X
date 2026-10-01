@@ -2,6 +2,7 @@
 //! officiel) et circuits en relief reconstitués à partir des positions GPS OpenF1.
 
 use std::cell::{Cell, RefCell};
+use std::f32::consts::{PI, TAU};
 use std::rc::Rc;
 
 use f1x_protocol::TrackMap;
@@ -118,29 +119,58 @@ impl M4 {
 
 // ---------- Maillages ----------
 
-/// Nature d'un sommet : couleur fixe, peinture de l'écurie, accent, ou non éclairé.
+/// Nature d'un sommet : couleur fixe, couleurs de la livrée (principale, secondaire, accent)
+/// ou non éclairé (ombres, ligne de départ).
 const FIXED: f32 = 0.0;
 const PAINT: f32 = 1.0;
 const ACCENT: f32 = 2.0;
 const UNLIT: f32 = 3.0;
+const SECOND: f32 = 4.0;
 
 /// Position (3) + normale (3) + couleur RGBA (4) + nature (1).
+/// Pour les sommets éclairés, l'alpha porte la brillance du matériau (0 mat → 1 vernis).
 const STRIDE: usize = 11;
 
 type Rgba = [f32; 4];
 
-const CARBON: Rgba = [0.07, 0.07, 0.08, 1.0];
-const DARK: Rgba = [0.02, 0.02, 0.02, 1.0];
-const TYRE: Rgba = [0.05, 0.05, 0.055, 1.0];
-const RIM: Rgba = [0.42, 0.43, 0.46, 1.0];
-const STRIPE: Rgba = [0.98, 0.82, 0.1, 1.0];
+const CARBON: Rgba = [0.05, 0.05, 0.058, 0.25];
+const DARK: Rgba = [0.015, 0.015, 0.02, 0.6];
+const TYRE: Rgba = [0.045, 0.045, 0.05, 0.06];
+const RIM: Rgba = [0.30, 0.31, 0.33, 0.85];
+const STRIPE: Rgba = [0.98, 0.80, 0.08, 0.2];
+const VISOR: Rgba = [0.02, 0.03, 0.05, 1.0];
+const NUT: Rgba = [0.85, 0.08, 0.08, 0.7];
 const WHITE: Rgba = [1.0, 1.0, 1.0, 1.0];
-/// Couleur remplacée par la peinture ou l'accent de l'écurie.
-const P: Rgba = WHITE;
+/// Couleur remplacée par la livrée ; alpha = brillance de la peinture.
+const P: Rgba = [1.0, 1.0, 1.0, 1.0];
 
 #[derive(Default)]
 struct Mesh {
     v: Vec<f32>,
+}
+
+/// Section d'une carrosserie lissée : position sur l'axe X, centre en Z, demi-largeur, bas, haut.
+#[derive(Clone, Copy)]
+struct Ring {
+    x: f32,
+    zc: f32,
+    hw: f32,
+    y0: f32,
+    y1: f32,
+}
+
+const fn ring(x: f32, hw: f32, y0: f32, y1: f32) -> Ring {
+    Ring {
+        x,
+        zc: 0.0,
+        hw,
+        y0,
+        y1,
+    }
+}
+
+const fn side_ring(x: f32, zc: f32, hw: f32, y0: f32, y1: f32) -> Ring {
+    Ring { x, zc, hw, y0, y1 }
 }
 
 impl Mesh {
@@ -172,6 +202,13 @@ impl Mesh {
         }
     }
 
+    /// Quadrilatère à normales par sommet.
+    fn quad_n(&mut self, p: [V3; 4], n: [V3; 4], c: Rgba, k: f32) {
+        for i in [0, 1, 2, 0, 2, 3] {
+            self.vert(p[i], n[i], c, k);
+        }
+    }
+
     /// Hexaèdre : quatre coins d'une extrémité puis les quatre de l'autre, dans le même ordre.
     fn hexa(&mut self, p: [V3; 8], c: Rgba, k: f32) {
         let inside = mul(p.iter().fold([0.0; 3], |a, q| add(a, *q)), 1.0 / 8.0);
@@ -184,141 +221,292 @@ impl Mesh {
     }
 
     fn bx(&mut self, min: V3, max: V3, c: Rgba, k: f32) {
-        self.loft(
-            min[0],
-            Sec::new(
-                (min[2] + max[2]) / 2.0,
-                (max[2] - min[2]) / 2.0,
-                min[1],
-                max[1],
-            ),
-            max[0],
-            Sec::new(
-                (min[2] + max[2]) / 2.0,
-                (max[2] - min[2]) / 2.0,
-                min[1],
-                max[1],
-            ),
-            c,
-            k,
-        );
-    }
-
-    /// Volume entre deux sections rectangulaires perpendiculaires à l'axe X.
-    fn loft(&mut self, x0: f32, a: Sec, x1: f32, b: Sec, c: Rgba, k: f32) {
-        let ring = |x: f32, s: Sec| {
-            [
-                [x, s.y0, s.zc - s.zh],
-                [x, s.y0, s.zc + s.zh],
-                [x, s.y1, s.zc + s.zh],
-                [x, s.y1, s.zc - s.zh],
-            ]
-        };
-        let (r0, r1) = (ring(x0, a), ring(x1, b));
-        self.hexa(
-            [r0[0], r0[1], r0[2], r0[3], r1[0], r1[1], r1[2], r1[3]],
-            c,
-            k,
-        );
-    }
-
-    /// Poutre de section carrée entre deux points (bras de suspension, halo).
-    fn beam(&mut self, a: V3, b: V3, r: f32, c: Rgba, k: f32) {
-        let d = norm(sub(b, a));
-        let up = if d[1].abs() > 0.9 {
-            [1.0, 0.0, 0.0]
-        } else {
-            [0.0, 1.0, 0.0]
-        };
-        let s = mul(norm(cross(d, up)), r);
-        let u = mul(norm(cross(s, d)), r);
-        let corner = |p: V3, i: usize| match i {
-            0 => sub(sub(p, s), u),
-            1 => sub(add(p, s), u),
-            2 => add(add(p, s), u),
-            _ => add(sub(p, s), u),
-        };
         self.hexa(
             [
-                corner(a, 0),
-                corner(a, 1),
-                corner(a, 2),
-                corner(a, 3),
-                corner(b, 0),
-                corner(b, 1),
-                corner(b, 2),
-                corner(b, 3),
+                [min[0], min[1], min[2]],
+                [min[0], min[1], max[2]],
+                [min[0], max[1], max[2]],
+                [min[0], max[1], min[2]],
+                [max[0], min[1], min[2]],
+                [max[0], min[1], max[2]],
+                [max[0], max[1], max[2]],
+                [max[0], max[1], min[2]],
             ],
             c,
             k,
         );
     }
 
-    fn sphere(&mut self, centre: V3, r: f32, c: Rgba, k: f32) {
-        let (rings, segs) = (8, 14);
-        let at = |i: usize, j: usize| {
-            let th = std::f32::consts::PI * i as f32 / rings as f32;
-            let ph = std::f32::consts::TAU * j as f32 / segs as f32;
-            [th.sin() * ph.cos(), th.cos(), th.sin() * ph.sin()]
+    /// Lame (aileron) : profil incliné entre deux bords d'attaque/de fuite, sur une envergure.
+    fn blade(
+        &mut self,
+        front: (f32, f32),
+        back: (f32, f32),
+        thick: f32,
+        (z0, z1): (f32, f32),
+        (c, k): (Rgba, f32),
+    ) {
+        let (xf, yf) = front;
+        let (xb, yb) = back;
+        self.hexa(
+            [
+                [xf, yf, z0],
+                [xf, yf, z1],
+                [xf, yf + thick, z1],
+                [xf, yf + thick, z0],
+                [xb, yb, z0],
+                [xb, yb, z1],
+                [xb, yb + thick, z1],
+                [xb, yb + thick, z0],
+            ],
+            c,
+            k,
+        );
+    }
+
+    /// Carrosserie lissée : sections en super-ellipse (exposant `e`, 2 = ellipse, plus = plus
+    /// carré) reliées entre elles, normales lissées. `skin` choisit la couleur selon la hauteur
+    /// relative (−1 en bas, +1 en haut), pour une livrée bicolore.
+    fn smooth(&mut self, rings: &[Ring], e: f32, segs: usize, skin: &dyn Fn(f32) -> (Rgba, f32)) {
+        let n = rings.len();
+        let shape = |a: f32| {
+            let (s, c) = a.sin_cos();
+            (
+                c.signum() * c.abs().powf(2.0 / e),
+                s.signum() * s.abs().powf(2.0 / e),
+            )
         };
-        for i in 0..rings {
+        let unit: Vec<(f32, f32)> = (0..segs)
+            .map(|j| shape(TAU * j as f32 / segs as f32))
+            .collect();
+        let point = |i: usize, j: usize| {
+            let r = rings[i];
+            let (u, v) = unit[j % segs];
+            [
+                r.x,
+                (r.y0 + r.y1) / 2.0 + v * (r.y1 - r.y0) / 2.0,
+                r.zc + u * r.hw,
+            ]
+        };
+        let centre = |i: usize| {
+            let r = rings[i];
+            [r.x, (r.y0 + r.y1) / 2.0, r.zc]
+        };
+        let normal = |i: usize, j: usize| {
+            let along = sub(point((i + 1).min(n - 1), j), point(i.saturating_sub(1), j));
+            let around = sub(point(i, j + 1), point(i, j + segs - 1));
+            let mut nn = norm(cross(along, around));
+            if dot(nn, sub(point(i, j), centre(i))) < 0.0 {
+                nn = mul(nn, -1.0);
+            }
+            nn
+        };
+        for i in 0..n - 1 {
             for j in 0..segs {
-                let q = [at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j + 1)];
-                for idx in [0, 1, 2, 0, 2, 3] {
-                    self.vert(add(centre, mul(q[idx], r)), q[idx], c, k);
+                let (c, k) = skin((unit[j].1 + unit[(j + 1) % segs].1) / 2.0);
+                self.quad_n(
+                    [
+                        point(i, j),
+                        point(i + 1, j),
+                        point(i + 1, j + 1),
+                        point(i, j + 1),
+                    ],
+                    [
+                        normal(i, j),
+                        normal(i + 1, j),
+                        normal(i + 1, j + 1),
+                        normal(i, j + 1),
+                    ],
+                    c,
+                    k,
+                );
+            }
+        }
+        // Bouchons aux extrémités.
+        for (i, dir) in [(0usize, -1.0f32), (n - 1, 1.0)] {
+            let nn = norm(mul(
+                sub(centre((i + 1).min(n - 1)), centre(i.saturating_sub(1))),
+                dir,
+            ));
+            let (c, k) = skin(0.0);
+            for j in 0..segs {
+                for p in [centre(i), point(i, j), point(i, j + 1)] {
+                    self.vert(p, nn, c, k);
                 }
             }
         }
     }
 
-    /// Roue d'axe Z : bande de roulement, flanc, liseré de gomme et jante.
-    fn wheel(&mut self, centre: V3, r: f32, width: f32) {
-        let segs = 22;
-        let hw = width / 2.0;
-        let pt = |a: f32, rad: f32, z: f32| {
-            [
-                centre[0] + a.cos() * rad,
-                centre[1] + a.sin() * rad,
-                centre[2] + z,
-            ]
+    /// Tube de section ronde le long d'une polyligne (halo, suspensions).
+    fn tube(&mut self, pts: &[V3], r: f32, c: Rgba, k: f32) {
+        let segs = 8;
+        let rings: Vec<Vec<(V3, V3)>> = (0..pts.len())
+            .map(|i| {
+                let t = norm(sub(
+                    pts[(i + 1).min(pts.len() - 1)],
+                    pts[i.saturating_sub(1)],
+                ));
+                let up = if t[1].abs() > 0.9 {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [0.0, 1.0, 0.0]
+                };
+                let s = norm(cross(t, up));
+                let u = cross(s, t);
+                (0..segs)
+                    .map(|j| {
+                        let a = TAU * j as f32 / segs as f32;
+                        let d = add(mul(s, a.cos()), mul(u, a.sin()));
+                        (add(pts[i], mul(d, r)), d)
+                    })
+                    .collect()
+            })
+            .collect();
+        for w in rings.windows(2) {
+            for j in 0..segs {
+                let jn = (j + 1) % segs;
+                self.quad_n(
+                    [w[0][j].0, w[1][j].0, w[1][jn].0, w[0][jn].0],
+                    [w[0][j].1, w[1][j].1, w[1][jn].1, w[0][jn].1],
+                    c,
+                    k,
+                );
+            }
+        }
+    }
+
+    fn sphere(&mut self, centre: V3, r: V3, c: Rgba, k: f32) {
+        let (rings, segs) = (10, 18);
+        let at = |i: usize, j: usize| {
+            let th = PI * i as f32 / rings as f32;
+            let ph = TAU * j as f32 / segs as f32;
+            [th.sin() * ph.cos(), th.cos(), th.sin() * ph.sin()]
         };
+        for i in 0..rings {
+            for j in 0..segs {
+                let q = [at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j + 1)];
+                let p = q.map(|u| add(centre, [u[0] * r[0], u[1] * r[1], u[2] * r[2]]));
+                let n = q.map(|u| norm([u[0] / r[0], u[1] / r[1], u[2] / r[2]]));
+                self.quad_n(p, n, c, k);
+            }
+        }
+    }
+
+    /// Anneau plat perpendiculaire à Z (flancs de pneus, jantes).
+    fn ring_z(&mut self, centre: V3, (r0, r1): (f32, f32), z: f32, nz: f32, (c, k): (Rgba, f32)) {
+        let segs = 40;
+        let n = [0.0, 0.0, nz];
         for i in 0..segs {
             let (a0, a1) = (
-                std::f32::consts::TAU * i as f32 / segs as f32,
-                std::f32::consts::TAU * (i + 1) as f32 / segs as f32,
+                TAU * i as f32 / segs as f32,
+                TAU * (i + 1) as f32 / segs as f32,
             );
-            let (n0, n1) = ([a0.cos(), a0.sin(), 0.0], [a1.cos(), a1.sin(), 0.0]);
-            // Bande de roulement (normales lissées).
-            let q = [pt(a0, r, -hw), pt(a1, r, -hw), pt(a1, r, hw), pt(a0, r, hw)];
-            let n = [n0, n1, n1, n0];
-            for idx in [0, 1, 2, 0, 2, 3] {
-                self.vert(q[idx], n[idx], TYRE, FIXED);
+            let p = |a: f32, r: f32| {
+                [
+                    centre[0] + a.cos() * r,
+                    centre[1] + a.sin() * r,
+                    centre[2] + z,
+                ]
+            };
+            self.quad_n([p(a0, r0), p(a1, r0), p(a1, r1), p(a0, r1)], [n; 4], c, k);
+        }
+    }
+
+    /// Roue d'axe Z : pneu au profil arrondi (révolution), liseré de gomme, jante, enjoliveur.
+    fn wheel(&mut self, centre: V3, r: f32, width: f32) {
+        let segs = 40;
+        let hw = width / 2.0;
+        let (ri, rc) = (r * 0.70, 0.075);
+        // Profil (rayon, z, normale radiale, normale z), parcouru autour de la section du pneu.
+        let mut prof: Vec<(f32, f32, f32, f32)> = vec![(ri, -hw, 0.0, -1.0)];
+        for s in 0..=6 {
+            let f = PI / 2.0 * s as f32 / 6.0;
+            prof.push((
+                r - rc + rc * f.sin(),
+                -hw + rc - rc * f.cos(),
+                f.sin(),
+                -f.cos(),
+            ));
+        }
+        for s in 0..=6 {
+            let f = PI / 2.0 + PI / 2.0 * s as f32 / 6.0;
+            prof.push((
+                r - rc + rc * f.sin(),
+                hw - rc - rc * f.cos(),
+                f.sin(),
+                -f.cos(),
+            ));
+        }
+        prof.push((ri, hw, 0.0, 1.0));
+        for i in 0..segs {
+            let (a0, a1) = (
+                TAU * i as f32 / segs as f32,
+                TAU * (i + 1) as f32 / segs as f32,
+            );
+            for w in prof.windows(2) {
+                let p = |a: f32, q: (f32, f32, f32, f32)| {
+                    (
+                        [
+                            centre[0] + a.cos() * q.0,
+                            centre[1] + a.sin() * q.0,
+                            centre[2] + q.1,
+                        ],
+                        norm([a.cos() * q.2, a.sin() * q.2, q.3]),
+                    )
+                };
+                let (p0, n0) = p(a0, w[0]);
+                let (p1, n1) = p(a1, w[0]);
+                let (p2, n2) = p(a1, w[1]);
+                let (p3, n3) = p(a0, w[1]);
+                self.quad_n([p0, p1, p2, p3], [n0, n1, n2, n3], TYRE, FIXED);
             }
-            for side in [-1.0f32, 1.0] {
-                let z = side * hw;
-                let nz = [0.0, 0.0, side];
-                for (r0, r1, c) in [
-                    (r, r * 0.80, TYRE),
-                    (r * 0.80, r * 0.74, STRIPE),
-                    (r * 0.74, r * 0.66, TYRE),
-                    (r * 0.66, r * 0.12, RIM),
-                ] {
-                    let q = [pt(a0, r0, z), pt(a1, r0, z), pt(a1, r1, z), pt(a0, r1, z)];
-                    for idx in [0, 1, 2, 0, 2, 3] {
-                        self.vert(q[idx], nz, c, FIXED);
-                    }
-                }
+        }
+        for side in [-1.0f32, 1.0] {
+            let z = side * (hw + 0.002);
+            self.ring_z(centre, (r * 0.80, r * 0.845), z, side, (STRIPE, FIXED));
+            // Jante en retrait, enjoliveur aux couleurs de l'écurie, écrou central.
+            let zr = side * (hw - 0.035);
+            self.ring_z(centre, (ri, r * 0.62), zr, side, (RIM, FIXED));
+            self.ring_z(centre, (r * 0.62, r * 0.52), zr, side, (P, ACCENT));
+            self.ring_z(centre, (r * 0.52, r * 0.12), zr, side, (CARBON, FIXED));
+            self.ring_z(
+                centre,
+                (r * 0.12, 0.0),
+                side * (hw - 0.02),
+                side,
+                (NUT, FIXED),
+            );
+            // Lèvre de jante entre le flanc et le disque.
+            for i in 0..segs {
+                let (a0, a1) = (
+                    TAU * i as f32 / segs as f32,
+                    TAU * (i + 1) as f32 / segs as f32,
+                );
+                let p = |a: f32, z: f32| {
+                    [
+                        centre[0] + a.cos() * ri,
+                        centre[1] + a.sin() * ri,
+                        centre[2] + z,
+                    ]
+                };
+                let n = |a: f32| [-a.cos(), -a.sin(), 0.0];
+                self.quad_n(
+                    [p(a0, side * hw), p(a1, side * hw), p(a1, zr), p(a0, zr)],
+                    [n(a0), n(a1), n(a1), n(a0)],
+                    RIM,
+                    FIXED,
+                );
             }
         }
     }
 
     /// Ombre douce elliptique au sol (dégradé de transparence).
     fn shadow(&mut self, centre: V3, rx: f32, rz: f32) {
-        let segs = 32;
+        let segs = 40;
         let up = [0.0, 1.0, 0.0];
         for i in 0..segs {
-            let a0 = std::f32::consts::TAU * i as f32 / segs as f32;
-            let a1 = std::f32::consts::TAU * (i + 1) as f32 / segs as f32;
+            let a0 = TAU * i as f32 / segs as f32;
+            let a1 = TAU * (i + 1) as f32 / segs as f32;
             let p = |a: f32, k: f32| {
                 [
                     centre[0] + a.cos() * rx * k,
@@ -326,17 +514,17 @@ impl Mesh {
                     centre[2] + a.sin() * rz * k,
                 ]
             };
-            let (inner, outer) = ([0.0, 0.0, 0.0, 0.55], [0.0, 0.0, 0.0, 0.0]);
+            let (inner, outer) = ([0.0, 0.0, 0.0, 0.6], [0.0, 0.0, 0.0, 0.0]);
             self.vert(centre, up, inner, UNLIT);
-            self.vert(p(a0, 0.6), up, inner, UNLIT);
-            self.vert(p(a1, 0.6), up, inner, UNLIT);
+            self.vert(p(a0, 0.55), up, inner, UNLIT);
+            self.vert(p(a1, 0.55), up, inner, UNLIT);
             for (q, c) in [
-                (p(a0, 0.6), inner),
+                (p(a0, 0.55), inner),
                 (p(a0, 1.0), outer),
                 (p(a1, 1.0), outer),
-                (p(a0, 0.6), inner),
+                (p(a0, 0.55), inner),
                 (p(a1, 1.0), outer),
-                (p(a1, 0.6), inner),
+                (p(a1, 0.55), inner),
             ] {
                 self.vert(q, up, c, UNLIT);
             }
@@ -344,235 +532,293 @@ impl Mesh {
     }
 }
 
-/// Section rectangulaire : centre et demi-largeur en Z, bas et haut en Y.
-#[derive(Clone, Copy)]
-struct Sec {
-    zc: f32,
-    zh: f32,
-    y0: f32,
-    y1: f32,
-}
-
-impl Sec {
-    fn new(zc: f32, zh: f32, y0: f32, y1: f32) -> Sec {
-        Sec { zc, zh, y0, y1 }
-    }
-    fn c(zh: f32, y0: f32, y1: f32) -> Sec {
-        Sec::new(0.0, zh, y0, y1)
-    }
+/// Peinture principale en haut, couleur secondaire en bas (livrée bicolore).
+fn two_tone(rel: f32) -> (Rgba, f32) {
+    if rel < -0.2 { (P, SECOND) } else { (P, PAINT) }
 }
 
 /// Monoplace stylisée à effet de sol (mètres ; avant = +X, haut = +Y). Inspirée de la
 /// silhouette générale des F1 actuelles, sans reproduire aucune voiture réelle.
 fn car_mesh() -> Mesh {
     let mut m = Mesh::default();
-    // Fond plat et diffuseur.
-    m.loft(
-        -1.95,
-        Sec::c(0.80, 0.04, 0.08),
-        1.2,
-        Sec::c(0.80, 0.04, 0.08),
+
+    // Fond plat, bords du fond, planche et diffuseur.
+    m.hexa(
+        [
+            [1.62, 0.035, -0.28],
+            [1.62, 0.035, 0.28],
+            [1.62, 0.065, 0.28],
+            [1.62, 0.065, -0.28],
+            [1.05, 0.035, -0.80],
+            [1.05, 0.035, 0.80],
+            [1.05, 0.065, 0.80],
+            [1.05, 0.065, -0.80],
+        ],
         CARBON,
         FIXED,
     );
-    m.loft(
-        1.2,
-        Sec::c(0.80, 0.04, 0.08),
-        1.65,
-        Sec::c(0.30, 0.05, 0.08),
+    m.bx([-1.95, 0.035, -0.80], [1.05, 0.065, 0.80], CARBON, FIXED);
+    for s in [-1.0f32, 1.0] {
+        m.blade(
+            (0.9, 0.065),
+            (-1.6, 0.065),
+            0.09,
+            (s * 0.80, s * 0.785),
+            (CARBON, FIXED),
+        );
+        m.blade(
+            (0.2, 0.10),
+            (-1.2, 0.10),
+            0.015,
+            (s * 0.80, s * 0.70),
+            (P, SECOND),
+        );
+    }
+    m.hexa(
+        [
+            [-1.95, 0.035, -0.55],
+            [-1.95, 0.035, 0.55],
+            [-1.95, 0.11, 0.55],
+            [-1.95, 0.11, -0.55],
+            [-2.45, 0.08, -0.56],
+            [-2.45, 0.08, 0.56],
+            [-2.45, 0.30, 0.56],
+            [-2.45, 0.30, -0.56],
+        ],
         CARBON,
         FIXED,
     );
-    m.loft(
-        -1.95,
-        Sec::c(0.50, 0.04, 0.10),
-        -2.45,
-        Sec::c(0.55, 0.07, 0.30),
-        CARBON,
-        FIXED,
+
+    // Châssis : nez, monocoque et capot moteur d'un seul tenant.
+    m.smooth(
+        &[
+            ring(2.88, 0.05, 0.17, 0.23),
+            ring(2.75, 0.08, 0.15, 0.28),
+            ring(2.45, 0.12, 0.14, 0.36),
+            ring(2.05, 0.17, 0.14, 0.44),
+            ring(1.6, 0.23, 0.13, 0.52),
+            ring(1.15, 0.30, 0.12, 0.59),
+            ring(0.75, 0.36, 0.10, 0.64),
+            ring(0.3, 0.40, 0.09, 0.66),
+            ring(-0.1, 0.41, 0.09, 0.70),
+            ring(-0.5, 0.36, 0.10, 0.78),
+            ring(-0.95, 0.27, 0.12, 0.68),
+            ring(-1.45, 0.19, 0.14, 0.55),
+            ring(-1.9, 0.12, 0.16, 0.44),
+            ring(-2.2, 0.07, 0.18, 0.36),
+        ],
+        3.2,
+        28,
+        &two_tone,
     );
-    // Nez.
-    m.loft(
-        1.25,
-        Sec::c(0.26, 0.20, 0.52),
-        2.78,
-        Sec::c(0.09, 0.13, 0.24),
-        P,
-        PAINT,
+    // Habitacle, pilote (casque et visière), appui-tête.
+    m.sphere([0.38, 0.655, 0.0], [0.44, 0.03, 0.22], DARK, FIXED);
+    m.sphere([0.22, 0.73, 0.0], [0.145, 0.14, 0.125], P, ACCENT);
+    m.sphere([0.30, 0.735, 0.0], [0.08, 0.045, 0.11], VISOR, FIXED);
+    m.smooth(
+        &[ring(0.02, 0.2, 0.58, 0.70), ring(-0.08, 0.22, 0.58, 0.74)],
+        3.0,
+        16,
+        &|_| (P, SECOND),
     );
-    // Aileron avant : plans, volet et dérives.
-    m.bx([2.45, 0.07, -0.98], [2.98, 0.10, 0.98], CARBON, FIXED);
-    m.loft(
-        2.36,
-        Sec::c(0.95, 0.15, 0.18),
-        2.62,
-        Sec::c(0.95, 0.11, 0.14),
+
+    // Prise d'air au-dessus du pilote, aileron de requin et caméra.
+    m.smooth(
+        &[
+            ring(-0.04, 0.10, 0.70, 0.96),
+            ring(-0.18, 0.15, 0.66, 1.0),
+            ring(-0.45, 0.17, 0.62, 0.95),
+            ring(-0.85, 0.12, 0.58, 0.80),
+            ring(-1.2, 0.05, 0.55, 0.66),
+        ],
+        2.6,
+        20,
+        &|_| (P, PAINT),
+    );
+    m.sphere([-0.035, 0.85, 0.0], [0.02, 0.085, 0.075], DARK, FIXED);
+    m.hexa(
+        [
+            [-0.8, 0.80, -0.006],
+            [-0.8, 0.80, 0.006],
+            [-0.8, 0.92, 0.006],
+            [-0.8, 0.92, -0.006],
+            [-1.9, 0.44, -0.006],
+            [-1.9, 0.44, 0.006],
+            [-1.9, 0.62, 0.006],
+            [-1.9, 0.62, -0.006],
+        ],
         P,
         ACCENT,
     );
+    m.bx([-0.12, 1.0, -0.06], [0.0, 1.04, 0.06], P, ACCENT);
+
+    // Pontons (avec entrées d'air) et rétroviseurs.
     for s in [-1.0f32, 1.0] {
-        m.bx(
-            [2.34, 0.05, s * 0.97 - 0.02],
-            [2.99, 0.33, s * 0.97 + 0.02],
-            P,
-            PAINT,
+        m.smooth(
+            &[
+                side_ring(0.98, s * 0.55, 0.11, 0.20, 0.44),
+                side_ring(0.82, s * 0.58, 0.19, 0.14, 0.54),
+                side_ring(0.35, s * 0.59, 0.22, 0.11, 0.56),
+                side_ring(-0.25, s * 0.53, 0.20, 0.11, 0.49),
+                side_ring(-0.85, s * 0.43, 0.14, 0.12, 0.37),
+                side_ring(-1.45, s * 0.31, 0.08, 0.14, 0.26),
+            ],
+            3.6,
+            24,
+            &two_tone,
         );
-    }
-    // Monocoque et cockpit.
-    m.loft(
-        -0.25,
-        Sec::c(0.40, 0.12, 0.64),
-        1.3,
-        Sec::c(0.27, 0.18, 0.54),
-        P,
-        PAINT,
-    );
-    m.bx([0.0, 0.62, -0.24], [0.78, 0.665, 0.24], DARK, FIXED);
-    m.sphere([0.22, 0.72, 0.0], 0.15, P, ACCENT);
-    m.bx([0.30, 0.70, -0.11], [0.375, 0.76, 0.11], DARK, FIXED); // visière
-    // Halo.
-    let hoop: Vec<V3> = (0..=12)
-        .map(|i| {
-            let a = (-150.0 + 25.0 * i as f32).to_radians();
-            [0.28 + 0.45 * a.cos(), 0.86, 0.33 * a.sin()]
-        })
-        .collect();
-    for w in hoop.windows(2) {
-        m.beam(w[0], w[1], 0.028, CARBON, FIXED);
-    }
-    m.beam([0.73, 0.86, 0.0], [0.98, 0.56, 0.0], 0.03, CARBON, FIXED);
-    m.beam(hoop[0], [-0.18, 0.62, -0.30], 0.03, CARBON, FIXED);
-    m.beam(hoop[12], [-0.18, 0.62, 0.30], 0.03, CARBON, FIXED);
-    // Prise d'air, capot moteur, aileron de requin.
-    m.loft(
-        -0.15,
-        Sec::c(0.18, 0.60, 0.99),
-        -0.65,
-        Sec::c(0.25, 0.45, 0.95),
-        P,
-        PAINT,
-    );
-    m.bx([-0.16, 0.79, -0.11], [-0.12, 0.96, 0.11], DARK, FIXED);
-    m.loft(
-        -0.65,
-        Sec::c(0.25, 0.18, 0.95),
-        -2.0,
-        Sec::c(0.11, 0.18, 0.46),
-        P,
-        PAINT,
-    );
-    m.loft(
-        -0.65,
-        Sec::c(0.012, 0.95, 0.97),
-        -1.9,
-        Sec::c(0.012, 0.46, 0.70),
-        P,
-        PAINT,
-    );
-    // Pontons.
-    for s in [-1.0f32, 1.0] {
-        m.loft(
-            0.75,
-            Sec::new(s * 0.60, 0.20, 0.16, 0.56),
-            -0.4,
-            Sec::new(s * 0.60, 0.22, 0.12, 0.52),
-            P,
-            PAINT,
-        );
-        m.loft(
-            -0.4,
-            Sec::new(s * 0.60, 0.22, 0.12, 0.52),
-            -1.65,
-            Sec::new(s * 0.40, 0.10, 0.12, 0.28),
-            P,
-            PAINT,
-        );
-        m.bx(
-            [0.74, 0.30, s * 0.62 - 0.17],
-            [0.765, 0.52, s * 0.62 + 0.17],
-            DARK,
-            FIXED,
-        );
-        // Rétroviseurs.
-        m.bx(
-            [0.52, 0.66, s * 0.48 - 0.07],
-            [0.6, 0.73, s * 0.48 + 0.07],
-            P,
-            PAINT,
-        );
-        m.beam(
-            [0.56, 0.6, s * 0.3],
-            [0.56, 0.68, s * 0.42],
+        m.sphere([0.985, 0.33, s * 0.55], [0.01, 0.09, 0.08], DARK, FIXED);
+        m.tube(
+            &[[0.6, 0.62, s * 0.36], [0.58, 0.70, s * 0.47]],
             0.012,
             CARBON,
             FIXED,
         );
-    }
-    // Aileron arrière, beam wing, support et feu de pluie.
-    for s in [-1.0f32, 1.0] {
+        m.smooth(
+            &[
+                side_ring(0.63, s * 0.52, 0.07, 0.68, 0.76),
+                side_ring(0.53, s * 0.52, 0.075, 0.67, 0.77),
+            ],
+            3.0,
+            14,
+            &|_| (P, PAINT),
+        );
         m.bx(
-            [-2.58, 0.36, s * 0.515 - 0.016],
-            [-2.02, 1.0, s * 0.515 + 0.016],
+            [0.528, 0.685, s * 0.52 - 0.06],
+            [0.532, 0.755, s * 0.52 + 0.06],
+            [0.6, 0.65, 0.7, 1.0],
+            FIXED,
+        );
+    }
+
+    // Halo.
+    let hoop: Vec<V3> = (0..=16)
+        .map(|i| {
+            let a = (-150.0 + 300.0 * i as f32 / 16.0).to_radians();
+            [
+                0.30 + 0.44 * a.cos(),
+                0.87 - 0.03 * a.cos().abs(),
+                0.32 * a.sin(),
+            ]
+        })
+        .collect();
+    m.tube(&hoop, 0.026, CARBON, FIXED);
+    m.tube(
+        &[[0.74, 0.84, 0.0], [0.86, 0.72, 0.0], [0.98, 0.57, 0.0]],
+        0.03,
+        CARBON,
+        FIXED,
+    );
+    m.tube(
+        &[hoop[0], [-0.12, 0.74, -0.24], [-0.16, 0.66, -0.28]],
+        0.026,
+        CARBON,
+        FIXED,
+    );
+    m.tube(
+        &[hoop[16], [-0.12, 0.74, 0.24], [-0.16, 0.66, 0.28]],
+        0.026,
+        CARBON,
+        FIXED,
+    );
+
+    // Aileron avant : plan principal, trois volets étagés, dérives.
+    m.blade(
+        (2.98, 0.075),
+        (2.55, 0.085),
+        0.025,
+        (-0.97, 0.97),
+        (CARBON, FIXED),
+    );
+    for s in [-1.0f32, 1.0] {
+        let (z0, z1) = (s * 0.26, s * 0.95);
+        m.blade((2.70, 0.115), (2.47, 0.15), 0.02, (z0, z1), (CARBON, FIXED));
+        m.blade((2.56, 0.165), (2.38, 0.215), 0.018, (z0, z1), (P, SECOND));
+        m.blade((2.45, 0.235), (2.33, 0.285), 0.016, (z0, z1), (P, ACCENT));
+        m.hexa(
+            [
+                [2.99, 0.05, s * 0.95],
+                [2.99, 0.05, s * 0.985],
+                [2.99, 0.20, s * 0.985],
+                [2.99, 0.20, s * 0.95],
+                [2.32, 0.05, s * 0.95],
+                [2.32, 0.05, s * 0.985],
+                [2.32, 0.32, s * 0.985],
+                [2.32, 0.32, s * 0.95],
+            ],
             P,
             PAINT,
         );
     }
-    m.loft(
-        -2.52,
-        Sec::c(0.5, 0.80, 0.84),
-        -2.14,
-        Sec::c(0.5, 0.82, 0.87),
-        CARBON,
-        FIXED,
+    m.blade(
+        (2.62, 0.13),
+        (2.55, 0.10),
+        0.03,
+        (-0.012, 0.012),
+        (CARBON, FIXED),
     );
-    m.loft(
-        -2.27,
-        Sec::c(0.5, 0.91, 0.94),
-        -2.05,
-        Sec::c(0.5, 0.95, 0.99),
-        P,
-        ACCENT,
+
+    // Aileron arrière : dérives, plan principal, volet DRS, beam wing, support et feu de pluie.
+    for s in [-1.0f32, 1.0] {
+        m.hexa(
+            [
+                [-2.0, 0.42, s * 0.50],
+                [-2.0, 0.42, s * 0.53],
+                [-2.0, 0.98, s * 0.53],
+                [-2.0, 0.98, s * 0.50],
+                [-2.62, 0.30, s * 0.50],
+                [-2.62, 0.30, s * 0.53],
+                [-2.62, 1.0, s * 0.53],
+                [-2.62, 1.0, s * 0.50],
+            ],
+            P,
+            PAINT,
+        );
+    }
+    m.blade(
+        (-2.12, 0.80),
+        (-2.52, 0.86),
+        0.035,
+        (-0.5, 0.5),
+        (CARBON, FIXED),
     );
-    m.bx([-2.45, 0.42, -0.45], [-2.2, 0.45, 0.45], CARBON, FIXED);
-    m.bx([-2.22, 0.28, -0.03], [-1.98, 0.84, 0.03], CARBON, FIXED);
+    m.blade(
+        (-2.10, 0.91),
+        (-2.34, 0.97),
+        0.025,
+        (-0.5, 0.5),
+        (P, ACCENT),
+    );
+    m.blade(
+        (-2.20, 0.42),
+        (-2.45, 0.46),
+        0.025,
+        (-0.45, 0.45),
+        (CARBON, FIXED),
+    );
+    m.bx([-2.30, 0.30, -0.025], [-2.05, 0.82, 0.025], CARBON, FIXED);
     m.bx(
-        [-2.6, 0.30, -0.05],
-        [-2.56, 0.36, 0.05],
+        [-2.66, 0.30, -0.05],
+        [-2.62, 0.36, 0.05],
         [1.0, 0.12, 0.12, 1.0],
         UNLIT,
     );
+
     // Roues et suspensions.
     for s in [-1.0f32, 1.0] {
-        m.wheel([1.75, 0.36, s * 0.83], 0.36, 0.30);
+        m.wheel([1.75, 0.36, s * 0.84], 0.36, 0.30);
         m.wheel([-1.85, 0.36, s * 0.80], 0.36, 0.40);
-        m.beam(
-            [1.45, 0.46, s * 0.24],
-            [1.75, 0.42, s * 0.68],
-            0.022,
-            CARBON,
-            FIXED,
-        );
-        m.beam(
-            [1.95, 0.24, s * 0.18],
-            [1.75, 0.30, s * 0.68],
-            0.022,
-            CARBON,
-            FIXED,
-        );
-        m.beam(
-            [-1.5, 0.46, s * 0.28],
-            [-1.85, 0.44, s * 0.6],
-            0.022,
-            CARBON,
-            FIXED,
-        );
-        m.beam(
-            [-1.6, 0.20, s * 0.30],
-            [-1.85, 0.28, s * 0.6],
-            0.022,
-            CARBON,
-            FIXED,
-        );
+        for (a, b) in [
+            ([1.45, 0.47, s * 0.22], [1.76, 0.44, s * 0.69]),
+            ([1.98, 0.43, s * 0.20], [1.76, 0.44, s * 0.69]),
+            ([1.40, 0.20, s * 0.24], [1.74, 0.24, s * 0.69]),
+            ([2.00, 0.18, s * 0.20], [1.74, 0.24, s * 0.69]),
+            ([-1.50, 0.47, s * 0.26], [-1.84, 0.46, s * 0.62]),
+            ([-1.95, 0.42, s * 0.22], [-1.84, 0.46, s * 0.62]),
+            ([-1.55, 0.20, s * 0.30], [-1.86, 0.24, s * 0.62]),
+        ] {
+            m.tube(&[a, b], 0.016, CARBON, FIXED);
+        }
     }
     m
 }
@@ -610,7 +856,7 @@ fn speed_rgba(ratio: f32) -> Rgba {
     // Même rampe que la carte 2D : #b3261e → #ffe4de.
     let r = ratio.clamp(0.0, 1.0);
     let l = |a: f32, b: f32| (a + (b - a) * r) / 255.0;
-    [l(179.0, 255.0), l(38.0, 228.0), l(30.0, 222.0), 1.0]
+    [l(179.0, 255.0), l(38.0, 228.0), l(30.0, 222.0), 0.12]
 }
 
 fn track_mesh(map: &TrackMap) -> Option<(Mesh, Path)> {
@@ -649,7 +895,7 @@ fn track_mesh(map: &TrackMap) -> Option<(Mesh, Path)> {
 
     // Sol et quadrillage, pour la profondeur.
     let ext = cx.max(cz) + 160.0;
-    let floor = [0.085, 0.085, 0.105, 1.0];
+    let floor = [0.085, 0.085, 0.105, 0.05];
     m.face(
         &[
             [-ext, ground, -ext],
@@ -661,7 +907,7 @@ fn track_mesh(map: &TrackMap) -> Option<(Mesh, Path)> {
         floor,
         FIXED,
     );
-    let grid = [0.15, 0.15, 0.18, 1.0];
+    let grid = [0.15, 0.15, 0.18, 0.05];
     let mut g = -ext + 50.0;
     while g < ext {
         let y = ground + 0.1;
@@ -691,8 +937,8 @@ fn track_mesh(map: &TrackMap) -> Option<(Mesh, Path)> {
     }
 
     let segs = if closed { n } else { n - 1 };
-    let wall = [0.20, 0.20, 0.24, 1.0];
-    let kerb = [0.62, 0.62, 0.68, 1.0];
+    let wall = [0.20, 0.20, 0.24, 0.1];
+    let kerb = [0.62, 0.62, 0.68, 0.1];
     for i in 0..segs {
         let j = (i + 1) % n;
         let (si, sj) = (side(i), side(j));
@@ -707,11 +953,10 @@ fn track_mesh(map: &TrackMap) -> Option<(Mesh, Path)> {
         let ratio = (raw[i].speed as f32 - min_s) / (max_s - min_s).max(1.0);
         let below = [pts[i][0], pts[i][1] - 10.0, pts[i][2]];
         m.face(&[li, lj, rj, ri], below, speed_rgba(ratio), FIXED);
-        // Liserés blancs le long des bords.
+        // Liserés le long des bords, et remblai jusqu'au sol : le relief se lit comme un volume.
         for (a, b, s) in [(li, lj, 1.0f32), (ri, rj, -1.0)] {
             let (oa, ob) = (add(a, mul(si, s * 1.1)), add(b, mul(sj, s * 1.1)));
             m.face(&[a, b, ob, oa], below, kerb, FIXED);
-            // Remblai jusqu'au sol : le relief se lit comme un volume.
             let (ga, gb) = ([oa[0], ground, oa[2]], [ob[0], ground, ob[2]]);
             m.face(&[oa, ob, gb, ga], pts[i], wall, FIXED);
         }
@@ -749,6 +994,7 @@ layout(location=3) in float a_kind;
 uniform mat4 u_mvp;
 uniform mat4 u_model;
 uniform vec3 u_paint;
+uniform vec3 u_second;
 uniform vec3 u_accent;
 out vec3 v_nrm;
 out vec4 v_col;
@@ -758,15 +1004,18 @@ void main() {
   vec3 c = a_col.rgb;
   if (a_kind > 0.5 && a_kind < 1.5) c = u_paint;
   else if (a_kind > 1.5 && a_kind < 2.5) c = u_accent;
+  else if (a_kind > 3.5) c = u_second;
   v_col = vec4(c, a_col.a);
-  v_unlit = a_kind > 2.5 ? 1.0 : 0.0;
+  v_unlit = (a_kind > 2.5 && a_kind < 3.5) ? 1.0 : 0.0;
   v_nrm = mat3(u_model) * a_nrm;
   v_world = (u_model * vec4(a_pos, 1.0)).xyz;
   gl_Position = u_mvp * vec4(a_pos, 1.0);
 }"#;
 
+/// Éclairage « studio » : lumière principale, contre-jour, ciel/sol, reflets de vernis
+/// (Fresnel + environnement), puis compression des hautes lumières et correction gamma.
 const FS: &str = r#"#version 300 es
-precision mediump float;
+precision highp float;
 in vec3 v_nrm;
 in vec4 v_col;
 in float v_unlit;
@@ -776,18 +1025,33 @@ uniform vec3 u_eye;
 out vec4 o;
 void main() {
   if (v_unlit > 0.5) { o = v_col; return; }
+  vec3 base = pow(v_col.rgb, vec3(2.2));
+  float gloss = v_col.a;
   vec3 n = normalize(v_nrm);
   vec3 v = normalize(u_eye - v_world);
-  float d = max(dot(n, u_light), 0.0);
-  float s = pow(max(dot(n, normalize(u_light + v)), 0.0), 48.0) * 0.5;
-  float rim = pow(1.0 - max(dot(n, v), 0.0), 3.0) * 0.12;
-  o = vec4(v_col.rgb * (0.30 + 0.70 * d) + vec3(s + rim), v_col.a);
+  vec3 fill = normalize(vec3(-0.6, 0.35, -0.55));
+  float d1 = max(dot(n, u_light), 0.0);
+  float d2 = max(dot(n, fill), 0.0);
+  vec3 hemi = mix(vec3(0.035, 0.035, 0.045), vec3(0.30, 0.32, 0.38), n.y * 0.5 + 0.5);
+  vec3 col = base * (hemi + vec3(1.05, 1.0, 0.94) * d1 + vec3(0.30, 0.36, 0.48) * d2);
+  float shine = mix(6.0, 140.0, gloss);
+  float g2 = gloss * gloss;
+  float spec = pow(max(dot(n, normalize(u_light + v)), 0.0), shine) * g2 * 1.4;
+  spec += pow(max(dot(n, normalize(fill + v)), 0.0), shine) * g2 * 0.3;
+  vec3 r = reflect(-v, n);
+  vec3 env = mix(vec3(0.02, 0.02, 0.03), vec3(0.42, 0.46, 0.55), smoothstep(-0.15, 0.45, r.y));
+  env += vec3(1.2) * smoothstep(0.80, 0.93, r.y) * smoothstep(0.9, 0.2, abs(r.x));
+  float fres = 0.04 + 0.96 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
+  col += vec3(spec) + env * fres * g2;
+  col = col / (col + vec3(0.55)) * 1.55;
+  o = vec4(pow(col, vec3(1.0 / 2.2)), 1.0);
 }"#;
 
 struct Uniforms {
     mvp: Option<WebGlUniformLocation>,
     model: Option<WebGlUniformLocation>,
     paint: Option<WebGlUniformLocation>,
+    second: Option<WebGlUniformLocation>,
     accent: Option<WebGlUniformLocation>,
     light: Option<WebGlUniformLocation>,
     eye: Option<WebGlUniformLocation>,
@@ -802,6 +1066,14 @@ struct Gpu {
 struct Vao {
     vao: WebGlVertexArrayObject,
     count: i32,
+}
+
+/// Couleurs d'une livrée (RVB 0–1).
+#[derive(Clone, Copy, PartialEq)]
+struct Paint {
+    primary: [f32; 3],
+    second: [f32; 3],
+    accent: [f32; 3],
 }
 
 impl Gpu {
@@ -832,6 +1104,7 @@ impl Gpu {
             mvp: loc("u_mvp"),
             model: loc("u_model"),
             paint: loc("u_paint"),
+            second: loc("u_second"),
             accent: loc("u_accent"),
             light: loc("u_light"),
             eye: loc("u_eye"),
@@ -868,12 +1141,17 @@ impl Gpu {
         })
     }
 
-    fn draw(&self, vao: &Vao, vp: &M4, model: &M4, paint: [f32; 3], accent: [f32; 3]) {
+    fn draw(&self, vao: &Vao, vp: &M4, model: &M4, paint: &Paint) {
         let gl = &self.gl;
         gl.uniform_matrix4fv_with_f32_array(self.u.mvp.as_ref(), false, &vp.mul(model).0);
         gl.uniform_matrix4fv_with_f32_array(self.u.model.as_ref(), false, &model.0);
-        gl.uniform3f(self.u.paint.as_ref(), paint[0], paint[1], paint[2]);
-        gl.uniform3f(self.u.accent.as_ref(), accent[0], accent[1], accent[2]);
+        for (loc, c) in [
+            (&self.u.paint, paint.primary),
+            (&self.u.second, paint.second),
+            (&self.u.accent, paint.accent),
+        ] {
+            gl.uniform3f(loc.as_ref(), c[0], c[1], c[2]);
+        }
         gl.bind_vertex_array(Some(&vao.vao));
         gl.draw_arrays(Gl::TRIANGLES, 0, vao.count);
     }
@@ -890,8 +1168,76 @@ pub fn parse_colour(hex: &str) -> [f32; 3] {
     [c(0), c(2), c(4)]
 }
 
-fn accent_of(c: [f32; 3]) -> [f32; 3] {
-    [c[0] * 0.4 + 0.6, c[1] * 0.4 + 0.6, c[2] * 0.4 + 0.6]
+/// Livrée déduite d'une seule couleur (voitures du direct) : bas assombri, accent clair.
+fn paint_of(c: [f32; 3]) -> Paint {
+    Paint {
+        primary: c,
+        second: c.map(|v| v * 0.28),
+        accent: c.map(|v| v * 0.35 + 0.65),
+    }
+}
+
+/// Livrée stylisée de chaque écurie : couleur principale, secondaire (bas de caisse, volets)
+/// et accent (casque, enjoliveurs, volet DRS). Couleurs seulement, aucun logo.
+pub fn livery(constructor_id: &str) -> Livery {
+    let (p, s, a) = match constructor_id {
+        "mercedes" => ("#A3AAB1", "#141618", "#27F4D2"),
+        "ferrari" => ("#D8001F", "#141414", "#F2F2F2"),
+        "red_bull" => ("#1C2A63", "#0E1636", "#E2141C"),
+        "mclaren" => ("#FF8000", "#1E1E20", "#56C3F0"),
+        "aston_martin" => ("#00594F", "#0A2E29", "#CEDC00"),
+        "alpine" => ("#1667C9", "#0B1A3A", "#FF87BC"),
+        "williams" => ("#0C2D6B", "#06173A", "#64C4FF"),
+        "rb" => ("#F1F2F4", "#1634CB", "#E1061B"),
+        "haas" => ("#ECEDEF", "#1A1A1C", "#E10600"),
+        "sauber" => ("#1B1B1D", "#0E0E0F", "#52E252"),
+        "audi" => ("#A9ADB1", "#151517", "#F50537"),
+        "cadillac" => ("#151517", "#E7E7EA", "#C9A96E"),
+        other => {
+            let c = crate::util::team_color(other);
+            return Livery::from_colour(c);
+        }
+    };
+    Livery {
+        primary: p.into(),
+        second: s.into(),
+        accent: a.into(),
+    }
+}
+
+/// Livrée (couleurs hexadécimales) passée au composant.
+#[derive(Clone, PartialEq)]
+pub struct Livery {
+    pub primary: AttrValue,
+    pub second: AttrValue,
+    pub accent: AttrValue,
+}
+
+impl Livery {
+    pub fn from_colour(hex: &str) -> Livery {
+        let p = paint_of(parse_colour(hex));
+        let to_hex = |c: [f32; 3]| {
+            AttrValue::from(format!(
+                "#{:02x}{:02x}{:02x}",
+                (c[0] * 255.0) as u8,
+                (c[1] * 255.0) as u8,
+                (c[2] * 255.0) as u8
+            ))
+        };
+        Livery {
+            primary: to_hex(p.primary),
+            second: to_hex(p.second),
+            accent: to_hex(p.accent),
+        }
+    }
+
+    fn paint(&self) -> Paint {
+        Paint {
+            primary: parse_colour(&self.primary),
+            second: parse_colour(&self.second),
+            accent: parse_colour(&self.accent),
+        }
+    }
 }
 
 // ---------- Scène ----------
@@ -899,8 +1245,8 @@ fn accent_of(c: [f32; 3]) -> [f32; 3] {
 /// Ce que montre la vue 3D.
 #[derive(Clone, PartialEq)]
 pub enum Scene {
-    /// Monoplace aux couleurs d'une écurie (hexadécimal).
-    Car(AttrValue),
+    /// Monoplace dans une livrée.
+    Car(Livery),
     /// Circuit en relief ; `ghost` = une voiture rejoue le tour de référence à vitesse réelle.
     Track { map: Rc<TrackMap>, ghost: bool },
 }
@@ -917,7 +1263,7 @@ pub struct Marker {
 
 struct LiveCar {
     key: String,
-    colour: [f32; 3],
+    paint: Paint,
     target: f32,
     cur: f32,
     label: Option<HtmlElement>,
@@ -927,21 +1273,42 @@ struct Cam {
     yaw: f32,
     pitch: f32,
     zoom: f32,
+    /// Décalage du point visé (déplacement à deux doigts).
+    pan: V3,
 }
+
+impl Cam {
+    fn initial(track: bool) -> Cam {
+        Cam {
+            yaw: 0.9,
+            pitch: if track { 0.82 } else { 0.28 },
+            zoom: 1.0,
+            pan: [0.0; 3],
+        }
+    }
+}
+
+/// Doigts / pointeurs posés sur la vue : identifiant et dernière position.
+type Pointers = Vec<(i32, f64, f64)>;
 
 struct State {
     gpu: Gpu,
     car: Vao,
     shadow: Vao,
     track: Option<(Vao, Path)>,
-    paint: [f32; 3],
+    paint: Paint,
     ghost: bool,
     chase: bool,
     cam: Cam,
     /// Point de visée lissé de la caméra embarquée (œil, cible).
     chase_cam: Option<(V3, V3)>,
-    drag: Option<(f64, f64)>,
-    idle_since: f64,
+    pointers: Pointers,
+    /// L'utilisateur a pris la main : plus de rotation automatique.
+    touched: bool,
+    last_tap: f64,
+    /// Distance caméra–cible et hauteur de la vue (px), pour convertir les gestes.
+    dist: f32,
+    view_h: f32,
     last: f64,
     clock: f64,
     cars: Vec<LiveCar>,
@@ -979,31 +1346,35 @@ impl State {
             self.canvas.set_width(w);
             self.canvas.set_height(h);
         }
+        self.view_h = rect.height() as f32;
         let aspect = rect.width() as f32 / rect.height().max(1.0) as f32;
-        if self.drag.is_none() && t - self.idle_since > 3500.0 {
-            let speed = if self.track.is_some() { 0.07 } else { 0.35 };
+        if !self.touched {
+            let speed = if self.track.is_some() { 0.07 } else { 0.3 };
             self.cam.yaw += speed * dt;
         }
 
         let fov = 0.62f32;
         let (eye, target, near, far) = match &self.track {
             None => {
-                let dist = 3.4 / ((fov / 2.0).tan() * aspect.min(1.8)) * self.cam.zoom;
-                let target = [0.0, 0.35, 0.0];
+                let dist = 3.0 / ((fov / 2.0).tan() * aspect.min(1.8)) * self.cam.zoom;
+                self.dist = dist;
+                let target = add([0.0, 0.35, 0.0], self.cam.pan);
                 (
                     orbit(target, self.cam.yaw, self.cam.pitch, dist),
                     target,
-                    0.1,
+                    0.05,
                     80.0,
                 )
             }
             Some((_, path)) => {
                 let dist =
                     path.radius / (fov / 2.0).sin() * 1.08 / aspect.min(1.0).sqrt() * self.cam.zoom;
+                self.dist = dist;
                 if self.chase && self.ghost {
                     let (pos, heading) = path.at_time(self.clock as f32);
                     let fwd = [heading.cos(), 0.0, -heading.sin()];
-                    let want_eye = add(add(pos, mul(fwd, -75.0)), [0.0, 26.0, 0.0]);
+                    let back = 75.0 * self.cam.zoom;
+                    let want_eye = add(add(pos, mul(fwd, -back)), [0.0, 26.0 * self.cam.zoom, 0.0]);
                     let want_target = add(add(pos, mul(fwd, 30.0)), [0.0, 4.0, 0.0]);
                     let k = (dt * 4.0).min(1.0);
                     let (e, tg) = self.chase_cam.unwrap_or((want_eye, want_target));
@@ -1012,12 +1383,12 @@ impl State {
                     (cam.0, cam.1, 1.0, path.radius * 6.0)
                 } else {
                     self.chase_cam = None;
-                    let target = [0.0, path.centre_y, 0.0];
+                    let target = add([0.0, path.centre_y, 0.0], self.cam.pan);
                     (
                         orbit(target, self.cam.yaw, self.cam.pitch, dist),
                         target,
-                        dist * 0.02,
-                        dist * 4.0,
+                        dist * 0.01,
+                        dist * 4.0 + path.radius * 2.0,
                     )
                 }
             }
@@ -1034,20 +1405,19 @@ impl State {
         gl.uniform3f(gpu.u.light.as_ref(), light[0], light[1], light[2]);
         gl.uniform3f(gpu.u.eye.as_ref(), eye[0], eye[1], eye[2]);
         let id = M4::identity();
-        let paint = self.paint;
         match &self.track {
             None => {
                 gl.depth_mask(false);
-                gpu.draw(&self.shadow, &vp, &id, paint, paint);
+                gpu.draw(&self.shadow, &vp, &id, &self.paint);
                 gl.depth_mask(true);
-                gpu.draw(&self.car, &vp, &id, paint, accent_of(paint));
+                gpu.draw(&self.car, &vp, &id, &self.paint);
             }
             Some((vao, path)) => {
-                gpu.draw(vao, &vp, &id, paint, paint);
+                gpu.draw(vao, &vp, &id, &self.paint);
                 if self.ghost {
                     let (pos, heading) = path.at_time(self.clock as f32);
                     let model = M4::trs(add(pos, [0.0, 0.6, 0.0]), heading, CAR_SCALE);
-                    gpu.draw(&self.car, &vp, &model, paint, accent_of(paint));
+                    gpu.draw(&self.car, &vp, &model, &self.paint);
                 }
                 let (cw, ch) = (rect.width() as f32, rect.height() as f32);
                 for car in &mut self.cars {
@@ -1056,7 +1426,7 @@ impl State {
                     car.cur = (car.cur + diff * (dt * 2.5).min(1.0)).rem_euclid(1.0);
                     let (pos, heading) = path.at_time(car.cur * path.lap_time);
                     let model = M4::trs(add(pos, [0.0, 0.6, 0.0]), heading, CAR_SCALE);
-                    gpu.draw(&self.car, &vp, &model, car.colour, accent_of(car.colour));
+                    gpu.draw(&self.car, &vp, &model, &car.paint);
                     if let Some(el) = &car.label {
                         let style = el.style();
                         match vp.project(add(pos, [0.0, 14.0, 0.0])) {
@@ -1084,12 +1454,12 @@ impl State {
         let doc = web_sys::window().and_then(|w| w.document());
         let mut next = Vec::with_capacity(markers.len());
         for m in markers {
-            let colour = parse_colour(&m.colour);
+            let paint = paint_of(parse_colour(&m.colour));
             match self.cars.iter().position(|c| c.key == m.key) {
                 Some(i) => {
                     let mut car = self.cars.swap_remove(i);
                     car.target = m.fraction;
-                    car.colour = colour;
+                    car.paint = paint;
                     if let Some(el) = &car.label {
                         el.set_text_content(Some(&m.label));
                     }
@@ -1114,7 +1484,7 @@ impl State {
                     };
                     next.push(LiveCar {
                         key: m.key.clone(),
-                        colour,
+                        paint,
                         target: m.fraction,
                         cur: m.fraction,
                         label,
@@ -1128,6 +1498,84 @@ impl State {
             }
         }
         self.cars = next;
+    }
+
+    // ----- Gestes -----
+
+    fn pointer_down(&mut self, id: i32, x: f64, y: f64) {
+        self.touched = true;
+        self.pointers.retain(|p| p.0 != id);
+        self.pointers.push((id, x, y));
+        if self.pointers.len() == 1 {
+            // Double toucher : recentrer la vue.
+            let t = now();
+            if t - self.last_tap < 320.0 {
+                self.reset();
+            }
+            self.last_tap = t;
+        }
+    }
+
+    fn pointer_move(&mut self, id: i32, x: f64, y: f64) {
+        let Some(i) = self.pointers.iter().position(|p| p.0 == id) else {
+            return;
+        };
+        if self.pointers.len() == 1 {
+            let (_, px, py) = self.pointers[0];
+            self.cam.yaw += ((x - px) * 0.008) as f32;
+            let (lo, hi) = if self.track.is_some() {
+                (0.12, 1.5)
+            } else {
+                (-0.05, 1.45)
+            };
+            self.cam.pitch = (self.cam.pitch + ((y - py) * 0.006) as f32).clamp(lo, hi);
+            self.pointers[0] = (id, x, y);
+            return;
+        }
+        // Deux doigts : pincer pour zoomer, glisser pour déplacer.
+        let before = (self.pointers[0], self.pointers[1]);
+        self.pointers[i] = (id, x, y);
+        let after = (self.pointers[0], self.pointers[1]);
+        let span = |a: (i32, f64, f64), b: (i32, f64, f64)| ((a.1 - b.1).hypot(a.2 - b.2)).max(1.0);
+        let mid = |a: (i32, f64, f64), b: (i32, f64, f64)| ((a.1 + b.1) / 2.0, (a.2 + b.2) / 2.0);
+        let ratio = span(before.0, before.1) / span(after.0, after.1);
+        self.zoom_by(ratio as f32);
+        let (m0, m1) = (mid(before.0, before.1), mid(after.0, after.1));
+        self.pan_by((m1.0 - m0.0) as f32, (m1.1 - m0.1) as f32);
+    }
+
+    fn pointer_up(&mut self, id: i32) {
+        self.pointers.retain(|p| p.0 != id);
+    }
+
+    fn zoom_by(&mut self, k: f32) {
+        self.touched = true;
+        self.cam.zoom = (self.cam.zoom * k).clamp(0.2, 3.0);
+    }
+
+    /// Déplace le point visé dans le plan horizontal, au rythme du doigt.
+    fn pan_by(&mut self, dx: f32, dy: f32) {
+        let px = self.dist * 2.0 * (0.31f32).tan() / self.view_h.max(1.0);
+        let (s, c) = self.cam.yaw.sin_cos();
+        let right = [-s, 0.0, c];
+        let fwd = [-c, 0.0, -s];
+        let delta = add(mul(right, -dx * px), mul(fwd, dy * px));
+        let limit = match &self.track {
+            Some((_, path)) => path.radius,
+            None => 3.0,
+        };
+        let pan = add(self.cam.pan, delta);
+        let len = dot(pan, pan).sqrt();
+        self.cam.pan = if len > limit {
+            mul(pan, limit / len)
+        } else {
+            pan
+        };
+    }
+
+    fn reset(&mut self) {
+        self.cam = Cam::initial(self.track.is_some());
+        self.touched = false;
     }
 }
 
@@ -1160,37 +1608,35 @@ impl Viewer {
         let gpu = Gpu::new(&canvas)?;
         let car = gpu.upload(&car_mesh())?;
         let mut sh = Mesh::default();
-        sh.shadow([0.0, 0.002, 0.0], 3.3, 1.35);
+        sh.shadow([0.0, 0.002, 0.0], 3.4, 1.4);
         let shadow = gpu.upload(&sh)?;
         let (paint, track, ghost) = match scene {
-            Scene::Car(colour) => (parse_colour(colour), None, false),
+            Scene::Car(livery) => (livery.paint(), None, false),
             Scene::Track { map, ghost } => {
                 let (mesh, path) = track_mesh(map)?;
                 (
-                    parse_colour(&map.colour),
+                    paint_of(parse_colour(&map.colour)),
                     Some((gpu.upload(&mesh)?, path)),
                     *ghost,
                 )
             }
         };
-        let pitch = if track.is_some() { 0.82 } else { 0.32 };
         let t = now();
         let state = Rc::new(RefCell::new(State {
             gpu,
             car,
             shadow,
+            cam: Cam::initial(track.is_some()),
             track,
             paint,
             ghost,
             chase: false,
-            cam: Cam {
-                yaw: 0.9,
-                pitch,
-                zoom: 1.0,
-            },
             chase_cam: None,
-            drag: None,
-            idle_since: t - 10_000.0,
+            pointers: Vec::new(),
+            touched: false,
+            last_tap: 0.0,
+            dist: 1.0,
+            view_h: 1.0,
             last: t,
             clock: 0.0,
             cars: Vec::new(),
@@ -1238,8 +1684,22 @@ pub struct ViewProps {
     pub markers: Option<Rc<Vec<Marker>>>,
 }
 
-/// Vue 3D interactive : glisser horizontalement pour tourner (le défilement vertical de la page
-/// reste libre), boutons pour zoomer et, sur un circuit, passer en caméra embarquée.
+/// Bloque le défilement de la page tant que la vue est en plein écran.
+fn lock_scroll(lock: bool) {
+    if let Some(body) = web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.body())
+    {
+        let _ = body
+            .style()
+            .set_property("overflow", if lock { "hidden" } else { "" });
+    }
+}
+
+/// Vue 3D interactive.
+/// - Dans la page : glisser horizontalement pour tourner (le défilement vertical reste libre).
+/// - En plein écran : un doigt pour tourner, deux doigts pour zoomer et déplacer,
+///   double toucher pour recentrer. Molette / pincement du pavé tactile sur ordinateur.
 #[function_component]
 pub fn View3D(props: &ViewProps) -> Html {
     let canvas = use_node_ref();
@@ -1247,6 +1707,7 @@ pub fn View3D(props: &ViewProps) -> Html {
     let viewer = use_mut_ref(|| None::<Viewer>);
     let failed = use_state(|| false);
     let chase = use_state(|| false);
+    let full = use_state(|| false);
     {
         let (canvas, labels, viewer, failed) = (
             canvas.clone(),
@@ -1288,6 +1749,10 @@ pub fn View3D(props: &ViewProps) -> Html {
             }
         });
     }
+    use_effect_with(*full, |on| {
+        lock_scroll(*on);
+        || lock_scroll(false)
+    });
     let with = {
         let viewer = viewer.clone();
         move |f: Box<dyn Fn(&mut State)>| {
@@ -1302,40 +1767,48 @@ pub fn View3D(props: &ViewProps) -> Html {
             if let Some(el) = e.target().and_then(|t| t.dyn_into::<Element>().ok()) {
                 let _ = el.set_pointer_capture(e.pointer_id());
             }
-            let (x, y) = (e.client_x() as f64, e.client_y() as f64);
-            with(Box::new(move |s| s.drag = Some((x, y))));
+            let (id, x, y) = (e.pointer_id(), e.client_x() as f64, e.client_y() as f64);
+            with(Box::new(move |s| s.pointer_down(id, x, y)));
         })
     };
     let onpointermove = {
         let with = with.clone();
         Callback::from(move |e: PointerEvent| {
-            let (x, y) = (e.client_x() as f64, e.client_y() as f64);
-            with(Box::new(move |s| {
-                if let Some((px, py)) = s.drag {
-                    s.cam.yaw += ((x - px) * 0.009) as f32;
-                    s.cam.pitch = (s.cam.pitch + ((y - py) * 0.006) as f32).clamp(0.08, 1.45);
-                    s.drag = Some((x, y));
-                    s.idle_since = now();
-                }
-            }));
+            let (id, x, y) = (e.pointer_id(), e.client_x() as f64, e.client_y() as f64);
+            with(Box::new(move |s| s.pointer_move(id, x, y)));
         })
     };
     let onpointerup = {
         let with = with.clone();
-        Callback::from(move |_: PointerEvent| {
-            with(Box::new(|s| {
-                s.drag = None;
-                s.idle_since = now();
-            }))
+        Callback::from(move |e: PointerEvent| {
+            let id = e.pointer_id();
+            with(Box::new(move |s| s.pointer_up(id)));
+        })
+    };
+    let onwheel = {
+        let with = with.clone();
+        let full = *full;
+        Callback::from(move |e: WheelEvent| {
+            // Dans la page, la molette fait défiler ; elle zoome en plein écran (ou au pincement
+            // du pavé tactile, signalé par ctrlKey).
+            if full || e.ctrl_key() {
+                e.prevent_default();
+                let k = (e.delta_y() as f32 * 0.0015).exp();
+                with(Box::new(move |s| s.zoom_by(k)));
+            }
         })
     };
     let zoom = |k: f32| {
         let with = with.clone();
-        Callback::from(move |_: MouseEvent| {
-            with(Box::new(move |s| {
-                s.cam.zoom = (s.cam.zoom * k).clamp(0.35, 2.5)
-            }))
-        })
+        Callback::from(move |_: MouseEvent| with(Box::new(move |s| s.zoom_by(k))))
+    };
+    let recentre = {
+        let with = with.clone();
+        Callback::from(move |_: MouseEvent| with(Box::new(|s| s.reset())))
+    };
+    let toggle_full = {
+        let full = full.clone();
+        Callback::from(move |_: MouseEvent| full.set(!*full))
     };
     let is_track = matches!(props.scene, Scene::Track { .. });
     let ghost = matches!(props.scene, Scene::Track { ghost: true, .. });
@@ -1345,12 +1818,17 @@ pub fn View3D(props: &ViewProps) -> Html {
         };
     }
     html! {
-        <div class={classes!("scene", is_track.then_some("scene-track"))}>
+        <div class={classes!("scene", is_track.then_some("scene-track"), full.then_some("scene-full"))}>
             <canvas ref={canvas} class="scene-canvas" role="img"
                 aria-label={if is_track { t("Circuit en 3D", "3D circuit") } else { t("Monoplace en 3D", "3D car") }}
-                onpointerdown={onpointerdown} onpointermove={onpointermove}
-                onpointerup={onpointerup.clone()} onpointercancel={onpointerup} />
+                {onpointerdown} {onpointermove} onpointerup={onpointerup.clone()} onpointercancel={onpointerup} {onwheel} />
             <div ref={labels} class="scene-labels" aria-hidden="true"></div>
+            if *full {
+                <p class="scene-hint">{ t(
+                    "1 doigt : tourner · 2 doigts : zoomer et déplacer · double toucher : recentrer",
+                    "1 finger: rotate · 2 fingers: zoom and move · double tap: recentre",
+                ) }</p>
+            }
             <div class="scene-tools">
                 if ghost {
                     <button class={classes!("scene-btn", chase.then_some("on"))} aria-pressed={chase.to_string()}
@@ -1358,10 +1836,31 @@ pub fn View3D(props: &ViewProps) -> Html {
                         { if *chase { t("Vue d'ensemble", "Overview") } else { t("Caméra embarquée", "Onboard camera") } }
                     </button>
                 }
-                <button class="scene-btn" aria-label={t("Rapprocher", "Zoom in")} onclick={zoom(0.8)}>{ "+" }</button>
-                <button class="scene-btn" aria-label={t("Éloigner", "Zoom out")} onclick={zoom(1.25)}>{ "−" }</button>
+                if *full {
+                    <button class="scene-btn" aria-label={t("Recentrer", "Recentre")} onclick={recentre}>{ "⟲" }</button>
+                    <button class="scene-btn" aria-label={t("Rapprocher", "Zoom in")} onclick={zoom(0.8)}>{ "+" }</button>
+                    <button class="scene-btn" aria-label={t("Éloigner", "Zoom out")} onclick={zoom(1.25)}>{ "−" }</button>
+                    <button class="scene-btn on" aria-label={t("Quitter le plein écran", "Exit full screen")} onclick={toggle_full}>{ "✕" }</button>
+                } else {
+                    <button class="scene-btn" onclick={toggle_full}>{ t("⛶ Plein écran", "⛶ Full screen") }</button>
+                }
             </div>
         </div>
+    }
+}
+
+/// Carte « monoplace en 3D » aux couleurs d'une écurie.
+pub fn car_card(constructor_id: &str, team: &str) -> Html {
+    html! {
+        <section class="card">
+            <h2>{ t("La monoplace en 3D", "The car in 3D") }</h2>
+            <View3D scene={Scene::Car(livery(constructor_id))} />
+            <p class="muted">{ crate::tr!(
+                "Monoplace stylisée aux couleurs {} — modèle généré par le code, pas une reproduction officielle. Glisse pour la faire tourner, ou passe en plein écran pour zoomer et la déplacer à deux doigts.",
+                "Stylised car in {} colours — generated by code, not an official replica. Drag to spin it, or go full screen to zoom and move it with two fingers.",
+                team
+            ) }</p>
+        </section>
     }
 }
 
@@ -1381,20 +1880,5 @@ mod tests {
         assert!(x.abs() < 1e-5 && y.abs() < 1e-5);
         assert!(vp.project([0.0, 0.0, 10.0]).is_none());
         assert!(car_mesh().count() > 1000);
-    }
-}
-
-/// Carte « monoplace en 3D » aux couleurs d'une écurie.
-pub fn car_card(colour: &str, team: &str) -> Html {
-    html! {
-        <section class="card">
-            <h2>{ t("La monoplace en 3D", "The car in 3D") }</h2>
-            <View3D scene={Scene::Car(AttrValue::from(colour.to_string()))} />
-            <p class="muted">{ crate::tr!(
-                "Monoplace stylisée aux couleurs {} — modèle généré par le code, pas une reproduction officielle. Glisse pour la faire tourner.",
-                "Stylised car in {} colours — generated by code, not an official replica. Drag to spin it.",
-                team
-            ) }</p>
-        </section>
     }
 }
