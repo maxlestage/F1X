@@ -292,7 +292,31 @@ pub struct OpenF1 {
     datasets: Mutex<VecDeque<(u32, DatasetSlot)>>,
     /// Tracés de circuits (ne changent pas : gardés pour toute la vie du serveur).
     tracks: RwLock<HashMap<String, Arc<TrackMap>>>,
+    /// Réponses brutes des 18 points d'accès (relais `/api/of1/…`).
+    raw: RwLock<HashMap<String, (Instant, Arc<Value>)>>,
 }
+
+/// Les 18 points d'accès publics d'OpenF1.
+pub const ENDPOINTS: [&str; 18] = [
+    "car_data",
+    "championship_drivers",
+    "championship_teams",
+    "drivers",
+    "intervals",
+    "laps",
+    "location",
+    "meetings",
+    "overtakes",
+    "pit",
+    "position",
+    "race_control",
+    "sessions",
+    "session_result",
+    "starting_grid",
+    "stints",
+    "team_radio",
+    "weather",
+];
 
 impl OpenF1 {
     pub fn new(credentials: Option<(String, String)>) -> Self {
@@ -310,7 +334,125 @@ impl OpenF1 {
             sessions: RwLock::new(HashMap::new()),
             datasets: Mutex::new(VecDeque::new()),
             tracks: RwLock::new(HashMap::new()),
+            raw: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Relais mis en cache d'un point d'accès OpenF1 (`endpoint?query`).
+    pub async fn relay(&self, endpoint: &str, query: &str) -> Result<Arc<Value>, String> {
+        let key = format!("{endpoint}?{query}");
+        // Données d'une session terminée : figées. Requêtes « latest » : rafraîchies souvent.
+        let ttl = if query.contains("latest") {
+            Duration::from_secs(60)
+        } else {
+            Duration::from_secs(6 * 3600)
+        };
+        if let Some((at, v)) = self.raw.read().await.get(&key) {
+            if at.elapsed() < ttl {
+                return Ok(v.clone());
+            }
+        }
+        let value = Arc::new(self.get(&key).await?);
+        let mut raw = self.raw.write().await;
+        if raw.len() > 600 {
+            let oldest = raw
+                .iter()
+                .min_by_key(|(_, (at, _))| *at)
+                .map(|(k, _)| k.clone());
+            if let Some(k) = oldest {
+                raw.remove(&k);
+            }
+        }
+        raw.insert(key, (Instant::now(), value.clone()));
+        Ok(value)
+    }
+
+    /// Télémétrie comparée : meilleur tour de chaque pilote, rééchantillonné selon la distance.
+    pub async fn telemetry(&self, session_key: u32, drivers: &[u32]) -> Result<Value, String> {
+        let mut out = Vec::new();
+        for &d in drivers.iter().take(3) {
+            let laps = self
+                .relay(
+                    "laps",
+                    &format!("session_key={session_key}&driver_number={d}"),
+                )
+                .await?;
+            let best = arr(&laps)
+                .iter()
+                .filter(|l| {
+                    !l.get("is_pit_out_lap")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                })
+                .filter_map(|l| {
+                    Some((
+                        f(l, "lap_duration")?,
+                        u(l, "lap_number")?,
+                        t(l, "date_start")?,
+                    ))
+                })
+                .min_by(|a, b| a.0.total_cmp(&b.0));
+            let Some((duration, lap, start)) = best else {
+                continue;
+            };
+            let end = start + (duration * 1000.0) as Ms;
+            let q = format!(
+                "session_key={session_key}&driver_number={d}&date>{}&date<{}",
+                query_date(start),
+                query_date(end)
+            );
+            let car = self.relay("car_data", &q).await?;
+            let mut samples: Vec<(Ms, f64, f64, f64, f64)> = arr(&car)
+                .iter()
+                .filter_map(|c| {
+                    Some((
+                        t(c, "date")?,
+                        f(c, "speed")?,
+                        f(c, "throttle").unwrap_or(0.0).min(100.0),
+                        if f(c, "brake").unwrap_or(0.0) > 0.0 {
+                            100.0
+                        } else {
+                            0.0
+                        },
+                        f(c, "n_gear").unwrap_or(0.0),
+                    ))
+                })
+                .collect();
+            samples.sort_by_key(|c| c.0);
+            if samples.len() < 10 {
+                continue;
+            }
+            // Distance parcourue (intégration de la vitesse), puis 240 points réguliers.
+            let mut dist = vec![0.0f64];
+            for w in samples.windows(2) {
+                let dt = (w[1].0 - w[0].0) as f64 / 1000.0;
+                dist.push(dist.last().unwrap() + (w[0].1 + w[1].1) / 2.0 / 3.6 * dt);
+            }
+            let total = *dist.last().unwrap();
+            let n = 240;
+            let (mut ds, mut sp, mut th, mut br, mut gr) = (vec![], vec![], vec![], vec![], vec![]);
+            let mut j = 0;
+            for k in 0..n {
+                let target = total * k as f64 / (n - 1) as f64;
+                while j + 1 < dist.len() - 1 && dist[j + 1] < target {
+                    j += 1;
+                }
+                let span = (dist[j + 1] - dist[j]).max(1e-6);
+                let a = ((target - dist[j]) / span).clamp(0.0, 1.0);
+                let lerp = |x: f64, y: f64| x + (y - x) * a;
+                let (p, q) = (samples[j], samples[j + 1]);
+                ds.push((target).round());
+                sp.push(lerp(p.1, q.1).round());
+                th.push(lerp(p.2, q.2).round());
+                br.push(if a < 0.5 { p.3 } else { q.3 });
+                gr.push(if a < 0.5 { p.4 } else { q.4 });
+            }
+            out.push(serde_json::json!({
+                "driver_number": d, "lap_number": lap, "lap_duration": duration,
+                "distance": ds, "speed": sp, "throttle": th, "brake": br, "gear": gr,
+            }));
+        }
+        Ok(Value::Array(out))
     }
 
     pub fn has_live_access(&self) -> bool {

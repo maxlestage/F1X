@@ -96,6 +96,7 @@ cargo run            # http://localhost:3000
 | `/ecurie/{id}` | Palmarès, pilotes et résultats saison par saison | `constructors/{id}/…` (`results/1-3`, `grid/1`, `seasons`, `constructorStandings`) |
 | `/circuit/{id}` | **Tracé** reconstitué depuis un vrai tour (GPS OpenF1) coloré par la vitesse, télémétrie au toucher (vitesse, rapport, gaz, freinage), stats du tour (longueur, V max/mini/moyenne, % à fond, % freinage) ; carte OpenStreetMap ; prochain GP ; record, victoires depuis la pole, rois du circuit, écuries, palmarès complet | `circuits/{id}/races`, `results/1`, `fastest/1/results` + OpenF1 `laps`, `location`, `car_data` |
 | `/archives` (+ `/saisons`, `/pilotes`, `/ecuries`, `/circuits`) | Chiffres clés, causes d'abandon, listes complètes avec recherche | `seasons`, `races`, `drivers`, `constructors`, `circuits`, `status` |
+| `/donnees/{année}`, `/donnees/reunion/{clé}`, `/donnees/session/{clé}` | **Les 18 sources OpenF1** : réunions, séances, grille, résultats, championnat pilotes/constructeurs, temps au tour, positions, écarts, stratégie pneus, arrêts, dépassements, télémétrie comparée (vitesse, gaz, rapport), direction de course, radios d'équipe, météo | OpenF1 (`/api/of1/…`) |
 
 Les anciennes adresses (`/calendrier`, `/course/{manche}`, `/pilotes`, `/ecuries`) restent valides.
 
@@ -179,6 +180,8 @@ course. Le nombre de personnes connectées est diffusé en temps réel.
 | `/api/photo/{titre}` | Photo libre (Wikimedia Commons) d'un article Wikipédia `{src, credit}`, 404 sinon |
 | `/api/all/{chemin}.json` | Toutes les pages d'un endpoint, fusionnées côté serveur |
 | `/api/live/sessions/{année}` | Sessions rejouables (OpenF1) |
+| `/api/of1/{endpoint}?{filtres}` | Relais mis en cache des 18 endpoints OpenF1 (requête validée ; 60 s si `latest`, 6 h sinon) |
+| `/api/of1/telemetry?session_key=&drivers=a,b` | Meilleurs tours de 2–3 pilotes rééchantillonnés sur la distance (vitesse, gaz, frein, rapport) |
 | `/api/track/{circuit}` | Tracé GPS + télémétrie du meilleur tour de la dernière course (depuis 2023), mis en cache |
 | `/ws` | WebSocket direct / replay (messages JSON, voir `web/protocol`) |
 | `/healthz` | Health check |

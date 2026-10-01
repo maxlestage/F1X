@@ -9,6 +9,7 @@ struct ExplorerView: View {
                 NavigationLink { CalendarView() } label: { Label(L("Toutes les saisons", "Every season"), systemImage: "calendar") }
             }
             Section(L("Outils", "Tools")) {
+                NavigationLink { DataYearView(year: Calendar.current.component(.year, from: Date())) } label: { Label(L("Données OpenF1 (télémétrie, pneus, radios…)", "OpenF1 data (telemetry, tyres, radio…)"), systemImage: "chart.xyaxis.line") }
                 NavigationLink { CompareView() } label: { Label(L("Comparateur de pilotes", "Driver comparison"), systemImage: "arrow.left.arrow.right") }
                 NavigationLink { NewsView() } label: { Label(L("Actualités", "News"), systemImage: "newspaper.fill") }
                 NavigationLink { GlossaryView() } label: { Label(L("Lexique", "Glossary"), systemImage: "book.fill") }

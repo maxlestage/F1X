@@ -156,6 +156,42 @@ impl Builder {
         }
     }
 
+    /// Boule lissée (feuillus) : centre, rayons horizontal et vertical.
+    fn blob(&mut self, m: Mat, c: V, r: f32, ry: f32) {
+        let (rings, segs) = (5usize, 8usize);
+        let g = self.group(m, (rings + 1) * (segs + 1));
+        let base = g.pos.len() as u16;
+        for i in 0..=rings {
+            let phi = std::f32::consts::PI * i as f32 / rings as f32;
+            for k in 0..=segs {
+                let th = std::f32::consts::TAU * k as f32 / segs as f32;
+                let d = [phi.sin() * th.cos(), phi.cos(), phi.sin() * th.sin()];
+                g.pos.push(add(c, [d[0] * r, d[1] * ry, d[2] * r]));
+                g.nrm.push(norm([d[0] / r, d[1] / ry, d[2] / r]));
+            }
+        }
+        let w = (segs + 1) as u16;
+        for i in 0..rings as u16 {
+            for k in 0..segs as u16 {
+                let a = base + i * w + k;
+                g.idx
+                    .extend_from_slice(&[a, a + 1, a + w, a + 1, a + w + 1, a + w]);
+            }
+        }
+    }
+
+    /// Panneau vertical entre deux points au sol, de `y0` à `y1`, visible des deux côtés.
+    fn wall(&mut self, m: Mat, a: V, b: V, y0: f32, y1: f32, out: V) {
+        let p = [
+            add(a, [0.0, y0, 0.0]),
+            add(b, [0.0, y0, 0.0]),
+            add(b, [0.0, y1, 0.0]),
+            add(a, [0.0, y1, 0.0]),
+        ];
+        self.quad(m, p, out);
+        self.quad(m, p, mul(out, -1.0));
+    }
+
     fn export(&self) -> Vec<u8> {
         let mut max = 1.0f32;
         for g in &self.groups {
@@ -205,6 +241,15 @@ impl Rng {
             .wrapping_add(1442695040888963407);
         ((self.0 >> 33) as f32) / (u32::MAX >> 1) as f32
     }
+}
+
+/// Bruit de valeur entier → [0, 1) (parcelles du paysage).
+fn hash2(x: i32, z: i32) -> f32 {
+    let mut h = (x as u32).wrapping_mul(0x9E37_79B1) ^ (z as u32).wrapping_mul(0x85EB_CA77);
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x2C1B_3C6D);
+    h ^= h >> 12;
+    (h & 0xFFFF) as f32 / 65_536.0
 }
 
 fn speed_colour(ratio: f32) -> u32 {
@@ -261,6 +306,20 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
     let gravel = mat(0xC4AE86, 4);
     let armco = mat(0x9EA3AA, 70);
     let skirt = mat(0x3A3C40, 10);
+    let runoff = mat(0x3A3E46, 14);
+    let paint = [mat(0x2F6FB5, 25), mat(0x2E9B57, 25)];
+    let tyres = [mat(0x15161A, 10), mat(0xE8E8E8, 15)];
+    let (tecpro_a, tecpro_b) = (mat(0x1E4FB5, 35), mat(0xD3202A, 35));
+    let fence = mat(0x6B7078, 30);
+    // Panneaux publicitaires génériques (aplats de couleurs, aucune marque).
+    let boards = [
+        mat(0xE10600, 40),
+        mat(0x101820, 40),
+        mat(0xF5F5F5, 40),
+        mat(0x00A19C, 40),
+        mat(0xFFB800, 40),
+        mat(0x6A2CB8, 40),
+    ];
 
     for i in 0..segs {
         let j = at(i as isize + 1);
@@ -299,17 +358,62 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
             strip(&mut b, m, hw, hw + 2.4, 0.08);
             strip(&mut b, m, -hw - 2.4, -hw, 0.08);
         }
-        // Bac à graviers et rail à l'extérieur des virages lents.
+        let outside = if turn[i] > 0.0 { -1.0 } else { 1.0 };
+        let inward = mul(side(i), -outside);
         if t > 0.22 && raw[i].speed < 230 {
-            let outside = if turn[i] > 0.0 { -1.0 } else { 1.0 };
+            // Virage lent : bac à graviers, mur de pneus rouge et blanc, grillage.
             let (o0, o1) = (outside * (hw + 2.4), outside * (hw + 22.0));
             strip(&mut b, gravel, o0.min(o1), o0.max(o1), 0.02);
             let (r0, r1) = (off(i, o1, 0.0), off(j, o1, 0.0));
-            b.quad(
-                armco,
-                [r0, r1, add(r1, [0.0, 1.6, 0.0]), add(r0, [0.0, 1.6, 0.0])],
-                mul(side(i), -outside),
+            b.wall(tyres[i % 2], r0, r1, 0.0, 1.2, inward);
+            b.wall(
+                if (i / 2) % 2 == 0 { tecpro_a } else { tecpro_b },
+                off(i, o1 + outside * 0.1, 0.0),
+                off(j, o1 + outside * 0.1, 0.0),
+                1.2,
+                1.9,
+                inward,
             );
+            b.wall(
+                fence,
+                off(i, o1 + outside * 1.5, 0.0),
+                off(j, o1 + outside * 1.5, 0.0),
+                1.9,
+                5.5,
+                inward,
+            );
+        } else if t > 0.10 {
+            // Virage rapide : dégagement asphalté peint (bandes bleues et vertes), rail.
+            let (o0, o1) = (outside * (hw + 2.4), outside * (hw + 16.0));
+            strip(&mut b, runoff, o0.min(o1), o0.max(o1), 0.03);
+            let (p0, p1) = (outside * (hw + 2.4), outside * (hw + 4.4));
+            strip(&mut b, paint[(i / 3) % 2], p0.min(p1), p0.max(p1), 0.05);
+            b.wall(armco, off(i, o1, 0.0), off(j, o1, 0.0), 0.3, 1.3, inward);
+        } else {
+            // Ligne droite : rail, panneaux publicitaires génériques des deux côtés.
+            for sgn in [-1.0f32, 1.0] {
+                let o = sgn * (hw + 7.0);
+                b.wall(
+                    armco,
+                    off(i, o, 0.0),
+                    off(j, o, 0.0),
+                    0.3,
+                    1.1,
+                    mul(side(i), -sgn),
+                );
+                if (i / 2) % 3 != 2 {
+                    let board = boards[(i / 2 + if sgn > 0.0 { 1 } else { 0 }) % boards.len()];
+                    let o = sgn * (hw + 7.6);
+                    b.wall(
+                        board,
+                        off(i, o, 0.0),
+                        off(j, o, 0.0),
+                        1.1,
+                        2.3,
+                        mul(side(i), -sgn),
+                    );
+                }
+            }
         }
     }
 
@@ -364,14 +468,42 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
         let u = hv(gx, (gz + 1).min(grid));
         norm([l - r, 2.0 * step, d - u])
     };
-    let grass = [mat(0x3E6A2D, 6), mat(0x35602A, 6), mat(0x2B4A23, 6)];
+    let mown = [mat(0x4A7F33, 6), mat(0x3F7029, 6)];
+    let fields = [
+        mat(0x3E6A2D, 5),
+        mat(0x46722F, 5),
+        mat(0x507835, 5),
+        mat(0x637D3B, 5),
+        mat(0x386329, 5),
+    ];
+    let rock = mat(0x6C6A58, 8);
+    let dirt = mat(0x5E6A3A, 5);
     let mut shared: HashMap<(usize, usize, usize), u16> = HashMap::new();
     for gz in 0..grid {
         for gx in 0..grid {
             let d = dist[gz * (grid + 1) + gx];
-            // Bandes de tonte près de la piste, herbe plus sombre au loin.
-            let _ = d;
-            let m = grass[((gx + gz) / 5) % 2];
+            // Pente du carré : roche sur les talus raides.
+            let hs = [
+                hv(gx, gz),
+                hv(gx + 1, gz),
+                hv(gx + 1, gz + 1),
+                hv(gx, gz + 1),
+            ];
+            let slope = (hs.iter().cloned().fold(f32::MIN, f32::max)
+                - hs.iter().cloned().fold(f32::MAX, f32::min))
+                / step;
+            // Herbe tondue en bandes près de la piste, parcelles agricoles au loin.
+            let m = if slope > 1.4 {
+                rock
+            } else if slope > 0.9 {
+                dirt
+            } else if d < 70.0 {
+                mown[(d / 7.0) as usize % 2]
+            } else {
+                let (px, pz) = ((gx / 6) as i32, (gz / 5) as i32);
+                let r = hash2(px, pz);
+                fields[(r * fields.len() as f32) as usize % fields.len()]
+            };
             let g = {
                 b.group(m, 4);
                 b.current[&m]
@@ -509,13 +641,100 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
         [58.0, 0.1, 2.0],
     );
 
+    // Voie des stands : asphalte parallèle, ligne blanche, garages.
+    let span = (n / 25).max(4) as isize;
+    for k in -span..span {
+        let (i, j) = (at(mid as isize + k), at(mid as isize + k + 1));
+        let q = |o0: f32, o1: f32, dy: f32| {
+            [
+                off(i, o0, dy),
+                off(j, o0, dy),
+                off(j, o1, dy),
+                off(i, o1, dy),
+            ]
+        };
+        b.quad(asphalt, q(hw + 7.5, hw + 15.5, 0.02), up);
+        b.quad(white, q(hw + 7.5, hw + 7.9, 0.05), up);
+    }
+    for k in 0..10 {
+        let along = -50.0 + k as f32 * 11.0;
+        b.block(
+            mat(if k % 2 == 0 { 0x2B2E35 } else { 0x343842 }, 50),
+            add(
+                add(off(mid, hw + 15.95, 0.0), mul(t, along)),
+                [0.0, 2.4, 0.0],
+            ),
+            [t, s, up],
+            [4.5, 0.05, 2.4],
+        );
+    }
+
+    // Tribunes à l'extérieur des virages les plus serrés.
+    let mut corners: Vec<usize> = (0..n).filter(|&i| turn[i].abs() > 0.5).collect();
+    corners.sort_by(|a, b| turn[*b].abs().total_cmp(&turn[*a].abs()));
+    let mut placed: Vec<V> = vec![pts[mid]];
+    for &i in &corners {
+        if placed.len() > 5 {
+            break;
+        }
+        if placed.iter().any(|p| {
+            let d = sub(*p, pts[i]);
+            d[0] * d[0] + d[2] * d[2] < 160.0 * 160.0
+        }) {
+            continue;
+        }
+        placed.push(pts[i]);
+        let outside = if turn[i] > 0.0 { -1.0 } else { 1.0 };
+        let (ti, si) = (tangent(i), side(i));
+        for tier in 0..3 {
+            let o = outside * (hw + 32.0 + tier as f32 * 4.0);
+            let c = add(off(i, o, 0.0), [0.0, 1.2 + tier as f32 * 2.0, 0.0]);
+            b.block(
+                concrete,
+                c,
+                [ti, si, up],
+                [24.0, 2.0, 1.2 + tier as f32 * 2.0],
+            );
+            b.block(
+                stand_seats[(tier + placed.len()) % 3],
+                add(c, [0.0, 1.2 + tier as f32 * 2.0, 0.0]),
+                [ti, si, up],
+                [23.5, 1.8, 0.22],
+            );
+        }
+        let roof_o = outside * (hw + 38.0);
+        b.block(
+            mat(0xD9DCE1, 25),
+            add(off(i, roof_o, 0.0), [0.0, 10.5, 0.0]),
+            [ti, si, up],
+            [25.0, 8.5, 0.4],
+        );
+        for e in [-23.0f32, 23.0] {
+            b.block(
+                concrete,
+                add(
+                    add(off(i, outside * (hw + 44.0), 0.0), mul(ti, e)),
+                    [0.0, 5.2, 0.0],
+                ),
+                [ti, si, up],
+                [0.5, 0.5, 5.2],
+            );
+        }
+    }
+
     // Arbres, à distance de la piste.
     let mut rng = Rng(0xF1F1_2026 ^ raw.len() as u64);
     let trunk = mat(0x4A3423, 5);
-    let leaves = [mat(0x24451F, 8), mat(0x2E5626, 8), mat(0x1D3A1A, 8)];
+    let leaves = [
+        mat(0x24451F, 8),
+        mat(0x2E5626, 8),
+        mat(0x1D3A1A, 8),
+        mat(0x3D6B2A, 8),
+        mat(0x4F7A2C, 8),
+    ];
     let mut planted = 0;
     let mut tries = 0;
-    while planted < 320 && tries < 6000 {
+    while planted < 420 && tries < 8000 {
         tries += 1;
         let (gx, gz) = (
             (rng.next() * grid as f32) as usize,
@@ -533,9 +752,29 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
             [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], up],
             [0.5 * size, 0.5 * size, 2.0 * size],
         );
-        let m = leaves[planted % 3];
-        b.cone(m, add(base, [0.0, 2.5 * size, 0.0]), 4.2 * size, 7.0 * size);
-        b.cone(m, add(base, [0.0, 6.0 * size, 0.0]), 3.0 * size, 6.0 * size);
+        let m = leaves[planted % leaves.len()];
+        if rng.next() < 0.55 {
+            // Feuillu : deux ou trois boules qui se chevauchent.
+            let r = 3.6 * size;
+            b.blob(m, add(base, [0.0, 4.0 * size + r * 0.7, 0.0]), r, r * 0.85);
+            b.blob(
+                m,
+                add(base, [r * 0.55, 3.6 * size + r * 0.5, r * 0.3]),
+                r * 0.7,
+                r * 0.6,
+            );
+            if rng.next() < 0.5 {
+                b.blob(
+                    m,
+                    add(base, [-r * 0.5, 3.8 * size + r * 0.55, -r * 0.35]),
+                    r * 0.65,
+                    r * 0.55,
+                );
+            }
+        } else {
+            b.cone(m, add(base, [0.0, 2.5 * size, 0.0]), 4.2 * size, 7.0 * size);
+            b.cone(m, add(base, [0.0, 6.0 * size, 0.0]), 3.0 * size, 6.0 * size);
+        }
         planted += 1;
     }
 

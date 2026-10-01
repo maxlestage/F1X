@@ -100,6 +100,8 @@ fn app(state: AppState) -> Router {
         .route("/live/sessions/{year}", get(live_sessions))
         .route("/track/{circuit_id}", get(track))
         .route("/track3d/{circuit_id}", get(track3d))
+        .route("/of1/telemetry", get(of1_telemetry))
+        .route("/of1/{endpoint}", get(of1_relay))
         .route(
             "/news/{lang}",
             get(
@@ -346,6 +348,73 @@ async fn track3d(State(s): State<AppState>, Path(id): Path<String>) -> Response 
     let bytes = std::sync::Arc::new(bytes);
     s.scenery.lock().await.insert(id, bytes.clone());
     ok(bytes)
+}
+
+/// Relais des 18 points d'accès OpenF1 (`/api/of1/laps?session_key=…`), mis en cache.
+/// Les flux très volumineux (télémétrie, positions GPS) exigent un pilote et une fenêtre.
+async fn of1_relay(
+    State(s): State<AppState>,
+    Path(endpoint): Path<String>,
+    axum::extract::RawQuery(query): axum::extract::RawQuery,
+) -> Response {
+    let query = query.unwrap_or_default();
+    if !openf1::ENDPOINTS.contains(&endpoint.as_str())
+        || query.len() > 300
+        || !query
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_=&<>:.+-%".contains(c))
+    {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let heavy = matches!(endpoint.as_str(), "car_data" | "location");
+    if heavy && !(query.contains("driver_number=") && query.contains("date")) {
+        return (
+            StatusCode::BAD_REQUEST,
+            "driver_number et une fenêtre date sont requis",
+        )
+            .into_response();
+    }
+    if !query.contains("session_key=")
+        && !query.contains("meeting_key=")
+        && endpoint != "meetings"
+        && endpoint != "sessions"
+    {
+        return (StatusCode::BAD_REQUEST, "session_key ou meeting_key requis").into_response();
+    }
+    match s.hub.openf1.relay(&endpoint, &query).await {
+        Ok(v) => (
+            [(header::CACHE_CONTROL, "public, max-age=300")],
+            axum::Json(v.as_ref().clone()),
+        )
+            .into_response(),
+        Err(err) => (StatusCode::BAD_GATEWAY, err).into_response(),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct TelemetryQuery {
+    session_key: u32,
+    drivers: String,
+}
+
+/// Télémétrie comparée (meilleur tour de 2-3 pilotes, alignée sur la distance).
+async fn of1_telemetry(State(s): State<AppState>, Query(q): Query<TelemetryQuery>) -> Response {
+    let drivers: Vec<u32> = q
+        .drivers
+        .split(',')
+        .filter_map(|d| d.parse().ok())
+        .collect();
+    if drivers.is_empty() {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    match s.hub.openf1.telemetry(q.session_key, &drivers).await {
+        Ok(v) => (
+            [(header::CACHE_CONTROL, "public, max-age=3600")],
+            axum::Json(v),
+        )
+            .into_response(),
+        Err(err) => (StatusCode::BAD_GATEWAY, err).into_response(),
+    }
 }
 
 /// Tracé d'un circuit : dernière course disputée depuis 2023 (données OpenF1).
