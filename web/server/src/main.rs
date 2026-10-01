@@ -6,6 +6,7 @@ mod news;
 mod openf1;
 mod photos;
 mod race;
+mod track3d;
 
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -30,6 +31,10 @@ struct AppState {
     hub: std::sync::Arc<live::Hub>,
     news: news::News,
     photos: photos::Photos,
+    /// Décors 3D déjà calculés, par circuit.
+    scenery: std::sync::Arc<
+        tokio::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<Vec<u8>>>>,
+    >,
 }
 
 #[tokio::main]
@@ -59,6 +64,7 @@ async fn main() {
         hub: live::Hub::new(openf1),
         news: news::News::new(),
         photos: photos::Photos::new(),
+        scenery: Default::default(),
     };
     // Cache persistant optionnel (utile en local pour ne pas épuiser le quota Jolpica).
     let cache_file = std::env::var("CACHE_FILE").ok();
@@ -93,6 +99,7 @@ fn app(state: AppState) -> Router {
         .route("/all/{*path}", get(f1_all))
         .route("/live/sessions/{year}", get(live_sessions))
         .route("/track/{circuit_id}", get(track))
+        .route("/track3d/{circuit_id}", get(track3d))
         .route(
             "/news/{lang}",
             get(
@@ -304,25 +311,62 @@ async fn live_sessions(State(s): State<AppState>, Path(year): Path<u32>) -> Resp
 
 /// Tracé d'un circuit (dernière course disputée depuis 2023, données OpenF1).
 async fn track(State(s): State<AppState>, Path(id): Path<String>) -> Response {
+    match load_track(&s, &id).await {
+        Ok(t) => (
+            [(header::CACHE_CONTROL, "public, max-age=86400")],
+            axum::Json(t.as_ref()),
+        )
+            .into_response(),
+        Err(resp) => *resp,
+    }
+}
+
+/// Décor 3D du circuit (relief, piste, vibreurs, tribunes…), au format binaire partagé.
+async fn track3d(State(s): State<AppState>, Path(id): Path<String>) -> Response {
+    let ok = |bytes: std::sync::Arc<Vec<u8>>| {
+        (
+            [
+                (header::CONTENT_TYPE, "application/octet-stream"),
+                (header::CACHE_CONTROL, "public, max-age=86400"),
+            ],
+            bytes.as_ref().clone(),
+        )
+            .into_response()
+    };
+    if let Some(hit) = s.scenery.lock().await.get(&id).cloned() {
+        return ok(hit);
+    }
+    let map = match load_track(&s, &id).await {
+        Ok(t) => t,
+        Err(resp) => return *resp,
+    };
+    let bytes = tokio::task::spawn_blocking(move || track3d::build(&map))
+        .await
+        .unwrap_or_default();
+    let bytes = std::sync::Arc::new(bytes);
+    s.scenery.lock().await.insert(id, bytes.clone());
+    ok(bytes)
+}
+
+/// Tracé d'un circuit : dernière course disputée depuis 2023 (données OpenF1).
+async fn load_track(
+    s: &AppState,
+    id: &str,
+) -> Result<std::sync::Arc<f1x_protocol::TrackMap>, Box<Response>> {
     if id.is_empty()
         || !id
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
     {
-        return StatusCode::NOT_FOUND.into_response();
+        return Err(Box::new(StatusCode::NOT_FOUND.into_response()));
     }
-    let ok = |t: std::sync::Arc<f1x_protocol::TrackMap>| {
-        (
-            [(header::CACHE_CONTROL, "public, max-age=86400")],
-            axum::Json(t.as_ref()),
-        )
-            .into_response()
-    };
-    if let Some(t) = s.hub.openf1.cached_track(&id).await {
-        return ok(t);
+    if let Some(t) = s.hub.openf1.cached_track(id).await {
+        return Ok(t);
     }
     let Some(races) = s.api.all(&format!("circuits/{id}/races.json")).await else {
-        return (StatusCode::BAD_GATEWAY, "races unavailable").into_response();
+        return Err(Box::new(
+            (StatusCode::BAD_GATEWAY, "races unavailable").into_response(),
+        ));
     };
     // Courses disputées depuis 2023 (données OpenF1), de la plus récente à la plus ancienne.
     let candidates: Vec<(u32, String, String)> = races
@@ -343,15 +387,17 @@ async fn track(State(s): State<AppState>, Path(id): Path<String>) -> Response {
         })
         .unwrap_or_default();
     if candidates.is_empty() {
-        return (StatusCode::NOT_FOUND, "no race since 2023").into_response();
+        return Err(Box::new(
+            (StatusCode::NOT_FOUND, "no race since 2023").into_response(),
+        ));
     }
-    match s.hub.openf1.track(&id, &candidates).await {
-        Ok(t) => ok(t),
+    match s.hub.openf1.track(id, &candidates).await {
+        Ok(t) => Ok(t),
         // Aucune session exploitable (ex. GP pas encore couru) : 404, rien à réessayer.
         Err(err) if err.starts_with("Pas de données") => {
-            (StatusCode::NOT_FOUND, err).into_response()
+            Err(Box::new((StatusCode::NOT_FOUND, err).into_response()))
         }
-        Err(err) => (StatusCode::BAD_GATEWAY, err).into_response(),
+        Err(err) => Err(Box::new((StatusCode::BAD_GATEWAY, err).into_response())),
     }
 }
 

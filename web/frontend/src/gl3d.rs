@@ -850,7 +850,7 @@ impl Path {
 /// Exagération du relief (sinon invisible à l'échelle d'un circuit).
 const RELIEF: f32 = 4.0;
 const HALF_WIDTH: f32 = 8.0;
-const CAR_SCALE: f32 = 7.0;
+const CAR_SCALE: f32 = 5.0;
 
 fn speed_rgba(ratio: f32) -> Rgba {
     // Même rampe que la carte 2D : #b3261e → #ffe4de.
@@ -1022,6 +1022,7 @@ in float v_unlit;
 in vec3 v_world;
 uniform vec3 u_light;
 uniform vec3 u_eye;
+uniform vec4 u_fog;
 out vec4 o;
 void main() {
   if (v_unlit > 0.5) { o = v_col; return; }
@@ -1044,7 +1045,9 @@ void main() {
   float fres = 0.04 + 0.96 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
   col += vec3(spec) + env * fres * g2;
   col = col / (col + vec3(0.55)) * 1.55;
-  o = vec4(pow(col, vec3(1.0 / 2.2)), 1.0);
+  vec3 outc = pow(col, vec3(1.0 / 2.2));
+  float fd = length(u_eye - v_world) * u_fog.a;
+  o = vec4(mix(outc, u_fog.rgb, 1.0 - exp(-fd * fd)), 1.0);
 }"#;
 
 struct Uniforms {
@@ -1055,6 +1058,7 @@ struct Uniforms {
     accent: Option<WebGlUniformLocation>,
     light: Option<WebGlUniformLocation>,
     eye: Option<WebGlUniformLocation>,
+    fog: Option<WebGlUniformLocation>,
 }
 
 struct Gpu {
@@ -1110,6 +1114,7 @@ impl Gpu {
             accent: loc("u_accent"),
             light: loc("u_light"),
             eye: loc("u_eye"),
+            fog: loc("u_fog"),
         };
         gl.enable(Gl::DEPTH_TEST);
         gl.enable(Gl::BLEND);
@@ -1199,8 +1204,13 @@ fn parse_car(b: &[u8]) -> Option<CarData> {
         return None;
     }
     let u32_at = |o: usize| Some(u32::from_le_bytes(rd(o, 4)?.try_into().ok()?));
-    let groups = u32_at(8)? as usize;
-    let mut off = 12;
+    // Version 1 : échelle fixe (monoplace) ; version 2 : échelle en tête (décor de circuit).
+    let (scale, groups, mut off) = if u32_at(4)? >= 2 {
+        let sc = f32::from_le_bytes(rd(8, 4)?.try_into().ok()?);
+        (sc, u32_at(12)? as usize, 16)
+    } else {
+        (4096.0, u32_at(8)? as usize, 12)
+    };
     let (mut verts, mut indices) = (Vec::new(), Vec::new());
     for _ in 0..groups {
         let h = rd(off, 8)?;
@@ -1225,7 +1235,7 @@ fn parse_car(b: &[u8]) -> Option<CarData> {
         for i in 0..nv {
             for k in 0..3 {
                 let v = i16::from_le_bytes([pos[i * 6 + k * 2], pos[i * 6 + k * 2 + 1]]);
-                verts.push(v as f32 / 4096.0);
+                verts.push(v as f32 / scale);
             }
             for k in 0..3 {
                 verts.push(nrm[i * 3 + k] as i8 as f32 / 127.0);
@@ -1520,6 +1530,12 @@ impl State {
         let light = norm([0.45, 0.9, 0.35]);
         gl.uniform3f(gpu.u.light.as_ref(), light[0], light[1], light[2]);
         gl.uniform3f(gpu.u.eye.as_ref(), eye[0], eye[1], eye[2]);
+        // Brouillard de distance sur les circuits (profondeur), aucun sur la monoplace seule.
+        let fog = match &self.track {
+            Some((_, path)) => 1.0 / (path.radius * 7.0),
+            None => 0.0,
+        };
+        gl.uniform4f(gpu.u.fog.as_ref(), 0.121, 0.165, 0.243, fog);
         let id = M4::identity();
         match &self.track {
             None => {
@@ -1562,6 +1578,15 @@ impl State {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /// Décor détaillé du circuit (calculé par le serveur), remplace le tracé simplifié.
+    fn set_scenery(&mut self, data: &CarData) {
+        if let Some(vao) = self.gpu.upload_indexed(&data.0, &data.1) {
+            if let Some(t) = self.track.as_mut() {
+                t.0 = vao;
             }
         }
     }
@@ -1848,6 +1873,27 @@ pub fn View3D(props: &ViewProps) -> Html {
                 failed.set(true);
             }
             *viewer.borrow_mut() = made;
+            if let Scene::Track { map, .. } = scene {
+                // Décor du circuit : chargé en arrière-plan, remplace le tracé simplifié.
+                let viewer = viewer.clone();
+                let url = format!("/api/track3d/{}", map.circuit_id);
+                wasm_bindgen_futures::spawn_local(async move {
+                    let Ok(resp) = gloo_net::http::Request::get(&url).send().await else {
+                        return;
+                    };
+                    if !resp.ok() {
+                        return;
+                    }
+                    let Ok(bytes) = resp.binary().await else {
+                        return;
+                    };
+                    if let Some(data) = parse_car(&bytes) {
+                        if let Some(v) = viewer.borrow().as_ref() {
+                            v.state.borrow_mut().set_scenery(&data);
+                        }
+                    }
+                });
+            }
             {
                 // Modèle détaillé : chargé en arrière-plan, remplace la version simplifiée.
                 let viewer = viewer.clone();
