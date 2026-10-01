@@ -1,0 +1,102 @@
+name: TestFlight iOS
+
+# Compile l'app iOS sur un Mac GitHub, la signe automatiquement avec la clé API App Store Connect
+# et l'envoie sur TestFlight. Se lance à la main (onglet Actions → « Run workflow ») ou à chaque
+# modification de l'app iOS sur master.
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths: ["ios/**", ".github/workflows/testflight.yml"]
+
+concurrency:
+  group: testflight
+  cancel-in-progress: false
+
+jobs:
+  testflight:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: ios
+    env:
+      # Noms acceptés pour chaque secret (le premier renseigné est utilisé).
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID || secrets.APPLE_TEAMID || secrets.APPLE_TEAM }}
+      ISSUER_ID: ${{ secrets.ASC_ISSUER_ID || secrets.ASC_ISSUER }}
+      KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      KEY_CONTENT: ${{ secrets.ASC_KEY_P8 || secrets.ASC_KEY_CONTENT || secrets.ASC_KEY_BASE64 || secrets.ASC_KEY_PRIVATE || secrets.ASC_KEY_FILE || secrets.ASC_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Vérifier les secrets
+        run: |
+          missing=""
+          [ -z "$TEAM_ID" ] && missing="$missing APPLE_TEAM_ID"
+          [ -z "$ISSUER_ID" ] && missing="$missing ASC_ISSUER_ID"
+          [ -z "$KEY_ID" ] && missing="$missing ASC_KEY_ID"
+          [ -z "$KEY_CONTENT" ] && missing="$missing ASC_KEY_P8"
+          if [ -n "$missing" ]; then echo "::error::Secrets manquants :$missing"; exit 1; fi
+          echo "Équipe ${TEAM_ID:0:3}…, clé ${KEY_ID:0:3}…"
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Clé API App Store Connect
+        run: |
+          dir="$RUNNER_TEMP/private_keys"
+          mkdir -p "$dir" ~/.appstoreconnect/private_keys
+          key="$dir/AuthKey_$KEY_ID.p8"
+          if printf '%s' "$KEY_CONTENT" | grep -q "BEGIN PRIVATE KEY"; then
+            printf '%s\n' "$KEY_CONTENT" > "$key"
+          else
+            printf '%s' "$KEY_CONTENT" | base64 --decode > "$key"
+          fi
+          grep -q "BEGIN PRIVATE KEY" "$key" || { echo "::error::Le secret de la clé .p8 est illisible"; exit 1; }
+          cp "$key" ~/.appstoreconnect/private_keys/
+          echo "KEY_PATH=$key" >> "$GITHUB_ENV"
+
+      - name: Générer le projet Xcode
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Archiver (signature automatique)
+        run: |
+          xcodebuild archive \
+            -project F1X.xcodeproj -scheme F1X -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/F1X.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_STYLE=Automatic \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            | tee "$RUNNER_TEMP/archive.log" | grep -E "error:|warning: .*signing|\*\* ARCHIVE" || true
+          test -d "$RUNNER_TEMP/F1X.xcarchive" || { tail -80 "$RUNNER_TEMP/archive.log"; exit 1; }
+
+      - name: Envoyer sur TestFlight
+        run: |
+          sed -i '' "s/TEAM_ID_PLACEHOLDER/$TEAM_ID/" ExportOptions.plist
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/F1X.xcarchive" \
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" \
+            2>&1 | tee "$RUNNER_TEMP/export.log" | tail -40
+          grep -qE "EXPORT SUCCEEDED|Upload succeeded|Uploaded" "$RUNNER_TEMP/export.log" || exit 1
+          echo "::notice::Build ${{ github.run_number }} envoyé sur TestFlight (traitement Apple : 5 à 30 min)."
+
+      - name: Journaux
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-xcode
+          path: ${{ runner.temp }}/*.log
+          if-no-files-found: ignore

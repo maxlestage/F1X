@@ -4,3 +4,5 @@ xcuserdata/
 *.xcuserstate
 .build/
 .swiftpm/xcode/xcuserdata/
+ios/F1X.xcodeproj/
+*.p8
