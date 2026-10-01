@@ -133,6 +133,11 @@ pub fn DriverPage(props: &IdProps) -> Html {
                 }
             </section>
 
+            // Monoplace actuelle uniquement (une F1 moderne n'aurait pas de sens pour les pilotes d'antan).
+            if let Some(team) = latest_team.as_ref().filter(|_| recent) {
+                { crate::gl3d::car_card(crate::util::team_color(&team.constructor_id), &team.name) }
+            }
+
             if !teams.is_empty() {
                 <section class="card">
                     <h2>{ t("Écuries", "Teams") }</h2>
