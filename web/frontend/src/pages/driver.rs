@@ -102,6 +102,9 @@ pub fn DriverPage(props: &IdProps) -> Html {
     html! {
         <Layout title={driver.full_name()} tab={Tab::Standings}>
             <section class="card hero" style={latest_team.as_ref().map(|t| team_style(&t.constructor_id))}>
+                if let Some(url) = &driver.url {
+                    <crate::photo::WikiPhoto url={url.clone()} alt={driver.full_name()} />
+                }
                 <p class="eyebrow">{ eyebrow.join(" · ") }</p>
                 <h2 class="hero-title">{ format!("{} {}", flag_nationality(driver.nationality.as_deref()), driver.full_name()) }</h2>
                 if let Some(dob) = &driver.date_of_birth {

@@ -82,6 +82,8 @@ pub fn Home() -> Html {
                             { for race.results.iter().flatten().take(3).map(|r| html! {
                                 <li class="podium-step" style={team_style(&r.constructor.constructor_id)}>
                                     <Link<Route> to={Route::driver(&r.driver.driver_id)} classes="podium-link">
+                                        <crate::photo::Avatar name={r.driver.full_name()} url={r.driver.url.clone().map(AttrValue::from)}
+                                            colour={crate::util::team_color(&r.constructor.constructor_id)} size={52} />
                                         <span class="podium-pos">{ &r.position }</span>
                                         <span class="podium-name">{ &r.driver.family_name }</span>
                                         <span class="podium-team">{ &r.constructor.name }</span>

@@ -471,3 +471,13 @@ button.btn:disabled { opacity: .5; }
 /* Sans bouton « Site », la bascule de langue reste calée à droite. */
 .topbar .lang-switch { margin-left: auto; }
 .topbar .site-link + .lang-switch { margin-left: 0; }
+
+/* ---------- Photos et avatars ---------- */
+.avatar { flex: none; width: var(--size); height: var(--size); border-radius: 50%; overflow: hidden; display: grid; place-items: center; background: color-mix(in srgb, var(--av) 35%, var(--surface-2)); border: 2px solid var(--av); }
+.avatar img { width: 100%; height: 100%; object-fit: cover; object-position: center 20%; }
+.avatar-initials { font-weight: 900; font-size: calc(var(--size) * .36); color: #fff; letter-spacing: .02em; }
+.podium-link .avatar { margin-bottom: 4px; }
+.wiki-photo { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.wiki-photo img { width: 100%; max-height: 340px; object-fit: cover; object-position: center 25%; border-radius: 14px; background: var(--surface-2); }
+.wiki-photo-wide img { object-fit: contain; max-height: 260px; background: #f4f4f8; padding: 8px; }
+.wiki-photo figcaption { font-size: .72rem; color: var(--muted); }
