@@ -1,12 +1,35 @@
 {
-  "name": "F1X",
+  "id": "/",
+  "name": "F1X — La Formule 1 dans ta poche",
   "short_name": "F1X",
-  "description": "Calendrier, résultats et classements de Formule 1.",
+  "description": "Calendrier, résultats, classements, Race Center en temps réel, circuits et monoplaces en 3D, 75 ans d'archives de Formule 1.",
   "lang": "fr",
-  "start_url": "/",
+  "dir": "ltr",
+  "start_url": "/?source=pwa",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "orientation": "portrait",
   "background_color": "#0b0b10",
   "theme_color": "#0b0b10",
-  "icons": [{ "src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+  "categories": ["sports", "news", "entertainment"],
+  "prefer_related_applications": false,
+  "icons": [
+    { "src": "/static/img/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/static/img/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/static/img/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "screenshots": [
+    { "src": "/presentation/shots/home-fr.jpg", "sizes": "780x1688", "type": "image/jpeg", "form_factor": "narrow", "label": "Accueil : prochain Grand Prix et compte à rebours" },
+    { "src": "/presentation/shots/live-fr.jpg", "sizes": "780x1688", "type": "image/jpeg", "form_factor": "narrow", "label": "Race Center en temps réel" },
+    { "src": "/presentation/shots/car3d-fr.jpg", "sizes": "780x1688", "type": "image/jpeg", "form_factor": "narrow", "label": "Monoplace en 3D aux couleurs de l'écurie" },
+    { "src": "/presentation/shots/circuit3d-fr.jpg", "sizes": "780x1688", "type": "image/jpeg", "form_factor": "narrow", "label": "Circuit en relief 3D" },
+    { "src": "/presentation/shots/track-fr.jpg", "sizes": "780x1688", "type": "image/jpeg", "form_factor": "narrow", "label": "Tracé GPS coloré par la vitesse" }
+  ],
+  "shortcuts": [
+    { "name": "Direct et replays", "short_name": "Direct", "url": "/direct?source=pwa", "icons": [{ "src": "/static/img/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Calendrier", "short_name": "Calendrier", "url": "/saison/current?source=pwa", "icons": [{ "src": "/static/img/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Classements", "short_name": "Classements", "url": "/saison/current/pilotes?source=pwa", "icons": [{ "src": "/static/img/icon-192.png", "sizes": "192x192" }] }
+  ]
 }

@@ -15,6 +15,6 @@ serde.workspace = true
 serde_json.workspace = true
 wasm-bindgen.workspace = true
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["Blob", "BlobPropertyBag", "console", "CssStyleDeclaration", "EventTarget", "HtmlCanvasElement", "Node", "Performance", "WebGl2RenderingContext", "WebGlBuffer", "WebGlProgram", "WebGlShader", "WebGlUniformLocation", "WebGlVertexArrayObject", "Document", "DomRect", "HtmlAnchorElement", "Url", "Element", "Event", "HtmlElement", "HtmlInputElement", "HtmlSelectElement", "Location", "Navigator", "PointerEvent", "Storage", "Window"] }
+web-sys = { version = "0.3", features = ["Blob", "BlobPropertyBag", "console", "CssStyleDeclaration", "EventTarget", "HtmlCanvasElement", "Node", "Performance", "WebGl2RenderingContext", "WebGlBuffer", "WebGlProgram", "WebGlShader", "WebGlUniformLocation", "WebGlVertexArrayObject", "Document", "DomRect", "HtmlAnchorElement", "Url", "Element", "Event", "HtmlElement", "HtmlInputElement", "HtmlSelectElement", "Location", "MediaQueryList", "Navigator", "PointerEvent", "Storage", "Window"] }
 yew = { version = "0.23", features = ["csr"] }
 yew-router = "0.20"

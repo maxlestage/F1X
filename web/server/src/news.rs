@@ -40,7 +40,7 @@ impl News {
     pub fn new() -> Self {
         Self {
             http: reqwest::Client::builder()
-                .user_agent("Mozilla/5.0 (compatible; F1X/0.5; +https://github.com/maxlestage/f1x)")
+                .user_agent(format!("Mozilla/5.0 (compatible; {})", crate::user_agent()))
                 .timeout(Duration::from_secs(10))
                 .build()
                 .expect("http client"),

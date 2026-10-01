@@ -1,7 +1,6 @@
 {
   "name": "F1X",
-  "description": "La Formule 1 dans ta poche : calendrier, résultats et classements. Site mobile first en Rust.",
-  "repository": "https://github.com/maxlestage/f1x",
+  "description": "F1X — toute la Formule 1 dans ta poche : direct, circuits et monoplaces en 3D, 75 ans d'archives.",
   "keywords": [
     "f1",
     "formula1",
@@ -20,6 +19,26 @@
     },
     "OPENF1_PASSWORD": {
       "description": "Optionnel : mot de passe du compte OpenF1.",
+      "required": false
+    },
+    "PUBLIC_URL": {
+      "description": "Adresse publique du site (ex. https://www.mondomaine.fr), utilisée pour les fiches de partage.",
+      "required": false
+    },
+    "LEGAL_PUBLISHER": {
+      "description": "Mentions légales : nom de l'éditeur (personne ou société).",
+      "required": false
+    },
+    "LEGAL_ADDRESS": {
+      "description": "Mentions légales : adresse de l'éditeur.",
+      "required": false
+    },
+    "LEGAL_CONTACT": {
+      "description": "Mentions légales : e-mail de contact.",
+      "required": false
+    },
+    "LEGAL_REGISTRATION": {
+      "description": "Mentions légales : SIREN/SIRET ou RCS, si applicable.",
       "required": false
     }
   },

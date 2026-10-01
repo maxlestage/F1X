@@ -297,7 +297,7 @@ impl OpenF1 {
         let per_minute = if credentials.is_some() { 60 } else { 30 };
         Self {
             http: reqwest::Client::builder()
-                .user_agent("F1X/0.4 (+https://github.com/maxlestage/f1x)")
+                .user_agent(crate::user_agent())
                 .timeout(Duration::from_secs(60))
                 .build()
                 .expect("failed to build HTTP client"),

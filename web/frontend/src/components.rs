@@ -74,6 +74,7 @@ pub fn Layout(props: &LayoutProps) -> Html {
                 </button>
             </header>
             <main class="page">{ props.children.clone() }</main>
+            <crate::pwa::AppFooter />
             <TabBar active={props.tab} />
         </>
     }

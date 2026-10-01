@@ -8,6 +8,7 @@ mod live;
 mod models;
 mod pages;
 mod photo;
+mod pwa;
 mod util;
 
 use yew::prelude::*;

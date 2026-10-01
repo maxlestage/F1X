@@ -48,7 +48,7 @@ impl Photos {
     pub fn new() -> Self {
         Self {
             http: reqwest::Client::builder()
-                .user_agent("F1X/0.5 (+https://github.com/maxlestage/f1x)")
+                .user_agent(crate::user_agent())
                 .timeout(Duration::from_secs(8))
                 .build()
                 .expect("http client"),
