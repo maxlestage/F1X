@@ -37,7 +37,7 @@ pub struct F1Api {
 impl F1Api {
     pub fn new(ttl: Duration) -> Self {
         let http = reqwest::Client::builder()
-            .user_agent("F1X/0.3 (+https://github.com/maxlestage/f1x)")
+            .user_agent(crate::user_agent())
             .timeout(Duration::from_secs(15))
             .build()
             .expect("failed to build HTTP client");

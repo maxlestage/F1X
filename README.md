@@ -99,6 +99,17 @@ cargo run            # http://localhost:3000
 
 Les anciennes adresses (`/calendrier`, `/course/{manche}`, `/pilotes`, `/ecuries`) restent valides.
 
+### 📲 Application installable (PWA), partage et pages légales
+
+- **PWA** : manifeste complet (icônes PNG 192/512 + maskable, raccourcis, captures), service worker
+  `/sw.js` (shell préchargé à chaque version, données en « réseau d'abord » avec copie hors ligne),
+  carte « Installer F1X » sur l'accueil (invite native sur Android/ordinateur, mode d'emploi sur iPhone).
+- **Fiche de partage** : Open Graph + carte X/Twitter avec image 1200×630 (FR/EN), favicon.ico,
+  apple-touch-icon, `robots.txt` et `sitemap.xml`.
+- **Pied de page** pro (app et site) + pages `/mentions-legales`, `/confidentialite`, `/credits`.
+  Variables Heroku à renseigner : `LEGAL_PUBLISHER`, `LEGAL_ADDRESS`, `LEGAL_CONTACT`,
+  `LEGAL_REGISTRATION` (optionnelles) et `PUBLIC_URL` (adresse publique, ex. domaine personnalisé).
+
 ### 🏎️ 3D et photos (gratuit, sans service externe payant)
 
 - **Monoplaces en 3D** (pages écurie et pilote) : F1 stylisée générée par le code aux couleurs de

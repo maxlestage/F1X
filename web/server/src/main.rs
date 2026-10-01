@@ -1,4 +1,5 @@
 mod api;
+mod assets;
 mod landing;
 mod live;
 mod news;
@@ -163,6 +164,16 @@ fn app(state: AppState) -> Router {
             "/static/icon.svg",
             get(|| plain_asset("image/svg+xml", include_bytes!("../static/icon.svg"))),
         )
+        .route("/static/img/{name}", get(assets::img))
+        .route("/favicon.ico", get(assets::favicon))
+        .route("/apple-touch-icon.png", get(assets::apple_touch_icon))
+        .route(
+            "/apple-touch-icon-precomposed.png",
+            get(assets::apple_touch_icon),
+        )
+        .route("/sw.js", get(assets::service_worker))
+        .route("/robots.txt", get(assets::robots))
+        .route("/sitemap.xml", get(assets::sitemap))
         .route(
             "/manifest.webmanifest",
             get(|| {
@@ -175,6 +186,10 @@ fn app(state: AppState) -> Router {
         // Site de présentation (HTML/CSS rendus par le serveur, sans JavaScript).
         .route("/presentation", get(landing::page))
         .route("/presentation/shots/{name}", get(landing::shot))
+        // Pages légales (rendues par le serveur).
+        .route("/mentions-legales", get(landing::legal))
+        .route("/confidentialite", get(landing::privacy))
+        .route("/credits", get(landing::credits))
         // Fichiers inconnus (ex. ancienne empreinte) : vrai 404, jamais la page HTML à la place
         // d'un script (sinon le navigateur resterait bloqué sur l'écran de démarrage).
         .route("/pkg/{*rest}", get(|| async { StatusCode::NOT_FOUND }))
@@ -185,16 +200,30 @@ fn app(state: AppState) -> Router {
         .with_state(state)
 }
 
-async fn index() -> impl IntoResponse {
+async fn index(headers: axum::http::HeaderMap) -> impl IntoResponse {
     // La page elle-même n'est jamais mise en cache : elle pointe toujours vers les bons fichiers.
     (
         [(header::CACHE_CONTROL, "no-cache")],
         Html(
             INDEX_HTML
                 .replace("{{APP}}", env!("F1X_APP_HASH"))
-                .replace("{{CSS}}", env!("F1X_CSS_HASH")),
+                .replace("{{CSS}}", env!("F1X_CSS_HASH"))
+                .replace("{{ORIGIN}}", &assets::origin(&headers)),
         ),
     )
+}
+
+/// Identité des requêtes sortantes (API de données, Wikipédia, flux RSS).
+pub fn user_agent() -> String {
+    match std::env::var("PUBLIC_URL") {
+        Ok(url) if url.starts_with("http") => {
+            format!("F1X/{} (+{url})", env!("CARGO_PKG_VERSION"))
+        }
+        _ => format!(
+            "F1X/{} (application web Formule 1)",
+            env!("CARGO_PKG_VERSION")
+        ),
+    }
 }
 
 /// Fichier à adresse « empreinte » (`/pkg/{hash}/…`, `app.css?v={hash}`) : son contenu ne change jamais.

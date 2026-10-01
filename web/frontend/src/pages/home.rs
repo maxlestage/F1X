@@ -124,6 +124,8 @@ pub fn Home() -> Html {
                     </section>
                 }
 
+                <crate::pwa::InstallCard />
+
                 <Link<Route> to={Route::Predict} classes="btn btn-ghost">{ t("🔮 Pronostiquer le prochain GP", "🔮 Predict the next GP") }</Link<Route>>
                 <Link<Route> to={Route::Live} classes="btn">{ t("● Direct & replays en temps réel", "● Live & real-time replays") }</Link<Route>>
                 <Link<Route> to={Route::Archives} classes="btn btn-ghost">{ t("Explorer 75 ans d'archives →", "Explore 75 years of history →") }</Link<Route>>
