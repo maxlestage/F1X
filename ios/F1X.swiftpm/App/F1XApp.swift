@@ -35,7 +35,7 @@ struct RootView: View {
                     .transition(.opacity)
             }
             if splash && !reduceMotion {
-                SplashView { withAnimation(.easeIn(duration: 0.35)) { splash = false } }
+                SplashView { withAnimation(.easeIn(duration: 0.15)) { splash = false } }
                     .transition(.opacity)
                     .zIndex(10)
             }
