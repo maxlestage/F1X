@@ -62,6 +62,14 @@ jobs:
           brew install xcodegen
           xcodegen generate
 
+      - name: Libérer les certificats de développement
+        # Chaque Mac CI neuf crée un certificat : on révoque ceux des compilations précédentes
+        # (sinon « maximum number of certificates »). La distribution n'est jamais touchée.
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet pyjwt cryptography
+          KEY_PATH="$KEY_PATH" "$RUNNER_TEMP/venv/bin/python" scripts/free_dev_certs.py
+
       - name: Archiver (signature automatique)
         run: |
           xcodebuild archive \

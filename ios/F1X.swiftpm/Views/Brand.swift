@@ -141,56 +141,96 @@ struct SectionIntro: View {
     }
 }
 
-/// Écran de démarrage : cinq feux rouges s'allument puis s'éteignent, le logo arrive.
+/// Écran de démarrage « départ de course » (~1,4 s) : feux rouges express, extinction,
+/// lignes de vitesse, logo qui arrive en trombe (étiré, dépassement, secousse), vibreur
+/// rouge et blanc, puis tout repart vers la droite.
 struct SplashView: View {
     let onFinish: () -> Void
 
     @State private var lights = 0
-    @State private var out = false
+    @State private var lightsOut = false
+    @State private var streaks = false
     @State private var logo = false
-    @State private var xSpin = false
-    @State private var line = false
+    @State private var settle = false
+    @State private var shake: CGFloat = 0
+    @State private var kerb = false
+    @State private var leave = false
 
     var body: some View {
-        ZStack {
-            Color(hex: 0x07070B).ignoresSafeArea()
-            VStack(spacing: 24) {
-                HStack(spacing: 12) {
-                    ForEach(0..<5, id: \.self) { i in
-                        let on = i < lights && !out
-                        Circle()
-                            .fill(on ? Color(hex: 0xFF1E10) : Color(hex: 0x2A0A0A))
-                            .frame(width: 24, height: 24)
-                            .shadow(color: on ? Color(hex: 0xFF2A1A) : .clear, radius: 10)
-                            .overlay(Circle().stroke(on ? Color(hex: 0xFF6A5A) : Color(hex: 0x1A1A22), lineWidth: 2))
+        GeometryReader { geo in
+            let w = geo.size.width
+            ZStack {
+                RadialGradient(colors: [Color(hex: 0x1A0705), Color(hex: 0x07070B)], center: .center, startRadius: 0, endRadius: max(w, 400))
+                    .ignoresSafeArea()
+                // Lignes de vitesse.
+                ForEach(0..<6, id: \.self) { i in
+                    let ys: [CGFloat] = [0.30, 0.41, 0.47, 0.56, 0.63, 0.72]
+                    let red = i == 1 || i == 3
+                    Capsule()
+                        .fill(LinearGradient(colors: [.clear, red ? Color.f1Red : .white.opacity(0.85)], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: w * (red ? 0.65 : 0.45), height: red ? 4 : 2)
+                        .position(x: streaks ? -w * 1.2 : w * 1.6, y: geo.size.height * ys[i])
+                        .animation(.easeOut(duration: 0.38).delay(Double(i % 3) * 0.03), value: streaks)
+                }
+                VStack(spacing: 18) {
+                    HStack(spacing: 9) {
+                        ForEach(0..<5, id: \.self) { i in
+                            let on = i < lights
+                            Circle()
+                                .fill(on ? Color(hex: 0xFF1E10) : Color(hex: 0x2A0A0A))
+                                .frame(width: 18, height: 18)
+                                .shadow(color: on ? Color(hex: 0xFF2A1A) : .clear, radius: 8)
+                                .overlay(Circle().stroke(on ? Color(hex: 0xFF6A5A) : Color(hex: 0x1A1A22), lineWidth: 2))
+                        }
                     }
+                    .opacity(lightsOut ? 0 : 1)
+                    .scaleEffect(lightsOut ? 0.6 : 1)
+                    HStack(spacing: 0) {
+                        Text("F1").foregroundStyle(.white)
+                        Text("X").foregroundStyle(Color.f1Red).shadow(color: Color.f1Red.opacity(0.6), radius: 12)
+                    }
+                    .font(.system(size: 76, weight: .black).italic())
+                    .scaleEffect(x: logo ? (settle ? 1 : 0.94) : 1.9, y: 1, anchor: .center)
+                    .offset(x: (logo ? (settle ? 0 : 14) : -w) + shake)
+                    .opacity(logo ? 1 : 0)
+                    .blur(radius: logo ? 0 : 8)
+                    // Vibreur rouge et blanc.
+                    HStack(spacing: 0) {
+                        ForEach(0..<12, id: \.self) { i in
+                            Rectangle().fill(i % 2 == 0 ? Color.f1Red : Color.white).frame(width: 16, height: 9)
+                        }
+                    }
+                    .frame(width: kerb ? 190 : 0, alignment: .leading)
+                    .clipped()
+                    .transformEffect(CGAffineTransform(a: 1, b: 0, c: -0.45, d: 1, tx: 4, ty: 0))
                 }
-                HStack(spacing: 0) {
-                    Text("F1").foregroundStyle(.white)
-                    Text("X").foregroundStyle(Color.f1Red)
-                        .rotationEffect(.degrees(xSpin ? 0 : -200))
-                        .scaleEffect(xSpin ? 1 : 0.3)
-                }
-                .font(.system(size: 72, weight: .black).italic())
-                .offset(x: logo ? 0 : -140)
-                .opacity(logo ? 1 : 0)
-                .blur(radius: logo ? 0 : 6)
-                Capsule().fill(Color.f1Red).frame(width: line ? 160 : 0, height: 4)
             }
+            .offset(x: leave ? w * 1.15 : 0)
+            .opacity(leave ? 0 : 1)
         }
         .contentShape(Rectangle())
         .onTapGesture { onFinish() }
         .task {
             for i in 1...5 {
-                try? await Task.sleep(nanoseconds: 150_000_000)
+                try? await Task.sleep(nanoseconds: 70_000_000)
                 lights = i
             }
-            try? await Task.sleep(nanoseconds: 250_000_000)
-            out = true
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) { logo = true }
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.55).delay(0.2)) { xSpin = true }
-            withAnimation(.easeOut(duration: 0.45).delay(0.45)) { line = true }
-            try? await Task.sleep(nanoseconds: 1_100_000_000)
+            try? await Task.sleep(nanoseconds: 90_000_000)
+            // Extinction des feux : départ !
+            withAnimation(.easeIn(duration: 0.18)) { lightsOut = true }
+            streaks = true
+            withAnimation(.easeOut(duration: 0.22)) { logo = true }
+            try? await Task.sleep(nanoseconds: 220_000_000)
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.5)) { settle = true }
+            withAnimation(.easeOut(duration: 0.3).delay(0.05)) { kerb = true }
+            try? await Task.sleep(nanoseconds: 110_000_000)
+            for dx: CGFloat in [3, -3, 2, 0] {
+                withAnimation(.linear(duration: 0.04)) { shake = dx }
+                try? await Task.sleep(nanoseconds: 40_000_000)
+            }
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            withAnimation(.easeIn(duration: 0.3)) { leave = true }
+            try? await Task.sleep(nanoseconds: 300_000_000)
             onFinish()
         }
     }

@@ -621,36 +621,55 @@ button.btn:disabled { opacity: .5; }
 @keyframes sec-label { from { transform: translateY(10px); opacity: 0; letter-spacing: .4em; } to { transform: none; opacity: 1; } }
 @keyframes sec-intro { 0%, 70% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
 
-/* ---------- Écran de démarrage animé (une fois par session) ---------- */
+/* ---------- Écran de démarrage animé (une fois par session) : départ de course ---------- */
 #splash {
-  position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: #07070b;
-  animation: splash-out .45s 2.05s ease-in forwards;
+  position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; overflow: hidden;
+  background: radial-gradient(ellipse at 50% 55%, #1a0705 0%, #07070b 60%);
+  animation: splash-out .32s 1.12s cubic-bezier(.6, 0, .9, .4) forwards;
 }
-#splash .splash-inner { display: flex; flex-direction: column; align-items: center; gap: 22px; }
-#splash .lights { display: flex; gap: 10px; }
-#splash .light { width: 22px; height: 22px; border-radius: 50%; background: #2a0a0a; box-shadow: inset 0 0 0 2px #1a1a22; animation: light-on .12s both, light-off .08s .95s forwards; }
-#splash .light:nth-child(1) { animation-delay: .10s, .95s; }
-#splash .light:nth-child(2) { animation-delay: .25s, .95s; }
-#splash .light:nth-child(3) { animation-delay: .40s, .95s; }
-#splash .light:nth-child(4) { animation-delay: .55s, .95s; }
-#splash .light:nth-child(5) { animation-delay: .70s, .95s; }
-@keyframes light-on { to { background: #ff1e10; box-shadow: 0 0 18px #ff2a1a, inset 0 0 0 2px #ff6a5a; } }
-@keyframes light-off { to { background: #2a0a0a; box-shadow: inset 0 0 0 2px #1a1a22; } }
-#splash .splash-logo { position: relative; font-weight: 900; font-style: italic; font-size: 4.2rem; letter-spacing: -.03em; line-height: 1; animation: logo-in .5s 1s cubic-bezier(.2, .9, .2, 1.1) both; }
+#splash .splash-inner { position: relative; display: flex; flex-direction: column; align-items: center; gap: 18px; }
+#splash .lights { display: flex; gap: 9px; animation: lights-away .2s .42s ease-in forwards; }
+#splash .light { width: 18px; height: 18px; border-radius: 50%; background: #2a0a0a; box-shadow: inset 0 0 0 2px #1a1a22; animation: light-on .05s both; }
+#splash .light:nth-child(1) { animation-delay: .02s; }
+#splash .light:nth-child(2) { animation-delay: .09s; }
+#splash .light:nth-child(3) { animation-delay: .16s; }
+#splash .light:nth-child(4) { animation-delay: .23s; }
+#splash .light:nth-child(5) { animation-delay: .30s; }
+@keyframes light-on { to { background: #ff1e10; box-shadow: 0 0 16px #ff2a1a, inset 0 0 0 2px #ff6a5a; } }
+@keyframes lights-away { to { opacity: 0; transform: scale(.6); } }
+/* Lignes de vitesse qui traversent l'écran. */
+#splash .speed { position: absolute; inset: 0; pointer-events: none; }
+#splash .speed i {
+  position: absolute; left: 100%; height: 2px; width: 45vw; border-radius: 2px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.85));
+  animation: speed-line .38s cubic-bezier(.2, .7, .3, 1) both;
+}
+#splash .speed i:nth-child(1) { top: 30%; animation-delay: .42s; }
+#splash .speed i:nth-child(2) { top: 41%; width: 60vw; animation-delay: .45s; background: linear-gradient(90deg, transparent, #e10600); height: 4px; }
+#splash .speed i:nth-child(3) { top: 47%; animation-delay: .48s; }
+#splash .speed i:nth-child(4) { top: 56%; width: 70vw; animation-delay: .44s; background: linear-gradient(90deg, transparent, #e10600); height: 3px; }
+#splash .speed i:nth-child(5) { top: 63%; animation-delay: .5s; }
+#splash .speed i:nth-child(6) { top: 72%; width: 35vw; animation-delay: .53s; }
+@keyframes speed-line { from { transform: translateX(0); opacity: 1; } to { transform: translateX(-260vw); opacity: .2; } }
+#splash .splash-logo {
+  position: relative; font-weight: 900; font-style: italic; font-size: 4.6rem; letter-spacing: -.04em; line-height: 1;
+  animation: logo-slam .36s .44s cubic-bezier(.15, .9, .25, 1.25) both, logo-shake .16s .8s linear;
+}
 #splash .splash-logo .f1 { color: #f4f4f8; }
-#splash .splash-logo .x { color: #e10600; display: inline-block; animation: x-spin .6s 1.25s cubic-bezier(.3, 1.5, .5, 1) both; }
-#splash .splash-logo::before, #splash .splash-logo::after {
-  content: ""; position: absolute; right: 104%; height: 5px; border-radius: 3px; background: linear-gradient(90deg, transparent, #e10600);
-  animation: streak .7s 1s ease-out both;
+#splash .splash-logo .x { color: #e10600; text-shadow: 0 0 22px rgba(225, 6, 0, .55); }
+#splash .splash-line {
+  width: 0; height: 9px; border-radius: 2px; transform: skewX(-25deg);
+  background: repeating-linear-gradient(90deg, #e10600 0 16px, #f4f4f8 16px 32px);
+  animation: kerb .3s .72s cubic-bezier(.2, .8, .3, 1) forwards;
 }
-#splash .splash-logo::before { top: 32%; width: 90px; }
-#splash .splash-logo::after { top: 62%; width: 60px; animation-delay: 1.08s; }
-#splash .splash-line { width: 0; height: 4px; border-radius: 2px; background: #e10600; animation: line-grow .45s 1.45s ease-out forwards; }
-@keyframes logo-in { from { transform: translateX(-120px) skewX(-25deg); opacity: 0; filter: blur(6px); } to { transform: none; opacity: 1; filter: none; } }
-@keyframes x-spin { from { transform: rotate(-200deg) scale(.3); } to { transform: none; } }
-@keyframes streak { 0% { opacity: 0; transform: scaleX(.2); transform-origin: right; } 30% { opacity: 1; transform: scaleX(1); } 100% { opacity: 0; transform: translateX(-40px); } }
-@keyframes line-grow { to { width: 150px; } }
-@keyframes splash-out { to { opacity: 0; visibility: hidden; } }
+@keyframes logo-slam {
+  0% { transform: translateX(-90vw) skewX(-35deg) scaleX(1.9); opacity: 0; filter: blur(8px); }
+  60% { transform: translateX(14px) skewX(-8deg) scaleX(.94); opacity: 1; filter: blur(0); }
+  100% { transform: none; opacity: 1; }
+}
+@keyframes logo-shake { 0%, 100% { translate: 0 0; } 25% { translate: 3px -2px; } 50% { translate: -3px 2px; } 75% { translate: 2px 1px; } }
+@keyframes kerb { to { width: 190px; } }
+@keyframes splash-out { to { transform: translateX(110%) skewX(-12deg); opacity: 0; visibility: hidden; } }
 
 @media (prefers-reduced-motion: reduce) {
   .sec-intro, #splash { display: none; }
