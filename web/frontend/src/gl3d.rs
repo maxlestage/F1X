@@ -2489,7 +2489,7 @@ pub fn View3D(props: &ViewProps) -> Html {
             if let Scene::Track { map, .. } = scene {
                 // Décor du circuit : chargé en arrière-plan, remplace le tracé simplifié.
                 let viewer = viewer.clone();
-                let url = format!("/api/track3d/{}?v=6", map.circuit_id);
+                let url = format!("/api/track3d/{}?v=7", map.circuit_id);
                 wasm_bindgen_futures::spawn_local(async move {
                     let Ok(resp) = gloo_net::http::Request::get(&url).send().await else {
                         return;

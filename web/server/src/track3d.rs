@@ -243,15 +243,6 @@ impl Rng {
     }
 }
 
-/// Bruit de valeur entier → [0, 1) (parcelles du paysage).
-fn hash2(x: i32, z: i32) -> f32 {
-    let mut h = (x as u32).wrapping_mul(0x9E37_79B1) ^ (z as u32).wrapping_mul(0x85EB_CA77);
-    h ^= h >> 15;
-    h = h.wrapping_mul(0x2C1B_3C6D);
-    h ^= h >> 12;
-    (h & 0xFFFF) as f32 / 65_536.0
-}
-
 pub fn build(map: &TrackMap) -> Vec<u8> {
     let raw = &map.points;
     let mut b = Builder::default();
@@ -300,26 +291,17 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
     let armco = mat(0x9EA3AA, 70);
     let skirt = mat(0x3A3C40, 10);
     let runoff = mat(0x3A3E46, 14);
-    let asphalt_tones = [
-        mat(0x2A2C31, 18),
-        mat(0x2E3035, 18),
-        mat(0x26282C, 18),
-        mat(0x2C2D30, 18),
-    ];
-    let rubber = mat(0x222326, 12);
-    let rubber_core = mat(0x1B1C1E, 10);
+    let rubber = mat(0x26282C, 14);
     let paint = [mat(0x2F6FB5, 25), mat(0x2E9B57, 25)];
     let tyres = [mat(0x15161A, 10), mat(0xE8E8E8, 15)];
     let (tecpro_a, tecpro_b) = (mat(0x1E4FB5, 35), mat(0xD3202A, 35));
     let fence = mat(0x6B7078, 30);
     // Panneaux publicitaires génériques (aplats de couleurs, aucune marque).
     let boards = [
-        mat(0xE10600, 40),
-        mat(0x101820, 40),
-        mat(0xF5F5F5, 40),
-        mat(0x00A19C, 40),
-        mat(0xFFB800, 40),
-        mat(0x6A2CB8, 40),
+        mat(0x1B1F27, 40),
+        mat(0x262B35, 40),
+        mat(0x1B1F27, 40),
+        mat(0xB8141C, 40),
     ];
 
     for i in 0..segs {
@@ -338,13 +320,12 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
         };
         // Asphalte (légères variations de teinte par tronçon), lignes blanches de bord,
         // trajectoire gommée plus sombre (les points sont la trajectoire réelle du pilote).
-        let patch =
-            (hash2(i as i32 / 7, 3) * asphalt_tones.len() as f32) as usize % asphalt_tones.len();
-        strip(&mut b, asphalt_tones[patch], -hw, hw, 0.0);
-        strip(&mut b, white, hw - 0.9, hw - 0.3, 0.04);
-        strip(&mut b, white, -hw + 0.3, -hw + 0.9, 0.04);
-        strip(&mut b, rubber, -2.4, 2.4, 0.02);
-        strip(&mut b, rubber_core, -1.0, 1.0, 0.03);
+        // Décalages verticaux nets (≥ 0,12) : les positions sont quantifiées sur 16 bits
+        // (~0,03 unité), des marquages plus bas « clignotaient » en dents de scie.
+        strip(&mut b, asphalt, -hw, hw, 0.0);
+        strip(&mut b, white, hw - 0.9, hw - 0.3, 0.14);
+        strip(&mut b, white, -hw + 0.3, -hw + 0.9, 0.14);
+        strip(&mut b, rubber, -2.2, 2.2, 0.08);
         // Bordures latérales jusqu'au sol (pas de jour entre la piste et le relief).
         for s in [-1.0f32, 1.0] {
             let (a0, a1) = (off(i, s * hw, 0.0), off(j, s * hw, 0.0));
@@ -374,20 +355,20 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
                     b.quad(
                         m,
                         [
-                            at_f(f0, o0, 0.05),
-                            at_f(f1, o0, 0.05),
-                            at_f(f1, o1, 0.22),
-                            at_f(f0, o1, 0.22),
+                            at_f(f0, o0, 0.12),
+                            at_f(f1, o0, 0.12),
+                            at_f(f1, o1, 0.3),
+                            at_f(f0, o1, 0.3),
                         ],
                         up,
                     );
                     b.quad(
                         m,
                         [
-                            at_f(f0, o1, 0.22),
-                            at_f(f1, o1, 0.22),
-                            at_f(f1, o1, 0.0),
-                            at_f(f0, o1, 0.0),
+                            at_f(f0, o1, 0.3),
+                            at_f(f1, o1, 0.3),
+                            at_f(f1, o1, -0.4),
+                            at_f(f0, o1, -0.4),
                         ],
                         mul(side(i), sgn),
                     );
@@ -399,7 +380,7 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
         if t > 0.22 && raw[i].speed < 230 {
             // Virage lent : bac à graviers, mur de pneus rouge et blanc, grillage.
             let (o0, o1) = (outside * (hw + 2.4), outside * (hw + 22.0));
-            strip(&mut b, gravel, o0.min(o1), o0.max(o1), 0.02);
+            strip(&mut b, gravel, o0.min(o1), o0.max(o1), 0.1);
             let (r0, r1) = (off(i, o1, 0.0), off(j, o1, 0.0));
             b.wall(tyres[i % 2], r0, r1, 0.0, 1.2, inward);
             b.wall(
@@ -421,9 +402,9 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
         } else if t > 0.10 {
             // Virage rapide : dégagement asphalté peint (bandes bleues et vertes), rail.
             let (o0, o1) = (outside * (hw + 2.4), outside * (hw + 16.0));
-            strip(&mut b, runoff, o0.min(o1), o0.max(o1), 0.03);
+            strip(&mut b, runoff, o0.min(o1), o0.max(o1), 0.1);
             let (p0, p1) = (outside * (hw + 2.4), outside * (hw + 4.4));
-            strip(&mut b, paint[(i / 3) % 2], p0.min(p1), p0.max(p1), 0.05);
+            strip(&mut b, paint[(i / 3) % 2], p0.min(p1), p0.max(p1), 0.2);
             b.wall(armco, off(i, o1, 0.0), off(j, o1, 0.0), 0.3, 1.3, inward);
         } else {
             // Ligne droite : rail, panneaux publicitaires génériques des deux côtés.
@@ -513,42 +494,13 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
         let u = hv(gx, (gz + 1).min(grid));
         norm([l - r, 2.0 * step, d - u])
     };
-    let mown = [mat(0x4A7F33, 6), mat(0x3F7029, 6)];
-    let fields = [
-        mat(0x3E6A2D, 5),
-        mat(0x46722F, 5),
-        mat(0x507835, 5),
-        mat(0x637D3B, 5),
-        mat(0x386329, 5),
-    ];
-    let rock = mat(0x6C6A58, 8);
-    let dirt = mat(0x5E6A3A, 5);
+    // Herbe propre : un seul vert uniforme (les teintes par carré dessinaient un damier
+    // en escalier) ; le relief est lu grâce à l'éclairage et aux ombres.
+    let lawn = mat(0x4A7E33, 6);
     let mut shared: HashMap<(usize, usize, usize), u16> = HashMap::new();
     for gz in 0..grid {
         for gx in 0..grid {
-            let d = dist[gz * (grid + 1) + gx];
-            // Pente du carré : roche sur les talus raides.
-            let hs = [
-                hv(gx, gz),
-                hv(gx + 1, gz),
-                hv(gx + 1, gz + 1),
-                hv(gx, gz + 1),
-            ];
-            let slope = (hs.iter().cloned().fold(f32::MIN, f32::max)
-                - hs.iter().cloned().fold(f32::MAX, f32::min))
-                / step;
-            // Herbe tondue en bandes près de la piste, parcelles agricoles au loin.
-            let m = if slope > 1.4 {
-                rock
-            } else if slope > 0.9 {
-                dirt
-            } else if d < 70.0 {
-                mown[(d / 7.0) as usize % 2]
-            } else {
-                let (px, pz) = ((gx / 6) as i32, (gz / 5) as i32);
-                let r = hash2(px, pz);
-                fields[(r * fields.len() as f32) as usize % fields.len()]
-            };
+            let m = lawn;
             let g = {
                 b.group(m, 4);
                 b.current[&m]
@@ -585,7 +537,7 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
             let w = 2.0 * hw / cols as f32;
             let base = add(
                 pts[0],
-                add(mul(ahead, r as f32 * 1.0 - 1.0), [0.0, 0.09, 0.0]),
+                add(mul(ahead, r as f32 * 1.0 - 1.0), [0.0, 0.18, 0.0]),
             );
             let q = |u: f32, v: f32| add(base, add(mul(s0, u), mul(ahead, v)));
             b.quad(m, [q(a, 0.0), q(a + w, 0.0), q(a + w, 1.0), q(a, 1.0)], up);
@@ -603,7 +555,7 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
         }
         let i = at(-(back as isize));
         let lateral = if slot % 2 == 0 { -hw * 0.5 } else { hw * 0.5 };
-        let c = add(off(i, lateral, 0.07), [0.0, 0.0, 0.0]);
+        let c = off(i, lateral, 0.16);
         let (t, s) = (tangent(i), side(i));
         let q = |u: f32, v: f32| add(c, add(mul(s, u), mul(t, v)));
         b.quad(
@@ -698,8 +650,8 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
                 off(i, o1, dy),
             ]
         };
-        b.quad(asphalt, q(hw + 7.5, hw + 15.5, 0.02), up);
-        b.quad(white, q(hw + 7.5, hw + 7.9, 0.05), up);
+        b.quad(asphalt, q(hw + 7.5, hw + 15.5, 0.1), up);
+        b.quad(white, q(hw + 7.5, hw + 7.9, 0.22), up);
     }
     for k in 0..10 {
         let along = -50.0 + k as f32 * 11.0;
