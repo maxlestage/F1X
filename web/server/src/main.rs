@@ -2,6 +2,7 @@ mod api;
 mod assets;
 mod landing;
 mod live;
+mod mapkit;
 mod news;
 mod openf1;
 mod photos;
@@ -101,6 +102,8 @@ fn app(state: AppState) -> Router {
         .route("/track/{circuit_id}", get(track))
         .route("/track3d/{circuit_id}", get(track3d))
         .route("/of1/telemetry", get(of1_telemetry))
+        .route("/of1/pitdetail", get(of1_pit_detail))
+        .route("/mapkit-token", get(mapkit_token))
         .route("/of1/{endpoint}", get(of1_relay))
         .route(
             "/news/{lang}",
@@ -398,6 +401,53 @@ struct TelemetryQuery {
 }
 
 /// Télémétrie comparée (meilleur tour de 2-3 pilotes, alignée sur la distance).
+/// Jeton MapKit JS (Apple Maps sur le site) ; 404 si aucune clé n'est configurée.
+async fn mapkit_token(headers: axum::http::HeaderMap) -> Response {
+    match mapkit::token(&assets::origin(&headers)) {
+        Some(tok) => ([(header::CACHE_CONTROL, "no-store")], tok).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct PitDetailQuery {
+    session_key: Option<u32>,
+    year: Option<u32>,
+    /// Date de la course « 2025-04-06 ».
+    date: Option<String>,
+}
+
+/// Détail de chaque arrêt aux stands (séance donnée, ou course retrouvée par année + date).
+async fn of1_pit_detail(State(s): State<AppState>, Query(q): Query<PitDetailQuery>) -> Response {
+    let key = match (q.session_key, q.year, q.date.as_deref()) {
+        (Some(k), _, _) => Some(k),
+        (None, Some(y), Some(d))
+            if d.len() == 10 && d.chars().all(|c| c.is_ascii_digit() || c == '-') =>
+        {
+            match s.hub.openf1.race_session(y, d).await {
+                Ok(k) => k,
+                Err(err) => return (StatusCode::BAD_GATEWAY, err).into_response(),
+            }
+        }
+        _ => return StatusCode::BAD_REQUEST.into_response(),
+    };
+    let Some(key) = key else {
+        return (
+            StatusCode::NOT_FOUND,
+            "Pas de séance OpenF1 pour ce Grand Prix",
+        )
+            .into_response();
+    };
+    match s.hub.openf1.pit_detail(key).await {
+        Ok(v) => (
+            [(header::CACHE_CONTROL, "public, max-age=600")],
+            axum::Json(v),
+        )
+            .into_response(),
+        Err(err) => (StatusCode::BAD_GATEWAY, err).into_response(),
+    }
+}
+
 async fn of1_telemetry(State(s): State<AppState>, Query(q): Query<TelemetryQuery>) -> Response {
     let drivers: Vec<u32> = q
         .drivers

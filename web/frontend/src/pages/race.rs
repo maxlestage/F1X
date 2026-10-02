@@ -188,6 +188,10 @@ pub fn RacePage(props: &RacePageProps) -> Html {
                 { pit_stops_card(&stops, &results_list) }
             }
 
+            if over && year >= 2023 {
+                <super::PitDetail query={format!("year={year}&date={}", race.date)} />
+            }
+
             if over && year >= 1996 && !results_list.is_empty() {
                 <section class="card">
                     <h2>{ t("Tour par tour", "Lap by lap") }</h2>

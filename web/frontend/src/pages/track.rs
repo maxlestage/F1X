@@ -238,6 +238,56 @@ pub fn osm_embed(lat: &str, lon: &str) -> Html {
     }
 }
 
+#[derive(Properties, PartialEq)]
+pub struct AppleMapProps {
+    pub lat: AttrValue,
+    pub lon: AttrValue,
+    pub name: AttrValue,
+}
+
+/// Carte Apple Maps (MapKit JS, vue satellite) ; repli sur OpenStreetMap si aucune clé
+/// MapKit n'est configurée sur le serveur ou si le chargement échoue.
+#[function_component]
+pub fn AppleMap(p: &AppleMapProps) -> Html {
+    let el = use_node_ref();
+    let failed = use_state(|| false);
+    {
+        let (el, failed) = (el.clone(), failed.clone());
+        use_effect_with(
+            (p.lat.clone(), p.lon.clone(), p.name.clone()),
+            move |(lat, lon, name)| {
+                let start = (|| {
+                    let win = web_sys::window()?;
+                    let f = js_sys::Reflect::get(&win, &"f1xAppleMap".into())
+                        .ok()?
+                        .dyn_into::<js_sys::Function>()
+                        .ok()?;
+                    let div = el.cast::<web_sys::Element>()?;
+                    let (la, lo) = (lat.parse::<f64>().ok()?, lon.parse::<f64>().ok()?);
+                    let args =
+                        js_sys::Array::of4(&div, &la.into(), &lo.into(), &name.as_str().into());
+                    f.apply(&wasm_bindgen::JsValue::NULL, &args)
+                        .ok()?
+                        .dyn_into::<js_sys::Promise>()
+                        .ok()
+                })();
+                match start {
+                    Some(promise) => wasm_bindgen_futures::spawn_local(async move {
+                        if wasm_bindgen_futures::JsFuture::from(promise).await.is_err() {
+                            failed.set(true);
+                        }
+                    }),
+                    None => failed.set(true),
+                }
+            },
+        );
+    }
+    if *failed {
+        return osm_embed(&p.lat, &p.lon);
+    }
+    html! { <div ref={el} class="apple-map" role="img" aria-label={format!("{} — Apple Maps", p.name)}></div> }
+}
+
 /// Silhouette du circuit (sans télémétrie), pour les cartes compactes.
 #[derive(Properties, PartialEq)]
 pub struct OutlineProps {

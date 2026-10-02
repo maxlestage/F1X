@@ -253,3 +253,123 @@ struct TrackOutline: View {
         .task(id: circuitId) { map = try? await ServerAPI.shared.track(circuitId) }
     }
 }
+
+/// Détail de chaque arrêt (OpenF1, courses depuis 2023) : voie des stands, immobilisation,
+/// pneus retirés et montés, position avant et après.
+struct PitDetailSection: View {
+    /// Requête du serveur : `session_key=…` ou `year=…&date=…`.
+    let query: String
+
+    private struct Tyre: Decodable {
+        let compound: String
+        let age_at_start: Int?
+        let age_end: Int?
+    }
+
+    private struct Stop: Decodable, Identifiable {
+        let code: String
+        let name: String
+        let team: String
+        let colour: String
+        let lap: Int
+        let date: String
+        let lane_duration: Double?
+        let stop_duration: Double?
+        let tyre_before: Tyre?
+        let tyre_after: Tyre?
+        let position_before: Int?
+        let position_after: Int?
+        var id: String { "\(code)-\(lap)-\(date)" }
+    }
+
+    private struct Response: Decodable {
+        let stops: [Stop]
+    }
+
+    @State private var stops: [Stop] = []
+    @State private var state = 0 // 0 chargement, 1 prêt, 2 rien
+
+    var body: some View {
+        // Une seule Section, et le chargement attaché à une vraie ligne (un Group dans une
+        // List perd ses modificateurs).
+        Section(state == 1 ? L("Détail de chaque arrêt (\(stops.count))", "Every pit stop in detail (\(stops.count))")
+                           : L("Détail de chaque arrêt", "Every pit stop in detail")) {
+            switch state {
+            case 0:
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .task(id: query) { await load() }
+            case 1:
+                let fastest = stops.compactMap(\.stop_duration).min()
+                ForEach(stops) { s in row(s, fastest: fastest) }
+                Text(L("Voie des stands : de l'entrée à la sortie. Immobilisé : voiture à l'arrêt pendant le changement de pneus. Positions juste avant l'entrée et juste après la ressortie. Données OpenF1.",
+                       "Pit lane: entry to exit. Stationary: car stopped for the tyre change. Positions just before entry and just after exit. OpenF1 data."))
+                    .font(.caption2).foregroundStyle(.secondary)
+            default:
+                Text(L("Pas de détail OpenF1 pour ce Grand Prix.", "No OpenF1 detail for this Grand Prix."))
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func load() async {
+        if let r = try? await ServerAPI.shared.get("api/of1/pitdetail?\(query)", as: Response.self, ttl: 600), !r.stops.isEmpty {
+            stops = r.stops
+            state = 1
+        } else {
+            state = 2
+        }
+    }
+
+    private func row(_ s: Stop, fastest: Double?) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text("T\(s.lap)").font(.subheadline.monospacedDigit().weight(.heavy)).frame(width: 38, alignment: .leading)
+            Rectangle().fill(Color(hexString: s.colour)).frame(width: 3)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(s.name.capitalized).font(.body.weight(.semibold)) + Text(" · \(s.team)").font(.caption).foregroundColor(.secondary)
+                HStack(spacing: 4) {
+                    tyre(s.tyre_before, after: false)
+                    Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.secondary)
+                    tyre(s.tyre_after, after: true)
+                }
+                let lane = s.lane_duration.map { L("Voie \(String(format: "%.1f", $0)) s", "Lane \(String(format: "%.1f", $0)) s") }
+                let stop = s.stop_duration.map { L("immobilisé \(String(format: "%.1f", $0)) s", "stationary \(String(format: "%.1f", $0)) s") }
+                Text([lane, stop].compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(s.stop_duration != nil && s.stop_duration == fastest ? Color.f1Purple : .secondary)
+            }
+            Spacer(minLength: 4)
+            if let b = s.position_before, let a = s.position_after {
+                Text("P\(b) → P\(a)")
+                    .font(.footnote.monospacedDigit().weight(.bold))
+                    .foregroundStyle(a > b ? Color.red : (a < b ? Color.green : Color.secondary))
+            }
+        }
+    }
+
+    private func tyre(_ t: Tyre?, after: Bool) -> some View {
+        let label: String
+        if let t {
+            let name: String = switch t.compound {
+            case "SOFT": L("Tendre", "Soft")
+            case "MEDIUM": "Medium"
+            case "HARD": L("Dur", "Hard")
+            case "INTERMEDIATE": L("Inter", "Inter")
+            case "WET": L("Pluie", "Wet")
+            default: "?"
+            }
+            if after {
+                let age = t.age_at_start ?? 0
+                label = "\(name) " + (age == 0 ? L("neufs", "new") : L("usagés (\(age) t.)", "used (\(age) laps)"))
+            } else {
+                label = "\(name) " + L("\(t.age_end ?? 0) tours", "\(t.age_end ?? 0) laps")
+            }
+        } else {
+            label = "?"
+        }
+        return HStack(spacing: 4) {
+            Circle().fill(tyreColor(t?.compound)).frame(width: 9, height: 9)
+            Text(label).font(.caption)
+        }
+    }
+}

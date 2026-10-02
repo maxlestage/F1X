@@ -668,7 +668,6 @@ fn PositionsView(p: &ViewProps) -> Html {
 #[function_component]
 fn TyresView(p: &ViewProps) -> Html {
     let stints = use_json::<Value>(of1("stints", &format!("session_key={}", p.key_)));
-    let pits = use_json::<Value>(of1("pit", &format!("session_key={}", p.key_)));
     let res = use_json::<Value>(of1("session_result", &format!("session_key={}", p.key_)));
     if let Some(v) = state_view(&stints) {
         return html! { <section class="card">{ v }</section> };
@@ -689,7 +688,6 @@ fn TyresView(p: &ViewProps) -> Html {
         "WET" => "#2f7fe0",
         _ => "#777",
     };
-    let pit_list = list(&pits);
     html! {
         <>
             <section class="card">
@@ -710,24 +708,7 @@ fn TyresView(p: &ViewProps) -> Html {
                 </ol>
                 <p class="muted">{ t("Rouge tendre · jaune medium · blanc dur · vert intermédiaire · bleu pluie.", "Red soft · yellow medium · white hard · green intermediate · blue wet.") }</p>
             </section>
-            <section class="card">
-                <h2>{ tr!("Arrêts aux stands ({})", "Pit stops ({})", pit_list.len()) }</h2>
-                <ol class="rows">
-                    { for pit_list.iter().map(|x| {
-                        let d = int(x, "driver_number").unwrap_or(0);
-                        let stop = num(x, "stop_duration").or_else(|| num(x, "pit_duration"));
-                        html! {
-                            <li class="row">
-                                <div class="row-main">
-                                    <span class="row-title">{ name(&p.names, d) }</span>
-                                    <span class="row-sub">{ tr!("Tour {}", "Lap {}", s(x, "lap_number")) }</span>
-                                </div>
-                                <span class="row-meta">{ stop.map(|v| format!("{v:.1} s")).unwrap_or_default() }</span>
-                            </li>
-                        }
-                    }) }
-                </ol>
-            </section>
+            <PitDetail query={format!("session_key={}", p.key_)} />
         </>
     }
 }
@@ -976,5 +957,116 @@ pub fn MeetingLink(p: &MeetingLinkProps) -> Html {
             </Link<Route>>
         },
         None => html! {},
+    }
+}
+
+/// Couleur d'une gomme (rouge tendre, jaune medium, blanc dur, vert intermédiaire, bleu pluie).
+fn tyre_colour(c: &str) -> &'static str {
+    match c {
+        "SOFT" => "#ef4444",
+        "MEDIUM" => "#facc15",
+        "HARD" => "#e5e7eb",
+        "INTERMEDIATE" => "#22c55e",
+        "WET" => "#3b82f6",
+        _ => "#9a9aad",
+    }
+}
+
+fn tyre_name(c: &str) -> &'static str {
+    match c {
+        "SOFT" => t("Tendre", "Soft"),
+        "MEDIUM" => t("Medium", "Medium"),
+        "HARD" => t("Dur", "Hard"),
+        "INTERMEDIATE" => t("Intermédiaire", "Intermediate"),
+        "WET" => t("Pluie", "Wet"),
+        _ => "?",
+    }
+}
+
+#[derive(Properties, PartialEq)]
+pub struct PitDetailProps {
+    /// `session_key=…` ou `year=…&date=…` (course retrouvée par le serveur).
+    pub query: AttrValue,
+}
+
+/// Détail de chaque arrêt : tour, temps dans la voie et à l'arrêt, pneus retirés et montés,
+/// position avant et après (sources OpenF1 pit, stints, position, drivers).
+#[function_component]
+pub fn PitDetail(p: &PitDetailProps) -> Html {
+    let data = use_json::<Value>(Some(format!("/api/of1/pitdetail?{}", p.query)));
+    if let Some(v) = state_view(&data) {
+        return html! { <section class="card"><h2>{ t("Détail de chaque arrêt", "Every pit stop in detail") }</h2>{ v }</section> };
+    }
+    let Some(Ok(v)) = &data else { return html! {} };
+    let stops = v
+        .get("stops")
+        .and_then(|s| s.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if stops.is_empty() {
+        return html! {};
+    }
+    let fastest = stops
+        .iter()
+        .filter_map(|x| num(x, "stop_duration"))
+        .fold(f64::MAX, f64::min);
+    let tyre = |x: &Value, after: bool| -> Html {
+        let Some(t0) = x.as_object().map(|_| x) else {
+            return html! { <span class="muted">{ "?" }</span> };
+        };
+        let c = s(t0, "compound");
+        let detail = if after {
+            match int(t0, "age_at_start").unwrap_or(0) {
+                0 => t("neufs", "new").to_string(),
+                n => tr!("usagés ({n} t.)", "used ({n} laps)"),
+            }
+        } else {
+            tr!("{} tours", "{} laps", int(t0, "age_end").unwrap_or(0))
+        };
+        html! {
+            <span class="pit-tyre"><i style={format!("background:{}", tyre_colour(&c))}></i>{ format!("{} {}", tyre_name(&c), detail) }</span>
+        }
+    };
+    html! {
+        <section class="card">
+            <h2>{ tr!("Détail de chaque arrêt ({})", "Every pit stop in detail ({})", stops.len()) }</h2>
+            <ol class="rows pit-detail">
+                { for stops.iter().map(|x| {
+                    let (pb, pa) = (int(x, "position_before"), int(x, "position_after"));
+                    let stop = num(x, "stop_duration");
+                    let lane = num(x, "lane_duration");
+                    let best = stop.is_some_and(|v| (v - fastest).abs() < 1e-6);
+                    let moved = match (pb, pa) {
+                        (Some(b), Some(a)) => html! {
+                            <span class={classes!("pit-pos", (a > b).then_some("lost"), (a < b).then_some("won"))}>{ format!("P{b} → P{a}") }</span>
+                        },
+                        _ => html! {},
+                    };
+                    html! {
+                        <li class="row pit-row" style={format!("--team:#{}", s(x, "colour"))}>
+                            <span class="pos">{ format!("T{}", s(x, "lap")) }</span>
+                            <div class="row-main">
+                                <span class="row-title">{ s(x, "name") }<small class="muted">{ format!(" · {}", s(x, "team")) }</small></span>
+                                <span class="pit-tyres">
+                                    { tyre(x.get("tyre_before").unwrap_or(&Value::Null), false) }
+                                    <span aria-hidden="true">{ " → " }</span>
+                                    { tyre(x.get("tyre_after").unwrap_or(&Value::Null), true) }
+                                </span>
+                                <span class="row-sub">
+                                    { lane.map(|v| tr!("Voie des stands {:.1} s", "Pit lane {:.1} s", v)).unwrap_or_default() }
+                                    { stop.map(|v| tr!(" · immobilisé {:.1} s", " · stationary {:.1} s", v)).unwrap_or_default() }
+                                    if best { <strong class="pit-best">{ t(" · le plus rapide", " · fastest") }</strong> }
+                                </span>
+                            </div>
+                            { moved }
+                        </li>
+                    }
+                }) }
+            </ol>
+            <p class="muted">{ t(
+                "Voie des stands : de l'entrée à la sortie. Immobilisé : voiture à l'arrêt pendant le changement de pneus. Positions juste avant l'entrée et juste après la ressortie. Données OpenF1.",
+                "Pit lane: entry to exit. Stationary: car stopped for the tyre change. Positions just before entry and just after exit. OpenF1 data.",
+            ) }</p>
+        </section>
     }
 }

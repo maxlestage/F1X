@@ -373,6 +373,108 @@ impl OpenF1 {
         Ok(value)
     }
 
+    /// Séance « Race » d'un Grand Prix, retrouvée par l'année et la date de la course.
+    pub async fn race_session(&self, year: u32, date: &str) -> Result<Option<u32>, String> {
+        let Some(day) = parse_date(&format!("{date}T12:00:00Z")) else {
+            return Ok(None);
+        };
+        Ok(self
+            .sessions(year)
+            .await?
+            .into_iter()
+            .filter(|s| s.session_name == "Race")
+            .find(|s| parse_date(&s.date_start).is_some_and(|d| (d - day).abs() < 36 * 3_600_000))
+            .map(|s| s.session_key))
+    }
+
+    /// Détail de chaque arrêt aux stands d'une séance : temps dans la voie et à l'arrêt,
+    /// pneus retirés (gomme, tours parcourus) et montés (neufs ou usagés), position avant
+    /// et après, à partir des sources OpenF1 `pit`, `stints`, `position` et `drivers`.
+    pub async fn pit_detail(&self, session_key: u32) -> Result<Value, String> {
+        let q = format!("session_key={session_key}");
+        let pits = self.relay("pit", &q).await?;
+        let stints = self.relay("stints", &q).await?;
+        let positions = self.relay("position", &q).await?;
+        let drivers = self.relay("drivers", &q).await?;
+        let driver = |n: u32| {
+            arr(&drivers)
+                .iter()
+                .find(|d| u(d, "driver_number") == Some(n))
+                .cloned()
+        };
+        let mut out: Vec<Value> = Vec::new();
+        for p in arr(&pits) {
+            let (Some(n), Some(lap)) = (u(p, "driver_number"), u(p, "lap_number")) else {
+                continue;
+            };
+            let when = t(p, "date");
+            let mut own: Vec<&Value> = arr(&stints)
+                .iter()
+                .filter(|x| u(x, "driver_number") == Some(n))
+                .collect();
+            own.sort_by_key(|x| u(x, "stint_number").unwrap_or(0));
+            // Relais terminé par cet arrêt, puis relais suivant.
+            let before_idx = own
+                .iter()
+                .rposition(|x| u(x, "lap_start").is_some_and(|a| a <= lap));
+            let tyre = |x: &Value, end_lap: Option<u32>| {
+                let start = u(x, "lap_start").unwrap_or(lap);
+                let age0 = u(x, "tyre_age_at_start").unwrap_or(0);
+                let end = end_lap.or(u(x, "lap_end")).unwrap_or(lap);
+                serde_json::json!({
+                    "compound": s(x, "compound"),
+                    "age_at_start": age0,
+                    "laps": end.saturating_sub(start) + 1,
+                    "age_end": age0 + end.saturating_sub(start) + 1,
+                })
+            };
+            let before = before_idx.map(|i| tyre(own[i], Some(lap)));
+            let after = before_idx
+                .and_then(|i| own.get(i + 1))
+                .map(|x| tyre(x, None));
+            // Positions (OpenF1 ne publie que les changements). L'horodatage `date` d'un arrêt
+            // correspond à la sortie des stands : avant = juste avant l'entrée dans la voie,
+            // après = juste après la ressortie.
+            let lane = f(p, "lane_duration")
+                .or_else(|| f(p, "pit_duration"))
+                .unwrap_or(25.0);
+            let pos_at = |ms: i64| {
+                arr(&positions)
+                    .iter()
+                    .filter(|x| u(x, "driver_number") == Some(n))
+                    .filter_map(|x| Some((t(x, "date")?, u(x, "position")?)))
+                    .filter(|(d, _)| *d <= ms)
+                    .max_by_key(|(d, _)| *d)
+                    .map(|(_, p)| p)
+            };
+            let (pos_before, pos_after) = match when {
+                Some(w) => (
+                    pos_at(w - (lane * 1000.0) as i64 - 6_000),
+                    pos_at(w + 3_000),
+                ),
+                None => (None, None),
+            };
+            let d = driver(n).unwrap_or(Value::Null);
+            out.push(serde_json::json!({
+                "driver_number": n,
+                "code": s(&d, "name_acronym"),
+                "name": s(&d, "full_name"),
+                "team": s(&d, "team_name"),
+                "colour": s(&d, "team_colour"),
+                "lap": lap,
+                "date": s(p, "date"),
+                "lane_duration": f(p, "lane_duration").or_else(|| f(p, "pit_duration")),
+                "stop_duration": f(p, "stop_duration"),
+                "tyre_before": before,
+                "tyre_after": after,
+                "position_before": pos_before,
+                "position_after": pos_after,
+            }));
+        }
+        out.sort_by_key(|a| (u(a, "lap"), s(a, "date")));
+        Ok(serde_json::json!({ "session_key": session_key, "stops": out }))
+    }
+
     /// Télémétrie comparée : meilleur tour de chaque pilote, rééchantillonné selon la distance.
     pub async fn telemetry(&self, session_key: u32, drivers: &[u32]) -> Result<Value, String> {
         let mut out = Vec::new();
