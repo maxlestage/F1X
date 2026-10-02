@@ -831,28 +831,56 @@ struct MeetingLinkButton: View {
 }
 
 
-/// Accès direct, depuis la page d'un Grand Prix terminé, à tout ce que les données OpenF1
-/// racontent de la course : fiche de chaque pilote, tours, positions, pneus, télémétrie,
-/// direction de course, radios, météo.
+/// Tout ce que les données OpenF1 racontent de la course, affiché directement dans la page
+/// du Grand Prix (Calendrier) : fiche de chaque pilote, résultats, tours, positions, pneus,
+/// télémétrie, direction de course, radios, météo — un bouton par rubrique, sans changer d'écran.
 struct RaceDataLinks: View {
     let year: Int
     let date: String
     @State private var session: JSONValue?
+    @State private var drivers: [Int: OF1Driver] = [:]
     @State private var searched = false
+    @State private var tab: DataTab = .driver
+
+    private let columns = [GridItem(.adaptive(minimum: 104), spacing: 8)]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 14) {
             if let s = session, let key = s["session_key"].int {
-                let title = "\(s["location"].string) — \(s["session_name"].string)"
-                ForEach(DataTab.allCases) { tab in
-                    NavigationLink {
-                        DataSessionView(key: key, title: title, type: s["session_type"].string, start: tab)
-                    } label: {
-                        Label(tab.label, systemImage: tab.symbol)
-                            .padding(.vertical, 9)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                LazyVGrid(columns: columns, spacing: 8) {
+                    ForEach(DataTab.allCases) { t in
+                        Button { tab = t } label: {
+                            Label(t.label, systemImage: t.symbol)
+                                .font(.caption.weight(.semibold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                                .frame(maxWidth: .infinity, minHeight: 34)
+                                .padding(.horizontal, 6)
+                                .foregroundStyle(tab == t ? .white : .primary)
+                                .background(tab == t ? Color.f1Red : Color.secondary.opacity(0.15), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
                     }
-                    if tab != DataTab.allCases.last { Divider() }
+                }
+                Group {
+                    switch tab {
+                    case .results: ResultsSection(key: key, drivers: drivers)
+                    case .driver: DriverRaceSection(key: key, drivers: drivers)
+                    case .laps: LapsSection(key: key, drivers: drivers)
+                    case .positions: PositionsSection(key: key, drivers: drivers)
+                    case .tyres: TyresSection(key: key, drivers: drivers)
+                    case .telemetry: TelemetrySection(key: key, drivers: drivers)
+                    case .race: RaceSection(key: key, drivers: drivers)
+                    case .radio: RadioSection(key: key, drivers: drivers)
+                    case .weather: SessionWeatherSection(key: key)
+                    }
+                }
+                .id("\(key)-\(tab.rawValue)")
+                NavigationLink {
+                    DataSessionView(key: key, title: "\(s["location"].string) — \(s["session_name"].string)", type: s["session_type"].string, start: tab)
+                } label: {
+                    Label(L("Ouvrir en plein écran", "Open full screen"), systemImage: "arrow.up.left.and.arrow.down.right")
+                        .font(.footnote.weight(.semibold))
                 }
             } else if searched {
                 Text(L("Pas de données OpenF1 pour cette course.", "No OpenF1 data for this race."))
@@ -868,6 +896,9 @@ struct RaceDataLinks: View {
             session = list.first { s in
                 guard let start = of1Date(s["date_start"].string) else { return false }
                 return abs(race.timeIntervalSince(start)) <= 2 * 86_400
+            }
+            if let key = session?["session_key"].int {
+                drivers = driverMap(await of1("drivers", "session_key=\(key)", ttl: 3600))
             }
         }
     }

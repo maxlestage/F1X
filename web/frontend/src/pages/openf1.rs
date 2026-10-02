@@ -344,11 +344,6 @@ fn driver_map(drivers: &[Value]) -> BTreeMap<i64, (String, String, String, Strin
 
 // ---------- Séance ----------
 
-thread_local! {
-    /// Onglet à ouvrir à l'arrivée sur une séance (raccourcis de la page d'un Grand Prix).
-    static START_VIEW: std::cell::Cell<View> = const { std::cell::Cell::new(View::Results) };
-}
-
 #[derive(Clone, Copy, PartialEq)]
 enum View {
     Results,
@@ -365,7 +360,7 @@ enum View {
 #[function_component]
 pub fn DataSessionPage(p: &KeyProps) -> Html {
     let key = p.key_;
-    let view = use_state(|| START_VIEW.with(|v| v.replace(View::Results)));
+    let view = use_state(|| View::Results);
     let session = use_json::<Value>(of1("sessions", &format!("session_key={key}")));
     let drivers = use_json::<Value>(of1("drivers", &format!("session_key={key}")));
     let sess = list(&session).first().cloned().unwrap_or(Value::Null);
@@ -1220,50 +1215,66 @@ pub fn MeetingLink(p: &MeetingLinkProps) -> Html {
     }
 }
 
-/// « Tout savoir sur la course » en haut de la page d'un Grand Prix terminé : accès direct à
-/// la fiche de chaque pilote, aux tours, positions, pneus, télémétrie, direction de course…
+/// « Tout savoir sur la course » en haut de la page d'un Grand Prix terminé : la fiche de
+/// chaque pilote, les tours, positions, pneus, télémétrie, direction de course… affichés
+/// directement dans la page, un bouton par rubrique.
 #[function_component]
 pub fn RaceDataLinks(p: &MeetingLinkProps) -> Html {
+    let view = use_state(|| View::Driver);
     let sessions = use_json::<Value>(
         (p.year >= 2023).then(|| format!("/api/of1/sessions?year={}&session_name=Race", p.year)),
     );
-    let navigator = use_navigator();
     let race = ms(&format!("{}T12:00:00Z", p.date));
-    let found = list(&sessions)
+    let key = list(&sessions)
         .into_iter()
-        .find(|x| (ms(&s(x, "date_start")) - race).abs() <= 2.0 * 86_400_000.0);
-    let Some(key) = found.and_then(|x| int(&x, "session_key")) else {
+        .find(|x| (ms(&s(x, "date_start")) - race).abs() <= 2.0 * 86_400_000.0)
+        .and_then(|x| int(&x, "session_key"))
+        .map(|k| k as u32);
+    let drivers = use_json::<Value>(key.and_then(|k| of1("drivers", &format!("session_key={k}"))));
+    let Some(key) = key else {
         return html! {};
     };
-    let go = |v: View, label: &'static str| {
-        let navigator = navigator.clone();
-        let onclick = Callback::from(move |_: MouseEvent| {
-            START_VIEW.with(|c| c.set(v));
-            if let Some(n) = &navigator {
-                n.push(&Route::DataSession { key: key as u32 });
-            }
-        });
-        html! { <button class="btn btn-ghost race-data-btn" {onclick}>{ label }</button> }
+    let names = Rc::new(driver_map(&list(&drivers)));
+    let tab = |v: View, label: &'static str| {
+        let view = view.clone();
+        html! {
+            <button class={classes!("btn", "btn-ghost", "race-data-btn", (*view == v).then_some("on"))}
+                onclick={move |_| view.set(v)}>{ label }</button>
+        }
+    };
+    let content = match *view {
+        View::Results => html! { <ResultsView key_={key} names={names.clone()} /> },
+        View::Driver => html! { <DriverView key_={key} names={names.clone()} /> },
+        View::Laps => html! { <LapsView key_={key} names={names.clone()} /> },
+        View::Positions => html! { <PositionsView key_={key} names={names.clone()} /> },
+        View::Tyres => html! { <TyresView key_={key} names={names.clone()} /> },
+        View::Telemetry => html! { <TelemetryView key_={key} names={names.clone()} /> },
+        View::Race => html! { <RaceView key_={key} names={names.clone()} /> },
+        View::Radio => html! { <RadioView key_={key} names={names.clone()} /> },
+        View::Weather => html! { <WeatherView key_={key} /> },
     };
     html! {
-        <section class="card">
-            <h2>{ t("Tout savoir sur la course", "Everything about the race") }</h2>
-            <p class="muted">{ t(
-                "Fiche de chaque pilote tour par tour, secteurs, écarts, pneus, arrêts, télémétrie, direction de course et radios.",
-                "Each driver's lap-by-lap file, sectors, gaps, tyres, stops, telemetry, race control and radio.",
-            ) }</p>
-            <div class="race-data-grid">
-                { go(View::Driver, t("👤 Fiche pilote", "👤 Driver file")) }
-                { go(View::Results, t("🏁 Résultats", "🏁 Results")) }
-                { go(View::Laps, t("⏱ Tours", "⏱ Laps")) }
-                { go(View::Positions, t("↕ Positions", "↕ Positions")) }
-                { go(View::Tyres, t("🛞 Pneus", "🛞 Tyres")) }
-                { go(View::Telemetry, t("📈 Télémétrie", "📈 Telemetry")) }
-                { go(View::Race, t("🚩 Direction de course", "🚩 Race control")) }
-                { go(View::Radio, t("🎧 Radios", "🎧 Radio")) }
-                { go(View::Weather, t("🌦 Météo", "🌦 Weather")) }
-            </div>
-        </section>
+        <>
+            <section class="card">
+                <h2>{ t("Tout savoir sur la course", "Everything about the race") }</h2>
+                <p class="muted">{ t(
+                    "Fiche de chaque pilote tour par tour, secteurs, écarts, pneus, arrêts, télémétrie, direction de course et radios.",
+                    "Each driver's lap-by-lap file, sectors, gaps, tyres, stops, telemetry, race control and radio.",
+                ) }</p>
+                <div class="race-data-grid">
+                    { tab(View::Driver, t("👤 Fiche pilote", "👤 Driver file")) }
+                    { tab(View::Results, t("🏁 Résultats", "🏁 Results")) }
+                    { tab(View::Laps, t("⏱ Tours", "⏱ Laps")) }
+                    { tab(View::Positions, t("↕ Positions", "↕ Positions")) }
+                    { tab(View::Tyres, t("🛞 Pneus", "🛞 Tyres")) }
+                    { tab(View::Telemetry, t("📈 Télémétrie", "📈 Telemetry")) }
+                    { tab(View::Race, t("🚩 Direction de course", "🚩 Race control")) }
+                    { tab(View::Radio, t("🎧 Radios", "🎧 Radio")) }
+                    { tab(View::Weather, t("🌦 Météo", "🌦 Weather")) }
+                </div>
+            </section>
+            { content }
+        </>
     }
 }
 
