@@ -329,7 +329,7 @@ async fn track3d(State(s): State<AppState>, Path(id): Path<String>) -> Response 
         (
             [
                 (header::CONTENT_TYPE, "application/octet-stream"),
-                (header::CACHE_CONTROL, "public, max-age=86400"),
+                (header::CACHE_CONTROL, "public, max-age=3600"),
             ],
             bytes.as_ref().clone(),
         )
