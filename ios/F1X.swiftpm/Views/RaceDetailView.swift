@@ -33,6 +33,7 @@ struct RaceDetailView: View {
             if race.isOver(), let year = Int(race.season), year >= 2023 {
                 Section {
                     RaceDataLinks(year: year, date: race.date)
+                        .listRowInsets(EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12))
                 } header: {
                     Text(L("Tout savoir sur la course", "Everything about the race"))
                 } footer: {
