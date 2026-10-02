@@ -1,6 +1,13 @@
 import SwiftUI
 
 struct ExplorerView: View {
+    static let version: String = {
+        let info = Bundle.main.infoDictionary
+        let v = info?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let b = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(v) (\(b))"
+    }()
+
     var body: some View {
         List {
             Section(L("Histoire", "History")) {
@@ -30,6 +37,9 @@ struct ExplorerView: View {
                     Text(L("Conçu et développé par", "Designed and built by")).font(.caption).foregroundStyle(.secondary)
                     Text("Maxime Nathan Lestage").font(.headline)
                 }
+                // Numéro de build installé (le même que dans TestFlight).
+                Text(L("Version \(Self.version)", "Version \(Self.version)"))
+                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 Text(L("F1X est une application indépendante et non officielle, sans lien avec Formula One Group, la FIA ou les écuries. F1 et Formula 1 sont des marques de Formula One Licensing B.V.",
                        "F1X is an independent, unofficial app, not affiliated with Formula One Group, the FIA or the teams. F1 and Formula 1 are trademarks of Formula One Licensing B.V."))
                     .font(.caption).foregroundStyle(.secondary)

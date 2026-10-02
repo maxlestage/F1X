@@ -169,8 +169,14 @@ strong { font-weight: 800; }
   background: var(--surface-2); font-weight: 800; font-size: .85rem; color: var(--muted);
 }
 .race-main { flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; }
+.race-main { min-width: 0; }
+.race-name, .race-meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .race-name { font-weight: 700; line-height: 1.25; }
 .race-meta { color: var(--muted); font-size: .85rem; }
+.race-check { color: #6c6c80; font-weight: 800; flex: none; }
+.next-race { display: flex; flex-direction: column; gap: 4px; border-color: var(--red); background: linear-gradient(160deg, rgba(225, 6, 0, .16), var(--surface) 65%); color: inherit; text-decoration: none; }
+.next-race-name { font-size: 1.15rem; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.next-race-date { font-weight: 700; }
 .badge {
   flex: none; font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
   padding: 4px 8px; border-radius: 999px; background: var(--surface-2); color: var(--muted);

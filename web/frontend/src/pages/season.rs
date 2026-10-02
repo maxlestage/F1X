@@ -48,8 +48,24 @@ pub fn SeasonPage(props: &SeasonProps) -> Html {
                 "No Grand Prix this season.",
             ));
         }
+        // La course qui arrive, avec sa date, son heure et le compte à rebours, tout en haut.
+        let next_card = races.iter().find(|r| !r.is_over(now)).map(|race| {
+            html! {
+                <Link<Route> to={Route::race(&season, race.round_num())} classes="card next-race">
+                    <span class="eyebrow">{ t("Prochaine course", "Next race") }</span>
+                    <span class="next-race-name">{ format!("{} {}", flag_country(&race.circuit.location.country), race.race_name) }</span>
+                    <span class="next-race-date">
+                        { format!("📅 {}", local_date(&race.start_iso(), race.has_time())) }
+                        if race.is_sprint_weekend() { { " · " }<span class="tag">{ "Sprint" }</span> }
+                    </span>
+                    <span class="muted">{ format!("{} · {}", race.circuit.circuit_name, race.circuit.location.locality) }</span>
+                    if race.has_time() { <Countdown target_ms={race.start_ms()} /> }
+                </Link<Route>>
+            }
+        });
         html! {
             <>
+                { next_card.unwrap_or_default() }
                 <p class="section-intro">{ tr!("Saison {year} · {} Grands Prix", "Season {year} · {} Grands Prix", races.len()) }</p>
                 <ol class="race-list">
                     { for races.iter().map(|race| {
@@ -63,16 +79,17 @@ pub fn SeasonPage(props: &SeasonProps) -> Html {
                                     <span class="race-round">{ format!("R{}", race.round) }</span>
                                     <span class="race-main">
                                         <span class="race-name">{ format!("{} {}", flag_country(&race.circuit.location.country), race.race_name) }</span>
+                                        // Une seule ligne : date, sprint, vainqueur.
                                         <span class="race-meta">
                                             { local_date(&race.start_iso(), false) }
                                             if race.is_sprint_weekend() { { " · " }<span class="tag">{ "Sprint" }</span> }
+                                            if let Some(w) = winner {
+                                                { format!(" · 🏆 {}. {}", w.driver.given_name.chars().next().unwrap_or(' '), w.driver.family_name) }
+                                            }
                                         </span>
-                                        if let Some(w) = winner {
-                                            <span class="race-meta">{ format!("🏆 {} ({})", w.driver.full_name(), w.constructor.name) }</span>
-                                        }
                                     </span>
                                     if is_next { <span class="badge badge-live">{ t("Prochain", "Next") }</span> }
-                                    if done && season == crate::CURRENT { <span class="badge badge-done">{ t("Terminé", "Done") }</span> }
+                                    if done && season == crate::CURRENT { <span class="race-check" aria-label={t("Terminé", "Done")}>{ "✓" }</span> }
                                 </Link<Route>>
                             </li>
                         }
