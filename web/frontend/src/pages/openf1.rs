@@ -975,9 +975,9 @@ fn DriverView(p: &ViewProps) -> Html {
                         let spd = |k: &str| int(l, k).map(|x| x.to_string()).unwrap_or_else(|| "–".into());
                         let age = int(l, "tyre_age").map(|a| tr!(" · {a} t.", " · {a} laps")).unwrap_or_default();
                         let badge = if l.get("pit_in").and_then(Value::as_bool).unwrap_or(false) {
-                            num(l, "stop").map(|x| tr!("Arrêt {x:.1} s", "Stop {x:.1} s")).unwrap_or_else(|| t("Arrêt", "Pit").into())
+                            num(l, "stop").map(|x| tr!("🔧 Arrêt {x:.1} s", "🔧 Stop {x:.1} s")).unwrap_or_else(|| t("🔧 Arrêt", "🔧 Pit").into())
                         } else if l.get("pit_out").and_then(Value::as_bool).unwrap_or(false) {
-                            t("Sortie des stands", "Pit exit").into()
+                            t("🔧 Sortie", "🔧 Out").into()
                         } else { String::new() };
                         html! {
                             <li class="row lap-row">
@@ -988,8 +988,7 @@ fn DriverView(p: &ViewProps) -> Html {
                                         <small class="muted">{ format!("  ·  P{}", s(l, "position")) }</small>
                                         if !badge.is_empty() { <span class="lap-badge">{ badge }</span> }
                                     </span>
-                                    <span class="row-sub">{ format!("S1 {} · S2 {} · S3 {}", sec("s1"), sec("s2"), sec("s3")) }</span>
-                                    <span class="row-sub">{ tr!("I1 {} · I2 {} · piège {} km/h", "I1 {} · I2 {} · trap {} km/h", spd("i1"), spd("i2"), spd("st")) }</span>
+                                    <span class="row-sub">{ format!("S1 {} · S2 {} · S3 {} · {}/{}/{} km/h", sec("s1"), sec("s2"), sec("s3"), spd("i1"), spd("i2"), spd("st")) }</span>
                                     <span class="row-sub">{ tyre_dot(&s(l, "compound")) }{ format!("{}{}", tyre_name(&s(l, "compound")), age) }{ tr!(" · leader {} · devant {}", " · leader {} · ahead {}", gap_str(l, "gap"), gap_str(l, "interval")) }</span>
                                 </div>
                             </li>
