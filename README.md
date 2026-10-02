@@ -181,6 +181,8 @@ course. Le nombre de personnes connectées est diffusé en temps réel.
 | `/api/all/{chemin}.json` | Toutes les pages d'un endpoint, fusionnées côté serveur |
 | `/api/live/sessions/{année}` | Sessions rejouables (OpenF1) |
 | `/api/of1/{endpoint}?{filtres}` | Relais mis en cache des 18 endpoints OpenF1 (requête validée ; 60 s si `latest`, 6 h sinon) |
+| `/api/of1/pitdetail?session_key=` ou `?year=&date=` | Détail de chaque arrêt : voie des stands, immobilisation, pneus retirés/montés, position avant/après |
+| `/api/mapkit-token` | Jeton MapKit JS signé (404 si aucune clé configurée) |
 | `/api/of1/telemetry?session_key=&drivers=a,b` | Meilleurs tours de 2–3 pilotes rééchantillonnés sur la distance (vitesse, gaz, frein, rapport) |
 | `/api/track/{circuit}` | Tracé GPS + télémétrie du meilleur tour de la dernière course (depuis 2023), mis en cache |
 | `/ws` | WebSocket direct / replay (messages JSON, voir `web/protocol`) |
@@ -193,7 +195,7 @@ pour limiter les requêtes (ex. la carrière d'un pilote est calculée à partir
 l'analyse tour par tour ne se charge qu'à la demande).
 
 Variables d'environnement : `PORT` (fourni par Heroku), `CACHE_TTL_SECS` (saison en cours, défaut 300),
-`OPENF1_USERNAME` / `OPENF1_PASSWORD` (optionnels, direct OpenF1), `CACHE_FILE` (optionnel : sauvegarde le cache à l'arrêt et le recharge au démarrage, pratique en local).
+`OPENF1_USERNAME` / `OPENF1_PASSWORD` (optionnels, direct OpenF1), `MAPKIT_KEY_ID` / `MAPKIT_TEAM_ID` / `MAPKIT_KEY` (optionnels : carte Apple Maps sur le site, clé MapKit JS du compte développeur Apple, contenu du `.p8` ; sans eux, OpenStreetMap), `CACHE_FILE` (optionnel : sauvegarde le cache à l'arrêt et le recharge au démarrage, pratique en local).
 Installable sur l'écran d'accueil (manifest web).
 
 ## 📱 App iOS

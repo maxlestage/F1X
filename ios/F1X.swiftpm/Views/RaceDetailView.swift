@@ -43,6 +43,9 @@ struct RaceDetailView: View {
 
             Section(L("Le circuit", "The circuit")) {
                 TrackPanel(circuitId: race.circuit.circuitId)
+                if let lat = race.circuit.location.lat.flatMap(Double.init), let lon = race.circuit.location.long.flatMap(Double.init) {
+                    CircuitMapView(name: race.circuit.circuitName, lat: lat, lon: lon)
+                }
                 NavigationLink(value: race.circuit) { Text(L("Fiche complète du circuit", "Full circuit details")) }
             }
 
@@ -87,6 +90,10 @@ struct RaceDetailView: View {
 
             if !pits.isEmpty {
                 PitStopsSection(pits: pits, results: results)
+            }
+
+            if race.isOver(), (Int(race.season) ?? 0) >= 2023 {
+                PitDetailSection(query: "year=\(race.season)&date=\(race.date)")
             }
 
             if race.isOver(), (Int(race.season) ?? 0) >= 1996, !results.isEmpty {

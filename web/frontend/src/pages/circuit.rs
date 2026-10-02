@@ -205,7 +205,11 @@ pub fn CircuitPage(props: &IdProps) -> Html {
             if let (Some(lat), Some(lon)) = (&loc.lat, &loc.long) {
                 <section class="card">
                     <h2>{ t("Carte", "Map") }</h2>
-                    { osm_embed(lat, lon) }
+                    if apple {
+                        <super::AppleMap lat={lat.clone()} lon={lon.clone()} name={circuit.circuit_name.clone()} />
+                    } else {
+                        { osm_embed(lat, lon) }
+                    }
                     <div class="map-actions">
                         <a class="btn btn-ghost" href={format!("https://maps.apple.com/?ll={lat},{lon}&q={name_q}&z=15&t=k")} target="_blank" rel="noopener">
                             { t("🗺️ Ouvrir dans Plans", "🗺️ Open in Apple Maps") }
