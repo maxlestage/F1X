@@ -23,6 +23,8 @@ targets:
       - path: Resources/Assets.xcassets
       - path: Resources/car.bin
         buildPhase: resources
+      - path: Resources/start_engine.wav
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.maxlestage.f1x

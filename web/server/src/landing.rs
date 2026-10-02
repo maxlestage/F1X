@@ -776,6 +776,7 @@ fn credits_page(lang: Lang, origin: &str) -> String {
     <ul>
       <li><strong>OpenStreetMap</strong> — cartes des circuits, © <a href="https://www.openstreetmap.org/copyright">contributeurs OpenStreetMap</a> (ODbL).</li>
       <li><strong><a href="https://commons.wikimedia.org">Wikimedia Commons</a></strong> — photos sous licences libres ; l'auteur et la licence de chaque photo sont accessibles depuis le lien placé sous l'image.</li>
+      <li><strong>Son du démarrage de l'app</strong> — extrait de « <a href="https://commons.wikimedia.org/wiki/File:Ferrari_F60_(2009).ogg">Ferrari F60 (2009)</a> » par <a href="https://commons.wikimedia.org/wiki/User:Edvvc">Edvvc</a>, Wikimedia Commons, licence <a href="https://creativecommons.org/licenses/by-sa/3.0/deed.fr">CC BY-SA 3.0</a> (raccourci et mis en fondu).</li>
     </ul>
     <h2>Actualités</h2>
     <p>Titres, extraits et liens issus des flux RSS publics de Motorsport.com, Autosport, Formula1.com et RaceFans. Les articles appartiennent à leurs éditeurs ; F1X renvoie vers leurs sites.</p>
@@ -794,6 +795,7 @@ fn credits_page(lang: Lang, origin: &str) -> String {
     <ul>
       <li><strong>OpenStreetMap</strong> — circuit maps, © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> (ODbL).</li>
       <li><strong><a href="https://commons.wikimedia.org">Wikimedia Commons</a></strong> — freely licensed photos; each photo's author and licence are linked under the image.</li>
+      <li><strong>App start-up sound</strong> — excerpt from “<a href="https://commons.wikimedia.org/wiki/File:Ferrari_F60_(2009).ogg">Ferrari F60 (2009)</a>” by <a href="https://commons.wikimedia.org/wiki/User:Edvvc">Edvvc</a>, Wikimedia Commons, <a href="https://creativecommons.org/licenses/by-sa/3.0/">CC BY-SA 3.0</a> licence (trimmed and faded).</li>
     </ul>
     <h2>News</h2>
     <p>Headlines, excerpts and links from the public RSS feeds of Motorsport.com, Autosport, Formula1.com and RaceFans. Articles belong to their publishers; F1X links to their websites.</p>
