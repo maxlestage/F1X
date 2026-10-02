@@ -347,12 +347,18 @@ impl OpenF1 {
         } else {
             Duration::from_secs(6 * 3600)
         };
-        if let Some((at, v)) = self.raw.read().await.get(&key) {
+        let stale = self.raw.read().await.get(&key).cloned();
+        if let Some((at, v)) = &stale {
             if at.elapsed() < ttl {
                 return Ok(v.clone());
             }
         }
-        let value = Arc::new(self.get(&key).await?);
+        // OpenF1 indisponible (ex. accès restreint pendant une séance en direct) : on garde
+        // la dernière réponse connue plutôt que d'afficher une erreur.
+        let value = match self.get(&key).await {
+            Ok(v) => Arc::new(v),
+            Err(err) => return stale.map(|(_, v)| v).ok_or(err),
+        };
         let mut raw = self.raw.write().await;
         if raw.len() > 600 {
             let oldest = raw
@@ -663,6 +669,16 @@ fn query_date(ms: Ms) -> String {
 impl OpenF1 {
     pub async fn cached_track(&self, circuit_id: &str) -> Option<Arc<TrackMap>> {
         self.tracks.read().await.get(circuit_id).cloned()
+    }
+
+    /// Met en cache un tracé chargé d'ailleurs (tracés embarqués).
+    pub async fn remember_track(&self, circuit_id: &str, track: TrackMap) -> Arc<TrackMap> {
+        let track = Arc::new(track);
+        self.tracks
+            .write()
+            .await
+            .insert(circuit_id.to_string(), track.clone());
+        track
     }
 
     /// Tracé du circuit : essaie les courses candidates (les plus récentes d'abord) et, pour

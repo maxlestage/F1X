@@ -17,6 +17,7 @@ fn main() {
     println!("cargo:rerun-if-changed=../protocol/src");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    bundle_tracks(&manifest_dir, &out_dir);
     let target_dir = out_dir.join("wasm-target");
     let pkg_dir = out_dir.join("pkg");
 
@@ -96,4 +97,40 @@ fn fnv1a(bytes: &[u8]) -> String {
         h = h.wrapping_mul(0x0000_0100_0000_01b3);
     }
     format!("{h:016x}")
+}
+
+/// Tracés de circuits pré-calculés (`tracks/{circuit}.json`, voir `tools/tracks/dump.py`),
+/// embarqués dans le binaire : les circuits s'affichent même quand OpenF1 refuse l'accès
+/// (séance en direct) et sans consommer le quota.
+fn bundle_tracks(manifest_dir: &std::path::Path, out_dir: &std::path::Path) {
+    let dir = manifest_dir.join("tracks");
+    println!("cargo:rerun-if-changed={}", dir.display());
+    let mut ids: Vec<String> = std::fs::read_dir(&dir)
+        .map(|it| {
+            it.filter_map(|e| e.ok())
+                .filter_map(|e| {
+                    let name = e.file_name().into_string().ok()?;
+                    name.strip_suffix(".json").map(str::to_string)
+                })
+                .filter(|id| {
+                    id.chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    ids.sort();
+    let mut code = String::from(
+        "/// Tracé embarqué du circuit, s'il existe.\n#[allow(clippy::match_single_binding)]\npub fn bundled_track(id: &str) -> Option<&'static str> {\n    match id {\n",
+    );
+    for id in &ids {
+        let path = dir.join(format!("{id}.json"));
+        println!("cargo:rerun-if-changed={}", path.display());
+        code.push_str(&format!(
+            "        {id:?} => Some(include_str!({:?})),\n",
+            path.display().to_string()
+        ));
+    }
+    code.push_str("        _ => None,\n    }\n}\n");
+    std::fs::write(out_dir.join("bundled_tracks.rs"), code).unwrap();
 }
