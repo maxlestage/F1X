@@ -955,6 +955,12 @@ struct DriverRaceSection: View {
                     trace(L("Rapport engagé", "Gear"), "gear", 100, .stepEnd, true)
                     trace(L("DRS (100 ouvert · 50 autorisé)", "DRS (100 open · 50 armed)"), "drs", 60, .stepEnd, true)
                 }
+                // Replay du tour choisi : la voiture sur le circuit, tableau de bord synchronisé.
+                if tel != .null {
+                    Card(title: L("Replay du tour \(lap)", "Lap \(lap) replay")) {
+                        LapReplayView(tel: tel, code: drivers[driver]?.code ?? "#\(driver)", colour: data["colour"].string)
+                    }
+                }
             }
             let messages = data["messages"].array
             if !messages.isEmpty {

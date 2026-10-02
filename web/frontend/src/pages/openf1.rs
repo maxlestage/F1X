@@ -1008,6 +1008,12 @@ fn DriverView(p: &ViewProps) -> Html {
                 { tel_body }
                 <p class="muted">{ t("Données car_data OpenF1 (~4 mesures/s) sur la distance du tour. DRS « autorisé » : le pilote pourra l'ouvrir dans la prochaine zone.", "OpenF1 car_data (~4 samples/s) over the lap distance. DRS “armed”: the driver can open it in the next zone.") }</p>
             </section>
+            if let Some(first) = list(&tel).into_iter().next() {
+                <section class="card">
+                    <h2>{ match chosen { Some(n) => tr!("Replay du tour {n}", "Lap {n} replay"), None => t("Replay du tour", "Lap replay").to_string() } }</h2>
+                    <LapReplay tel={Rc::new(first)} colour={s(v, "colour")} />
+                </section>
+            }
             if !messages.is_empty() {
                 <section class="card">
                     <h2>{ tr!("Direction de course ({})", "Race control ({})", messages.len()) }</h2>
@@ -1376,6 +1382,145 @@ pub fn RaceReplay(p: &MeetingLinkProps) -> Html {
                 "Starts on its own at ×30. Each driver's position from their progress through the lap (OpenF1 data).",
             ) }</p>
         </section>
+    }
+}
+
+#[derive(Properties, PartialEq)]
+pub struct LapReplayProps {
+    /// Télémétrie du tour (une entrée de /api/of1/telemetry).
+    pub tel: Rc<Value>,
+    pub colour: AttrValue,
+}
+
+/// Replay d'un tour : la voiture parcourt le circuit au rythme réel du tour, tableau de bord
+/// synchronisé (vitesse, rapport, régime, accélérateur, frein, DRS).
+#[function_component]
+pub fn LapReplay(p: &LapReplayProps) -> Html {
+    let nums = |k: &str| -> Vec<f64> {
+        p.tel
+            .get(k)
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_f64).collect())
+            .unwrap_or_default()
+    };
+    let circuit = s(&p.tel, "circuit_id");
+    let track = use_json::<f1x_protocol::TrackMap>(
+        (!circuit.is_empty()).then(|| format!("/api/track/{circuit}")),
+    );
+    let playing = use_state(|| true);
+    let speed = use_state(|| 1.0f64);
+    let elapsed = use_mut_ref(|| 0.0f64);
+    let redraw = use_force_update();
+    let times = nums("time");
+    let duration = num(&p.tel, "lap_duration")
+        .or_else(|| times.last().copied())
+        .unwrap_or(1.0)
+        .max(1.0);
+    {
+        let (elapsed, redraw) = (elapsed.clone(), redraw.clone());
+        use_effect_with((*playing, *speed, duration), move |&(on, k, dur)| {
+            let timer = on.then(|| {
+                gloo_timers::callback::Interval::new(50, move || {
+                    let mut e = elapsed.borrow_mut();
+                    *e = (*e + 0.05 * k) % dur;
+                    drop(e);
+                    redraw.force_update();
+                })
+            });
+            move || drop(timer)
+        });
+    }
+    if times.is_empty() {
+        return html! { <p class="muted">{ t("Replay indisponible pour ce tour.", "Replay unavailable for this lap.") }</p> };
+    }
+    let e = *elapsed.borrow();
+    let i = times.partition_point(|&x| x < e).min(times.len() - 1);
+    let at = |k: &str| nums(k).get(i).copied().unwrap_or(0.0);
+    let (kmh, gear, rpm, throttle, brake, drs) = (
+        at("speed"),
+        at("gear"),
+        at("rpm"),
+        at("throttle"),
+        at("brake"),
+        at("drs"),
+    );
+    let map = match &track {
+        Some(Ok(m)) if m.points.len() > 1 => {
+            let pad = 40.0;
+            let pts = &m.points;
+            let mut cum = vec![0.0f64];
+            for w in pts.windows(2) {
+                let d = ((w[1].x - w[0].x) as f64).hypot((w[1].y - w[0].y) as f64);
+                cum.push(cum.last().copied().unwrap_or(0.0) + d);
+            }
+            let dist = nums("distance");
+            let frac = match (dist.get(i), dist.last()) {
+                (Some(&d), Some(&total)) if total > 0.0 => d / total,
+                _ => 0.0,
+            };
+            let target = frac * cum.last().copied().unwrap_or(0.0);
+            let k = cum.partition_point(|&c| c < target).min(pts.len() - 1);
+            let line = pts
+                .iter()
+                .map(|q| format!("{:.0},{:.0}", q.x as f64 + pad, q.y as f64 + pad))
+                .collect::<Vec<_>>()
+                .join(" ");
+            let (cx, cy) = (pts[k].x as f64 + pad, pts[k].y as f64 + pad);
+            html! {
+                <svg class="outline lap-replay-map" viewBox={format!("0 0 {:.0} {:.0}", m.width + 2.0 * pad, m.height + 2.0 * pad)}
+                     role="img" aria-label={t("Position de la voiture sur le circuit", "Car position on the circuit")}>
+                    <polyline class="outline-base" points={line.clone()} />
+                    <polyline class="outline-line" points={line} />
+                    <circle cx={format!("{cx:.0}")} cy={format!("{cy:.0}")} r="34" fill={format!("#{}", p.colour)} stroke="#fff" stroke-width="10" />
+                </svg>
+            }
+        }
+        _ => html! {},
+    };
+    let bar = |label: &'static str, text: String, ratio: f64, class: &'static str| {
+        html! {
+            <div class="lap-bar">
+                <span class="lap-bar-head"><span class="muted">{ label }</span><span>{ text }</span></span>
+                <span class="lap-bar-track"><span class={class} style={format!("width:{:.0}%", (ratio.clamp(0.0, 1.0) * 100.0))}></span></span>
+            </div>
+        }
+    };
+    let toggle = {
+        let playing = playing.clone();
+        Callback::from(move |_: MouseEvent| playing.set(!*playing))
+    };
+    let restart = {
+        let (elapsed, redraw) = (elapsed.clone(), redraw.clone());
+        Callback::from(move |_: MouseEvent| {
+            *elapsed.borrow_mut() = 0.0;
+            redraw.force_update();
+        })
+    };
+    html! {
+        <div class="lap-replay">
+            { map }
+            <div class="lap-dash">
+                <span class="lap-speed"><b>{ format!("{kmh:.0}") }</b>{ " km/h" }</span>
+                <span class="lap-gear"><b>{ if gear < 1.0 { "N".to_string() } else { format!("{gear:.0}") } }</b>{ t(" rapport", " gear") }</span>
+                <span class="lap-clock">{ format!("{} / {}", lap_str(e), lap_str(duration)) }</span>
+            </div>
+            { bar(t("Régime", "RPM"), format!("{rpm:.0} tr/min"), rpm / 13_000.0, "fill-rpm") }
+            { bar(t("Accélérateur", "Throttle"), format!("{throttle:.0} %"), throttle / 100.0, "fill-throttle") }
+            <div class="lap-flags">
+                <span class={classes!("lap-flag", (brake > 0.0).then_some("brake-on"))}>{ t("Frein", "Brake") }</span>
+                <span class={classes!("lap-flag", (drs >= 100.0).then_some("drs-open"), (50.0..100.0).contains(&drs).then_some("drs-armed"))}>
+                    { if drs >= 100.0 { t("DRS ouvert", "DRS open") } else if drs >= 50.0 { t("DRS autorisé", "DRS armed") } else { "DRS" } }
+                </span>
+            </div>
+            <div class="replay-controls">
+                <button class="btn" onclick={toggle}>{ if *playing { t("⏸ Pause", "⏸ Pause") } else { t("▶ Lecture", "▶ Play") } }</button>
+                <button class="btn btn-ghost" onclick={restart}>{ t("⏮ Début", "⏮ Start") }</button>
+                { for [1.0f64, 2.0, 4.0].into_iter().map(|v| {
+                    let speed = speed.clone();
+                    html! { <button class={classes!("btn", "btn-ghost", (*speed == v).then_some("on"))} onclick={move |_| speed.set(v)}>{ format!("×{v:.0}") }</button> }
+                }) }
+            </div>
+        </div>
     }
 }
 

@@ -614,6 +614,14 @@ impl OpenF1 {
         lap_pick: Option<u32>,
     ) -> Result<Value, String> {
         let mut out = Vec::new();
+        // Circuit de la séance (identifiant du tracé 3D), pour rejouer le tour sur la carte.
+        let circuit_id = self
+            .relay("sessions", &format!("session_key={session_key}"))
+            .await
+            .ok()
+            .and_then(|v| arr(&v).first().map(|x| s(x, "circuit_short_name")))
+            .and_then(|c| ergast_circuit(&c))
+            .unwrap_or("");
         for &d in drivers.iter().take(3) {
             let laps = self
                 .relay(
@@ -685,7 +693,7 @@ impl OpenF1 {
             let total = *dist.last().unwrap();
             let n = 240;
             let (mut ds, mut sp, mut th, mut br, mut gr) = (vec![], vec![], vec![], vec![], vec![]);
-            let (mut rp, mut dr) = (vec![], vec![]);
+            let (mut rp, mut dr, mut tm) = (vec![], vec![], vec![]);
             let mut j = 0;
             for k in 0..n {
                 let target = total * k as f64 / (n - 1) as f64;
@@ -703,11 +711,14 @@ impl OpenF1 {
                 gr.push(if a < 0.5 { p.4 } else { q.4 });
                 rp.push(lerp(p.5, q.5).round());
                 dr.push(if a < 0.5 { p.6 } else { q.6 });
+                // Temps écoulé depuis le début du tour (s), pour le replay.
+                let at = p.0 as f64 + (q.0 - p.0) as f64 * a;
+                tm.push(((at - start as f64) / 10.0).round() / 100.0);
             }
             out.push(serde_json::json!({
                 "driver_number": d, "lap_number": lap, "lap_duration": duration,
                 "distance": ds, "speed": sp, "throttle": th, "brake": br, "gear": gr,
-                "rpm": rp, "drs": dr,
+                "rpm": rp, "drs": dr, "time": tm, "circuit_id": circuit_id,
             }));
         }
         Ok(Value::Array(out))
