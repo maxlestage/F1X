@@ -29,6 +29,18 @@ struct RaceDetailView: View {
                 .padding(.vertical, 4)
             }
 
+            // Tout savoir sur la course, juste sous le titre (pas caché au fond de la page).
+            if race.isOver(), let year = Int(race.season), year >= 2023 {
+                Section {
+                    RaceDataLinks(year: year, date: race.date)
+                } header: {
+                    Text(L("Tout savoir sur la course", "Everything about the race"))
+                } footer: {
+                    Text(L("Fiche de chaque pilote tour par tour, secteurs, écarts, pneus, arrêts, télémétrie, direction de course et radios.",
+                           "Each driver's lap-by-lap file, sectors, gaps, tyres, stops, telemetry, race control and radio."))
+                }
+            }
+
             Section(L("Programme", "Schedule")) {
                 SessionsList(race: race)
             }

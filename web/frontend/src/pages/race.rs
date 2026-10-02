@@ -132,6 +132,12 @@ pub fn RacePage(props: &RacePageProps) -> Html {
                 }
             </section>
 
+            if over {
+                if let Ok(year) = race.season.parse::<u32>() {
+                    <super::RaceDataLinks {year} date={race.date.clone()} />
+                }
+            }
+
             <super::CircuitTrack circuit_id={race.circuit.circuit_id.clone()} name={race.circuit.circuit_name.clone()} />
 
             <section class="card">
