@@ -252,12 +252,6 @@ fn hash2(x: i32, z: i32) -> f32 {
     (h & 0xFFFF) as f32 / 65_536.0
 }
 
-fn speed_colour(ratio: f32) -> u32 {
-    let r = ratio.clamp(0.0, 1.0);
-    let l = |a: f32, b: f32| (a + (b - a) * r) as u32;
-    (l(179.0, 255.0) << 16) | (l(38.0, 228.0) << 8) | l(30.0, 222.0)
-}
-
 pub fn build(map: &TrackMap) -> Vec<u8> {
     let raw = &map.points;
     let mut b = Builder::default();
@@ -295,7 +289,6 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
         })
         .collect();
     let segs = if closed { n } else { n - 1 };
-    let (min_s, max_s) = (map.stats.min_speed as f32, map.stats.top_speed as f32);
     let up = [0.0, 1.0, 0.0];
     let hw = HALF_WIDTH;
     let off = |i: usize, o: f32, dy: f32| add(add(pts[i], mul(side(i), o)), [0.0, dy, 0.0]);
@@ -307,6 +300,14 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
     let armco = mat(0x9EA3AA, 70);
     let skirt = mat(0x3A3C40, 10);
     let runoff = mat(0x3A3E46, 14);
+    let asphalt_tones = [
+        mat(0x2A2C31, 18),
+        mat(0x2E3035, 18),
+        mat(0x26282C, 18),
+        mat(0x2C2D30, 18),
+    ];
+    let rubber = mat(0x222326, 12);
+    let rubber_core = mat(0x1B1C1E, 10);
     let paint = [mat(0x2F6FB5, 25), mat(0x2E9B57, 25)];
     let tyres = [mat(0x15161A, 10), mat(0xE8E8E8, 15)];
     let (tecpro_a, tecpro_b) = (mat(0x1E4FB5, 35), mat(0xD3202A, 35));
@@ -335,13 +336,15 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
                 up,
             );
         };
-        // Asphalte, lignes blanches de bord, trajectoire colorée selon la vitesse.
-        strip(&mut b, asphalt, -hw, hw, 0.0);
+        // Asphalte (légères variations de teinte par tronçon), lignes blanches de bord,
+        // trajectoire gommée plus sombre (les points sont la trajectoire réelle du pilote).
+        let patch =
+            (hash2(i as i32 / 7, 3) * asphalt_tones.len() as f32) as usize % asphalt_tones.len();
+        strip(&mut b, asphalt_tones[patch], -hw, hw, 0.0);
         strip(&mut b, white, hw - 0.9, hw - 0.3, 0.04);
         strip(&mut b, white, -hw + 0.3, -hw + 0.9, 0.04);
-        let ratio = (raw[i].speed as f32 - min_s) / (max_s - min_s).max(1.0);
-        let level = (ratio * 7.0).round() / 7.0;
-        strip(&mut b, mat(speed_colour(level), 15), -0.8, 0.8, 0.05);
+        strip(&mut b, rubber, -2.4, 2.4, 0.02);
+        strip(&mut b, rubber_core, -1.0, 1.0, 0.03);
         // Bordures latérales jusqu'au sol (pas de jour entre la piste et le relief).
         for s in [-1.0f32, 1.0] {
             let (a0, a1) = (off(i, s * hw, 0.0), off(j, s * hw, 0.0));
@@ -351,12 +354,45 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
                 mul(side(i), s),
             );
         }
-        // Vibreurs rouges et blancs dans les virages.
+        // Vibreurs rouges et blancs en relief (bord biseauté), rayures courtes comme en vrai.
         let t = turn[i].abs();
         if t > 0.10 {
-            let m = if i % 2 == 0 { red } else { white };
-            strip(&mut b, m, hw, hw + 2.4, 0.08);
-            strip(&mut b, m, -hw - 2.4, -hw, 0.08);
+            const STRIPES: usize = 4;
+            for k in 0..STRIPES {
+                let (f0, f1) = (k as f32 / STRIPES as f32, (k + 1) as f32 / STRIPES as f32);
+                let m = if (i * STRIPES + k) % 2 == 0 {
+                    red
+                } else {
+                    white
+                };
+                let at_f = |f: f32, o: f32, dy: f32| {
+                    add(mul(off(i, o, dy), 1.0 - f), mul(off(j, o, dy), f))
+                };
+                for sgn in [-1.0f32, 1.0] {
+                    let (o0, o1) = (sgn * hw, sgn * (hw + 2.4));
+                    // Pente montante depuis la piste, puis face extérieure jusqu'au sol.
+                    b.quad(
+                        m,
+                        [
+                            at_f(f0, o0, 0.05),
+                            at_f(f1, o0, 0.05),
+                            at_f(f1, o1, 0.22),
+                            at_f(f0, o1, 0.22),
+                        ],
+                        up,
+                    );
+                    b.quad(
+                        m,
+                        [
+                            at_f(f0, o1, 0.22),
+                            at_f(f1, o1, 0.22),
+                            at_f(f1, o1, 0.0),
+                            at_f(f0, o1, 0.0),
+                        ],
+                        mul(side(i), sgn),
+                    );
+                }
+            }
         }
         let outside = if turn[i] > 0.0 { -1.0 } else { 1.0 };
         let inward = mul(side(i), -outside);
@@ -721,6 +757,58 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
                 [ti, si, up],
                 [0.5, 0.5, 5.2],
             );
+        }
+    }
+
+    // Panneaux de freinage (3, 2 et 1 bandes) avant les virages lents, côté extérieur.
+    let board = mat(0xF2F2F2, 30);
+    let board_ink = mat(0x15161A, 20);
+    let post = mat(0x5A5E66, 40);
+    let speeds: Vec<f32> = raw.iter().map(|p| p.speed as f32).collect();
+    let mut last_apex: Option<usize> = None;
+    for i in 0..n {
+        let window = 8isize;
+        let is_min = (-window..=window).all(|k| speeds[at(i as isize + k)] >= speeds[i]);
+        let before = (10..40)
+            .map(|k| speeds[at(i as isize - k)])
+            .fold(0.0f32, f32::max);
+        if !is_min || speeds[i] > 200.0 || before < speeds[i] + 70.0 {
+            continue;
+        }
+        if last_apex.is_some_and(|l| i - l < 12) {
+            continue;
+        }
+        last_apex = Some(i);
+        // Côté extérieur du virage qui arrive.
+        let outside = if turn[i] > 0.0 { -1.0 } else { 1.0 };
+        let mut walked = 0.0f32;
+        let mut k = i as isize;
+        for (bars, dist) in [(1usize, 45.0f32), (2, 90.0), (3, 135.0)] {
+            while walked < dist && (i as isize - k) < n as isize {
+                let d = sub(pts[at(k)], pts[at(k - 1)]);
+                walked += (d[0] * d[0] + d[2] * d[2]).sqrt();
+                k -= 1;
+            }
+            let idx = at(k);
+            let (tg, sd) = (tangent(idx), side(idx));
+            let foot = off(idx, outside * (hw + 5.0), 0.0);
+            b.block(
+                post,
+                add(foot, [0.0, 1.4, 0.0]),
+                [tg, sd, up],
+                [0.12, 0.12, 1.4],
+            );
+            let panel = add(foot, [0.0, 3.4, 0.0]);
+            b.block(board, panel, [tg, sd, up], [0.08, 1.1, 0.75]);
+            for bar in 0..bars {
+                let yy = (bar as f32 - (bars as f32 - 1.0) / 2.0) * 0.42;
+                b.block(
+                    board_ink,
+                    add(panel, [0.0, yy, 0.0]),
+                    [tg, sd, up],
+                    [0.1, 0.85, 0.11],
+                );
+            }
         }
     }
 

@@ -9,8 +9,8 @@ use f1x_protocol::TrackMap;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use web_sys::{
-    Element, HtmlCanvasElement, HtmlElement, WebGl2RenderingContext as Gl, WebGlProgram,
-    WebGlUniformLocation, WebGlVertexArrayObject,
+    Element, HtmlCanvasElement, HtmlElement, WebGl2RenderingContext as Gl, WebGlFramebuffer,
+    WebGlProgram, WebGlTexture, WebGlUniformLocation, WebGlVertexArrayObject,
 };
 use yew::prelude::*;
 
@@ -89,6 +89,18 @@ impl M4 {
             s[1], u[1], -f[1], 0.0,
             s[2], u[2], -f[2], 0.0,
             -dot(s, eye), -dot(u, eye), dot(f, eye), 1.0,
+        ])
+    }
+
+    /// Projection orthographique (carte d'ombres du soleil).
+    #[rustfmt::skip]
+    fn ortho(half: f32, near: f32, far: f32) -> M4 {
+        let nf = 1.0 / (near - far);
+        M4([
+            1.0 / half, 0.0, 0.0, 0.0,
+            0.0, 1.0 / half, 0.0, 0.0,
+            0.0, 0.0, 2.0 * nf, 0.0,
+            0.0, 0.0, (far + near) * nf, 1.0,
         ])
     }
 
@@ -996,10 +1008,12 @@ uniform mat4 u_model;
 uniform vec3 u_paint;
 uniform vec3 u_second;
 uniform vec3 u_accent;
+uniform mat4 u_lightvp;
 out vec3 v_nrm;
 out vec4 v_col;
 out float v_unlit;
 out vec3 v_world;
+out vec4 v_lpos;
 void main() {
   vec3 c = a_col.rgb;
   if (a_kind > 0.5 && a_kind < 1.5) c = u_paint;
@@ -1009,46 +1023,98 @@ void main() {
   v_unlit = (a_kind > 2.5 && a_kind < 3.5) ? 1.0 : 0.0;
   v_nrm = mat3(u_model) * a_nrm;
   v_world = (u_model * vec4(a_pos, 1.0)).xyz;
+  v_lpos = u_lightvp * vec4(v_world, 1.0);
   gl_Position = u_mvp * vec4(a_pos, 1.0);
 }"#;
 
-/// Éclairage « studio » : lumière principale, contre-jour, ciel/sol, reflets de vernis
-/// (Fresnel + environnement), puis compression des hautes lumières et correction gamma.
+/// Deux éclairages :
+/// - « studio » (monoplace seule) : lumière principale, contre-jour, ciel/sol, vernis
+///   (Fresnel + environnement) ;
+/// - « extérieur » (circuits) : soleil avec ombres portées (carte d'ombres filtrée PCF),
+///   ciel bleu et rebond du sol, brume à la couleur de l'horizon, tonalité filmique ACES.
 const FS: &str = r#"#version 300 es
 precision highp float;
+precision highp sampler2DShadow;
 in vec3 v_nrm;
 in vec4 v_col;
 in float v_unlit;
 in vec3 v_world;
+in vec4 v_lpos;
 uniform vec3 u_light;
 uniform vec3 u_eye;
 uniform vec4 u_fog;
+uniform float u_outdoor;
+uniform float u_texel;
+uniform sampler2DShadow u_shadow;
 out vec4 o;
+
+vec3 aces(vec3 x) {
+  return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+}
+
+float shadowAt(vec3 n) {
+  vec3 p = v_lpos.xyz / v_lpos.w * 0.5 + 0.5;
+  if (p.x <= 0.0 || p.x >= 1.0 || p.y <= 0.0 || p.y >= 1.0 || p.z >= 1.0) return 1.0;
+  float bias = u_texel * (1.5 + 3.0 * (1.0 - max(dot(n, u_light), 0.0)));
+  float s = 0.0;
+  for (int x = -1; x <= 1; x++)
+    for (int y = -1; y <= 1; y++)
+      s += texture(u_shadow, vec3(p.xy + vec2(x, y) * u_texel, p.z - bias));
+  return s / 9.0;
+}
+
 void main() {
   if (v_unlit > 0.5) { o = v_col; return; }
   vec3 base = pow(v_col.rgb, vec3(2.2));
   float gloss = v_col.a;
   vec3 n = normalize(v_nrm);
   vec3 v = normalize(u_eye - v_world);
+  float g2 = gloss * gloss;
+  float shine = mix(6.0, 140.0, gloss);
+  vec3 r = reflect(-v, n);
+  float fres = 0.04 + 0.96 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
+  if (u_outdoor > 0.5) {
+    float sh = shadowAt(n);
+    float d1 = max(dot(n, u_light), 0.0) * sh;
+    vec3 sky = mix(vec3(0.10, 0.10, 0.08), vec3(0.34, 0.44, 0.62), n.y * 0.5 + 0.5);
+    vec3 col = base * (sky * (0.55 + 0.45 * sh) + vec3(2.35, 2.2, 1.95) * d1);
+    float spec = pow(max(dot(n, normalize(u_light + v)), 0.0), shine) * g2 * 2.2 * sh;
+    vec3 env = mix(vec3(0.16, 0.17, 0.14), vec3(0.55, 0.68, 0.88), smoothstep(-0.1, 0.5, r.y));
+    col += vec3(spec) + env * fres * (0.15 + g2);
+    vec3 outc = pow(aces(col * 0.78), vec3(1.0 / 2.2));
+    float fd = length(u_eye - v_world) * u_fog.a;
+    o = vec4(mix(outc, u_fog.rgb, 1.0 - exp(-fd * fd)), 1.0);
+    return;
+  }
   vec3 fill = normalize(vec3(-0.6, 0.35, -0.55));
   float d1 = max(dot(n, u_light), 0.0);
   float d2 = max(dot(n, fill), 0.0);
   vec3 hemi = mix(vec3(0.035, 0.035, 0.045), vec3(0.30, 0.32, 0.38), n.y * 0.5 + 0.5);
   vec3 col = base * (hemi + vec3(1.05, 1.0, 0.94) * d1 + vec3(0.30, 0.36, 0.48) * d2);
-  float shine = mix(6.0, 140.0, gloss);
-  float g2 = gloss * gloss;
   float spec = pow(max(dot(n, normalize(u_light + v)), 0.0), shine) * g2 * 1.4;
   spec += pow(max(dot(n, normalize(fill + v)), 0.0), shine) * g2 * 0.3;
-  vec3 r = reflect(-v, n);
   vec3 env = mix(vec3(0.02, 0.02, 0.03), vec3(0.42, 0.46, 0.55), smoothstep(-0.15, 0.45, r.y));
   env += vec3(1.2) * smoothstep(0.80, 0.93, r.y) * smoothstep(0.9, 0.2, abs(r.x));
-  float fres = 0.04 + 0.96 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
   col += vec3(spec) + env * fres * g2;
   col = col / (col + vec3(0.55)) * 1.55;
   vec3 outc = pow(col, vec3(1.0 / 2.2));
   float fd = length(u_eye - v_world) * u_fog.a;
   o = vec4(mix(outc, u_fog.rgb, 1.0 - exp(-fd * fd)), 1.0);
 }"#;
+
+/// Passe d'ombres : profondeur vue du soleil uniquement.
+const VS_DEPTH: &str = r#"#version 300 es
+layout(location=0) in vec3 a_pos;
+uniform mat4 u_mvp;
+void main() { gl_Position = u_mvp * vec4(a_pos, 1.0); }"#;
+
+const FS_DEPTH: &str = r#"#version 300 es
+precision mediump float;
+out vec4 o;
+void main() { o = vec4(1.0); }"#;
+
+/// Résolution de la carte d'ombres.
+const SHADOW_SIZE: i32 = 2048;
 
 struct Uniforms {
     mvp: Option<WebGlUniformLocation>,
@@ -1059,12 +1125,25 @@ struct Uniforms {
     light: Option<WebGlUniformLocation>,
     eye: Option<WebGlUniformLocation>,
     fog: Option<WebGlUniformLocation>,
+    lightvp: Option<WebGlUniformLocation>,
+    outdoor: Option<WebGlUniformLocation>,
+    texel: Option<WebGlUniformLocation>,
+    shadow: Option<WebGlUniformLocation>,
+}
+
+/// Carte d'ombres du soleil (texture de profondeur + programme dédié).
+struct Shadows {
+    prog: WebGlProgram,
+    mvp: Option<WebGlUniformLocation>,
+    fbo: WebGlFramebuffer,
+    tex: WebGlTexture,
 }
 
 struct Gpu {
     gl: Gl,
     prog: WebGlProgram,
     u: Uniforms,
+    shadows: Option<Shadows>,
 }
 
 struct Vao {
@@ -1094,17 +1173,58 @@ impl Gpu {
                 .unwrap_or(false)
                 .then_some(s)
         };
-        let prog = gl.create_program()?;
-        gl.attach_shader(&prog, &shader(Gl::VERTEX_SHADER, VS)?);
-        gl.attach_shader(&prog, &shader(Gl::FRAGMENT_SHADER, FS)?);
-        gl.link_program(&prog);
-        if !gl
-            .get_program_parameter(&prog, Gl::LINK_STATUS)
-            .as_bool()
-            .unwrap_or(false)
-        {
-            return None;
-        }
+        let link = |vs: &str, fs: &str| {
+            let prog = gl.create_program()?;
+            gl.attach_shader(&prog, &shader(Gl::VERTEX_SHADER, vs)?);
+            gl.attach_shader(&prog, &shader(Gl::FRAGMENT_SHADER, fs)?);
+            gl.link_program(&prog);
+            gl.get_program_parameter(&prog, Gl::LINK_STATUS)
+                .as_bool()
+                .unwrap_or(false)
+                .then_some(prog)
+        };
+        let prog = link(VS, FS)?;
+        // Ombres : facultatives (le rendu reste correct sans, ex. vieux GPU).
+        let shadows = (|| {
+            let prog = link(VS_DEPTH, FS_DEPTH)?;
+            let tex = gl.create_texture()?;
+            gl.bind_texture(Gl::TEXTURE_2D, Some(&tex));
+            gl.tex_storage_2d(
+                Gl::TEXTURE_2D,
+                1,
+                Gl::DEPTH_COMPONENT24,
+                SHADOW_SIZE,
+                SHADOW_SIZE,
+            );
+            for (k, v) in [
+                (Gl::TEXTURE_MIN_FILTER, Gl::LINEAR),
+                (Gl::TEXTURE_MAG_FILTER, Gl::LINEAR),
+                (Gl::TEXTURE_WRAP_S, Gl::CLAMP_TO_EDGE),
+                (Gl::TEXTURE_WRAP_T, Gl::CLAMP_TO_EDGE),
+                (Gl::TEXTURE_COMPARE_MODE, Gl::COMPARE_REF_TO_TEXTURE),
+                (Gl::TEXTURE_COMPARE_FUNC, Gl::LEQUAL),
+            ] {
+                gl.tex_parameteri(Gl::TEXTURE_2D, k, v as i32);
+            }
+            let fbo = gl.create_framebuffer()?;
+            gl.bind_framebuffer(Gl::FRAMEBUFFER, Some(&fbo));
+            gl.framebuffer_texture_2d(
+                Gl::FRAMEBUFFER,
+                Gl::DEPTH_ATTACHMENT,
+                Gl::TEXTURE_2D,
+                Some(&tex),
+                0,
+            );
+            let ok = gl.check_framebuffer_status(Gl::FRAMEBUFFER) == Gl::FRAMEBUFFER_COMPLETE;
+            gl.bind_framebuffer(Gl::FRAMEBUFFER, None);
+            let mvp = gl.get_uniform_location(&prog, "u_mvp");
+            ok.then_some(Shadows {
+                prog,
+                mvp,
+                fbo,
+                tex,
+            })
+        })();
         let loc = |name| gl.get_uniform_location(&prog, name);
         let u = Uniforms {
             mvp: loc("u_mvp"),
@@ -1115,6 +1235,10 @@ impl Gpu {
             light: loc("u_light"),
             eye: loc("u_eye"),
             fog: loc("u_fog"),
+            lightvp: loc("u_lightvp"),
+            outdoor: loc("u_outdoor"),
+            texel: loc("u_texel"),
+            shadow: loc("u_shadow"),
         };
         gl.enable(Gl::DEPTH_TEST);
         gl.enable(Gl::BLEND);
@@ -1125,7 +1249,12 @@ impl Gpu {
             Gl::ONE_MINUS_SRC_ALPHA,
         );
         gl.clear_color(0.0, 0.0, 0.0, 0.0);
-        Some(Gpu { gl, prog, u })
+        Some(Gpu {
+            gl,
+            prog,
+            u,
+            shadows,
+        })
     }
 
     fn upload(&self, mesh: &Mesh) -> Option<Vao> {
@@ -1186,6 +1315,20 @@ impl Gpu {
         ] {
             gl.uniform3f(loc.as_ref(), c[0], c[1], c[2]);
         }
+        gl.bind_vertex_array(Some(&vao.vao));
+        if vao.indexed {
+            gl.draw_elements_with_i32(Gl::TRIANGLES, vao.count, Gl::UNSIGNED_INT, 0);
+        } else {
+            gl.draw_arrays(Gl::TRIANGLES, 0, vao.count);
+        }
+    }
+}
+
+impl Gpu {
+    /// Dessin dans la carte d'ombres (programme de profondeur déjà actif).
+    fn draw_depth(&self, sh: &Shadows, vao: &Vao, lvp: &M4, model: &M4) {
+        let gl = &self.gl;
+        gl.uniform_matrix4fv_with_f32_array(sh.mvp.as_ref(), false, &lvp.mul(model).0);
         gl.bind_vertex_array(Some(&vao.vao));
         if vao.indexed {
             gl.draw_elements_with_i32(Gl::TRIANGLES, vao.count, Gl::UNSIGNED_INT, 0);
@@ -1522,21 +1665,104 @@ impl State {
         let vp =
             M4::perspective(fov, aspect, near, far).mul(&M4::look_at(eye, target, [0.0, 1.0, 0.0]));
 
+        // Soleil : plus bas sur les circuits (ombres plus longues, relief mieux lu).
+        let light = if self.track.is_some() {
+            norm([0.55, 0.62, 0.42])
+        } else {
+            norm([0.45, 0.9, 0.35])
+        };
+        // Positions des monoplaces sur le circuit (fantôme + direct), calculées une fois
+        // pour la passe d'ombres et la passe principale.
+        let mut placed: Vec<(M4, Paint, V3, Option<usize>)> = Vec::new();
+        if let Some((_, path)) = &self.track {
+            if self.ghost {
+                let (pos, heading) = path.at_time(self.clock as f32);
+                placed.push((
+                    M4::trs(add(pos, [0.0, 0.6, 0.0]), heading, CAR_SCALE),
+                    self.paint,
+                    pos,
+                    None,
+                ));
+            }
+            for (i, car) in self.cars.iter_mut().enumerate() {
+                // Avance en douceur vers la dernière position connue (tour bouclé).
+                let diff = (car.target - car.cur + 0.5).rem_euclid(1.0) - 0.5;
+                car.cur = (car.cur + diff * (dt * 2.5).min(1.0)).rem_euclid(1.0);
+                let (pos, heading) = path.at_time(car.cur * path.lap_time);
+                placed.push((
+                    M4::trs(add(pos, [0.0, 0.6, 0.0]), heading, CAR_SCALE),
+                    car.paint,
+                    pos,
+                    Some(i),
+                ));
+            }
+        }
+
         let gpu = &self.gpu;
         let gl = &gpu.gl;
+        let id = M4::identity();
+        // Passe d'ombres (circuits) : profondeur vue du soleil, cadrée sur la vue d'ensemble
+        // ou, en caméra embarquée, serrée autour de la monoplace (ombres nettes).
+        let mut lightvp = None;
+        if let (Some((vao, path)), Some(sh)) = (&self.track, &gpu.shadows) {
+            let (centre, half) = if self.chase && self.ghost {
+                (placed.first().map(|p| p.2).unwrap_or(target), 160.0)
+            } else {
+                (target, path.radius * 1.3 + 60.0)
+            };
+            let depth = path.radius * 4.0 + 400.0;
+            let leye = add(centre, mul(light, depth / 2.0));
+            let lvp = M4::ortho(half, 1.0, depth).mul(&M4::look_at(leye, centre, [0.0, 0.0, 1.0]));
+            gl.bind_framebuffer(Gl::FRAMEBUFFER, Some(&sh.fbo));
+            gl.viewport(0, 0, SHADOW_SIZE, SHADOW_SIZE);
+            gl.clear(Gl::DEPTH_BUFFER_BIT);
+            gl.use_program(Some(&sh.prog));
+            gl.enable(Gl::POLYGON_OFFSET_FILL);
+            gl.polygon_offset(2.0, 4.0);
+            gpu.draw_depth(sh, vao, &lvp, &id);
+            for (model, ..) in &placed {
+                gpu.draw_depth(sh, &self.car, &lvp, model);
+            }
+            gl.disable(Gl::POLYGON_OFFSET_FILL);
+            gl.bind_framebuffer(Gl::FRAMEBUFFER, None);
+            lightvp = Some((lvp, half));
+        }
+
         gl.viewport(0, 0, w as i32, h as i32);
         gl.clear(Gl::COLOR_BUFFER_BIT | Gl::DEPTH_BUFFER_BIT);
         gl.use_program(Some(&gpu.prog));
-        let light = norm([0.45, 0.9, 0.35]);
         gl.uniform3f(gpu.u.light.as_ref(), light[0], light[1], light[2]);
         gl.uniform3f(gpu.u.eye.as_ref(), eye[0], eye[1], eye[2]);
-        // Brouillard de distance sur les circuits (profondeur), aucun sur la monoplace seule.
-        let fog = match &self.track {
-            Some((_, path)) => 1.0 / (path.radius * 7.0),
-            None => 0.0,
-        };
-        gl.uniform4f(gpu.u.fog.as_ref(), 0.121, 0.165, 0.243, fog);
-        let id = M4::identity();
+        gl.uniform1i(gpu.u.shadow.as_ref(), 0);
+        gl.active_texture(Gl::TEXTURE0);
+        gl.bind_texture(Gl::TEXTURE_2D, gpu.shadows.as_ref().map(|s| &s.tex));
+        match &lightvp {
+            Some((lvp, _)) => {
+                gl.uniform_matrix4fv_with_f32_array(gpu.u.lightvp.as_ref(), false, &lvp.0);
+                gl.uniform1f(gpu.u.texel.as_ref(), 1.0 / SHADOW_SIZE as f32);
+            }
+            None => {
+                gl.uniform_matrix4fv_with_f32_array(gpu.u.lightvp.as_ref(), false, &id.0);
+                gl.uniform1f(gpu.u.texel.as_ref(), 0.0);
+            }
+        }
+        // Circuits : extérieur de jour (brume couleur horizon) ; monoplace seule : studio.
+        match &self.track {
+            Some((_, path)) => {
+                gl.uniform1f(gpu.u.outdoor.as_ref(), 1.0);
+                gl.uniform4f(
+                    gpu.u.fog.as_ref(),
+                    0.74,
+                    0.80,
+                    0.88,
+                    1.0 / (path.radius * 7.0),
+                );
+            }
+            None => {
+                gl.uniform1f(gpu.u.outdoor.as_ref(), 0.0);
+                gl.uniform4f(gpu.u.fog.as_ref(), 0.121, 0.165, 0.243, 0.0);
+            }
+        }
         match &self.track {
             None => {
                 gl.depth_mask(false);
@@ -1544,37 +1770,26 @@ impl State {
                 gl.depth_mask(true);
                 gpu.draw(&self.car, &vp, &id, &self.paint);
             }
-            Some((vao, path)) => {
+            Some((vao, _)) => {
                 gpu.draw(vao, &vp, &id, &self.paint);
-                if self.ghost {
-                    let (pos, heading) = path.at_time(self.clock as f32);
-                    let model = M4::trs(add(pos, [0.0, 0.6, 0.0]), heading, CAR_SCALE);
-                    gpu.draw(&self.car, &vp, &model, &self.paint);
-                }
                 let (cw, ch) = (rect.width() as f32, rect.height() as f32);
-                for car in &mut self.cars {
-                    // Avance en douceur vers la dernière position connue (tour bouclé).
-                    let diff = (car.target - car.cur + 0.5).rem_euclid(1.0) - 0.5;
-                    car.cur = (car.cur + diff * (dt * 2.5).min(1.0)).rem_euclid(1.0);
-                    let (pos, heading) = path.at_time(car.cur * path.lap_time);
-                    let model = M4::trs(add(pos, [0.0, 0.6, 0.0]), heading, CAR_SCALE);
-                    gpu.draw(&self.car, &vp, &model, &car.paint);
-                    if let Some(el) = &car.label {
-                        let style = el.style();
-                        match vp.project(add(pos, [0.0, 14.0, 0.0])) {
-                            Some((x, y)) if x.abs() < 1.05 && y.abs() < 1.05 => {
-                                let (px, py) = ((x + 1.0) / 2.0 * cw, (1.0 - y) / 2.0 * ch);
-                                let _ = style.set_property(
-                                    "transform",
-                                    &format!(
-                                        "translate({px:.0}px,{py:.0}px) translate(-50%,-100%)"
-                                    ),
-                                );
-                                let _ = style.set_property("visibility", "visible");
-                            }
-                            _ => {
-                                let _ = style.set_property("visibility", "hidden");
-                            }
+                for (model, paint, pos, label) in &placed {
+                    gpu.draw(&self.car, &vp, model, paint);
+                    let Some(el) = label.and_then(|i| self.cars[i].label.as_ref()) else {
+                        continue;
+                    };
+                    let style = el.style();
+                    match vp.project(add(*pos, [0.0, 14.0, 0.0])) {
+                        Some((x, y)) if x.abs() < 1.05 && y.abs() < 1.05 => {
+                            let (px, py) = ((x + 1.0) / 2.0 * cw, (1.0 - y) / 2.0 * ch);
+                            let _ = style.set_property(
+                                "transform",
+                                &format!("translate({px:.0}px,{py:.0}px) translate(-50%,-100%)"),
+                            );
+                            let _ = style.set_property("visibility", "visible");
+                        }
+                        _ => {
+                            let _ = style.set_property("visibility", "hidden");
                         }
                     }
                 }
@@ -1876,7 +2091,7 @@ pub fn View3D(props: &ViewProps) -> Html {
             if let Scene::Track { map, .. } = scene {
                 // Décor du circuit : chargé en arrière-plan, remplace le tracé simplifié.
                 let viewer = viewer.clone();
-                let url = format!("/api/track3d/{}?v=3", map.circuit_id);
+                let url = format!("/api/track3d/{}?v=4", map.circuit_id);
                 wasm_bindgen_futures::spawn_local(async move {
                     let Ok(resp) = gloo_net::http::Request::get(&url).send().await else {
                         return;
