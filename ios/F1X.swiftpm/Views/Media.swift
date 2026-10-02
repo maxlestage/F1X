@@ -107,7 +107,7 @@ struct TrackMapView: View {
                             if i == 0 { base.move(to: pt(p)) } else { base.addLine(to: pt(p)) }
                         }
                         ctx.stroke(base, with: .color(Color(white: 0.2)), style: StrokeStyle(lineWidth: 10, lineCap: .round, lineJoin: .round))
-                        for i in 0..<(map.points.count - 1) {
+                        for i in 0..<max(map.points.count - 1, 0) {
                             var seg = Path()
                             seg.move(to: pt(map.points[i]))
                             seg.addLine(to: pt(map.points[i + 1]))
