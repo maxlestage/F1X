@@ -283,6 +283,49 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
     let up = [0.0, 1.0, 0.0];
     let hw = HALF_WIDTH;
     let off = |i: usize, o: f32, dy: f32| add(add(pts[i], mul(side(i), o)), [0.0, dy, 0.0]);
+    // Grille des segments de piste : vérifie qu'un élément de décor ne déborde pas sur une
+    // AUTRE portion du circuit (épingles, portions parallèles, croisements).
+    let cell = 40.0f32;
+    let mut bins: HashMap<(i32, i32), Vec<usize>> = HashMap::new();
+    for k in 0..segs {
+        let (a, c) = (pts[k], pts[at(k as isize + 1)]);
+        let (x0, x1) = (a[0].min(c[0]), a[0].max(c[0]));
+        let (z0, z1) = (a[2].min(c[2]), a[2].max(c[2]));
+        for bx in (x0 / cell).floor() as i32..=(x1 / cell).floor() as i32 {
+            for bz in (z0 / cell).floor() as i32..=(z1 / cell).floor() as i32 {
+                bins.entry((bx, bz)).or_default().push(k);
+            }
+        }
+    }
+    // Vrai si un point est à moins de `r` d'un segment de piste, en ignorant les segments
+    // à moins de `skip` indices de `own` (la portion de piste à laquelle l'élément appartient).
+    let crowded = |p: V, r: f32, own: usize, skip: usize| -> bool {
+        let reach = (r / cell).ceil() as i32;
+        let (bx, bz) = ((p[0] / cell).floor() as i32, (p[2] / cell).floor() as i32);
+        for dx in -reach..=reach {
+            for dz in -reach..=reach {
+                let Some(list) = bins.get(&(bx + dx, bz + dz)) else {
+                    continue;
+                };
+                for &k in list {
+                    let gap = (k as isize - own as isize).unsigned_abs();
+                    let gap = if closed { gap.min(n - gap) } else { gap };
+                    if gap <= skip {
+                        continue;
+                    }
+                    let (a, c) = (pts[k], pts[at(k as isize + 1)]);
+                    let (sx, sz) = (c[0] - a[0], c[2] - a[2]);
+                    let len2 = (sx * sx + sz * sz).max(1e-6);
+                    let t = (((p[0] - a[0]) * sx + (p[2] - a[2]) * sz) / len2).clamp(0.0, 1.0);
+                    let (qx, qz) = (a[0] + sx * t - p[0], a[2] + sz * t - p[2]);
+                    if qx * qx + qz * qz < r * r {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    };
 
     let asphalt = mat(0x2A2C31, 18);
     let white = mat(0xEDEDED, 20);
@@ -295,7 +338,7 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
     let paint = [mat(0x2F6FB5, 25), mat(0x2E9B57, 25)];
     let tyres = [mat(0x15161A, 10), mat(0xE8E8E8, 15)];
     let (tecpro_a, tecpro_b) = (mat(0x1E4FB5, 35), mat(0xD3202A, 35));
-    let fence = mat(0x6B7078, 30);
+    let fence = mat(0x9AA0A8, 30);
     // Panneaux publicitaires génériques (aplats de couleurs, aucune marque).
     let boards = [
         mat(0x1B1F27, 40),
@@ -377,9 +420,18 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
         }
         let outside = if turn[i] > 0.0 { -1.0 } else { 1.0 };
         let inward = mul(side(i), -outside);
-        if t > 0.22 && raw[i].speed < 230 {
+        // Largeur de dégagement possible sans empiéter sur une autre portion de piste.
+        let room = |w: f32| {
+            !crowded(off(i, outside * (hw + w), 0.0), hw + 3.0, i, 12)
+                && !crowded(off(j, outside * (hw + w), 0.0), hw + 3.0, j, 12)
+        };
+        let width = [22.0f32, 14.0, 8.0].into_iter().find(|&w| room(w + 2.0));
+        if t > 0.10 && width.is_none() {
+            // Pas la place (épingle serrée, portion de piste voisine) : vibreur seul.
+        } else if t > 0.22 && raw[i].speed < 230 {
             // Virage lent : bac à graviers, mur de pneus rouge et blanc, grillage.
-            let (o0, o1) = (outside * (hw + 2.4), outside * (hw + 22.0));
+            let w = width.unwrap_or(22.0);
+            let (o0, o1) = (outside * (hw + 2.4), outside * (hw + w));
             strip(&mut b, gravel, o0.min(o1), o0.max(o1), 0.1);
             let (r0, r1) = (off(i, o1, 0.0), off(j, o1, 0.0));
             b.wall(tyres[i % 2], r0, r1, 0.0, 1.2, inward);
@@ -396,12 +448,13 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
                 off(i, o1 + outside * 1.5, 0.0),
                 off(j, o1 + outside * 1.5, 0.0),
                 1.9,
-                5.5,
+                3.6,
                 inward,
             );
         } else if t > 0.10 {
             // Virage rapide : dégagement asphalté peint (bandes bleues et vertes), rail.
-            let (o0, o1) = (outside * (hw + 2.4), outside * (hw + 16.0));
+            let w = width.unwrap_or(16.0).min(16.0);
+            let (o0, o1) = (outside * (hw + 2.4), outside * (hw + w));
             strip(&mut b, runoff, o0.min(o1), o0.max(o1), 0.1);
             let (p0, p1) = (outside * (hw + 2.4), outside * (hw + 4.4));
             strip(&mut b, paint[(i / 3) % 2], p0.min(p1), p0.max(p1), 0.2);
@@ -410,6 +463,9 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
             // Ligne droite : rail, panneaux publicitaires génériques des deux côtés.
             for sgn in [-1.0f32, 1.0] {
                 let o = sgn * (hw + 7.0);
+                if crowded(off(i, sgn * (hw + 8.0), 0.0), hw + 2.0, i, 12) {
+                    continue;
+                }
                 b.wall(
                     armco,
                     off(i, o, 0.0),
@@ -594,76 +650,89 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
     // Tribunes et stands le long de la ligne droite des stands.
     let mid = at(-((n / 40).max(3) as isize));
     let (t, s) = (tangent(mid), side(mid));
+    let free_side = |sgn: f32, o0: f32, o1: f32, half: f32| {
+        [-half, 0.0, half].iter().all(|&e| {
+            [o0, (o0 + o1) / 2.0, o1]
+                .iter()
+                .all(|&o| !crowded(add(off(mid, sgn * o, 0.0), mul(t, e)), hw + 3.0, mid, 0))
+        })
+    };
+    let stands_ok = free_side(-1.0, hw + 12.0, hw + 34.0, 56.0);
+    let pits_ok = free_side(1.0, hw + 7.0, hw + 29.0, 61.0);
     let stand_seats = [mat(0xC8102E, 30), mat(0x1E4FB5, 30), mat(0xE8E8E8, 30)];
     let concrete = mat(0x8E9196, 15);
-    for tier in 0..4 {
-        let o = hw + 14.0 + tier as f32 * 4.5;
-        let c = add(off(mid, -o, 0.0), [0.0, 1.5 + tier as f32 * 2.4, 0.0]);
+    if stands_ok {
+        for tier in 0..4 {
+            let o = hw + 14.0 + tier as f32 * 4.5;
+            let c = add(off(mid, -o, 0.0), [0.0, 1.5 + tier as f32 * 2.4, 0.0]);
+            b.block(
+                concrete,
+                c,
+                [t, s, up],
+                [55.0, 2.25, 1.5 + tier as f32 * 2.4],
+            );
+            b.block(
+                stand_seats[tier % 3],
+                add(c, [0.0, 1.5 + tier as f32 * 2.4, 0.0]),
+                [t, s, up],
+                [54.0, 2.0, 0.25],
+            );
+        }
         b.block(
-            concrete,
-            c,
+            mat(0xD9DCE1, 25),
+            add(off(mid, -(hw + 30.0), 0.0), [0.0, 14.0, 0.0]),
             [t, s, up],
-            [55.0, 2.25, 1.5 + tier as f32 * 2.4],
-        );
-        b.block(
-            stand_seats[tier % 3],
-            add(c, [0.0, 1.5 + tier as f32 * 2.4, 0.0]),
-            [t, s, up],
-            [54.0, 2.0, 0.25],
+            [56.0, 3.0, 0.6],
         );
     }
-    b.block(
-        mat(0xD9DCE1, 25),
-        add(off(mid, -(hw + 30.0), 0.0), [0.0, 14.0, 0.0]),
-        [t, s, up],
-        [56.0, 3.0, 0.6],
-    );
-    let pit = mat(0xE4E6EA, 30);
-    b.block(
-        pit,
-        add(off(mid, hw + 22.0, 0.0), [0.0, 5.0, 0.0]),
-        [t, s, up],
-        [60.0, 6.0, 5.0],
-    );
-    b.block(
-        mat(0x1C1E22, 60),
-        add(off(mid, hw + 22.0, 0.0), [0.0, 10.3, 0.0]),
-        [t, s, up],
-        [61.0, 6.6, 0.3],
-    );
-    b.block(
-        mat(0x3B76D6, 80),
-        add(off(mid, hw + 15.9, 0.0), [0.0, 7.0, 0.0]),
-        [t, s, up],
-        [58.0, 0.1, 2.0],
-    );
+    if pits_ok {
+        let pit = mat(0xE4E6EA, 30);
+        b.block(
+            pit,
+            add(off(mid, hw + 22.0, 0.0), [0.0, 5.0, 0.0]),
+            [t, s, up],
+            [60.0, 6.0, 5.0],
+        );
+        b.block(
+            mat(0x1C1E22, 60),
+            add(off(mid, hw + 22.0, 0.0), [0.0, 10.3, 0.0]),
+            [t, s, up],
+            [61.0, 6.6, 0.3],
+        );
+        b.block(
+            mat(0x3B76D6, 80),
+            add(off(mid, hw + 15.9, 0.0), [0.0, 7.0, 0.0]),
+            [t, s, up],
+            [58.0, 0.1, 2.0],
+        );
 
-    // Voie des stands : asphalte parallèle, ligne blanche, garages.
-    let span = (n / 25).max(4) as isize;
-    for k in -span..span {
-        let (i, j) = (at(mid as isize + k), at(mid as isize + k + 1));
-        let q = |o0: f32, o1: f32, dy: f32| {
-            [
-                off(i, o0, dy),
-                off(j, o0, dy),
-                off(j, o1, dy),
-                off(i, o1, dy),
-            ]
-        };
-        b.quad(asphalt, q(hw + 7.5, hw + 15.5, 0.1), up);
-        b.quad(white, q(hw + 7.5, hw + 7.9, 0.22), up);
-    }
-    for k in 0..10 {
-        let along = -50.0 + k as f32 * 11.0;
-        b.block(
-            mat(if k % 2 == 0 { 0x2B2E35 } else { 0x343842 }, 50),
-            add(
-                add(off(mid, hw + 15.95, 0.0), mul(t, along)),
-                [0.0, 2.4, 0.0],
-            ),
-            [t, s, up],
-            [4.5, 0.05, 2.4],
-        );
+        // Voie des stands : asphalte parallèle, ligne blanche, garages.
+        let span = (n / 25).max(4) as isize;
+        for k in -span..span {
+            let (i, j) = (at(mid as isize + k), at(mid as isize + k + 1));
+            let q = |o0: f32, o1: f32, dy: f32| {
+                [
+                    off(i, o0, dy),
+                    off(j, o0, dy),
+                    off(j, o1, dy),
+                    off(i, o1, dy),
+                ]
+            };
+            b.quad(asphalt, q(hw + 7.5, hw + 15.5, 0.1), up);
+            b.quad(white, q(hw + 7.5, hw + 7.9, 0.22), up);
+        }
+        for k in 0..10 {
+            let along = -50.0 + k as f32 * 11.0;
+            b.block(
+                mat(if k % 2 == 0 { 0x2B2E35 } else { 0x343842 }, 50),
+                add(
+                    add(off(mid, hw + 15.95, 0.0), mul(t, along)),
+                    [0.0, 2.4, 0.0],
+                ),
+                [t, s, up],
+                [4.5, 0.05, 2.4],
+            );
+        }
     }
 
     // Tribunes à l'extérieur des virages les plus serrés.
@@ -680,9 +749,18 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
         }) {
             continue;
         }
-        placed.push(pts[i]);
         let outside = if turn[i] > 0.0 { -1.0 } else { 1.0 };
         let (ti, si) = (tangent(i), side(i));
+        // Emprise de la tribune (gradins + toit) : rien sur une autre portion de piste.
+        let blocked = [-26.0f32, 0.0, 26.0].iter().any(|&e| {
+            [hw + 26.0, hw + 38.0, hw + 48.0]
+                .iter()
+                .any(|&o| crowded(add(off(i, outside * o, 0.0), mul(ti, e)), hw + 4.0, i, 0))
+        });
+        if blocked {
+            continue;
+        }
+        placed.push(pts[i]);
         for tier in 0..3 {
             let o = outside * (hw + 32.0 + tier as f32 * 4.0);
             let c = add(off(i, o, 0.0), [0.0, 1.2 + tier as f32 * 2.0, 0.0]);
@@ -751,6 +829,9 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
             let idx = at(k);
             let (tg, sd) = (tangent(idx), side(idx));
             let foot = off(idx, outside * (hw + 5.0), 0.0);
+            if crowded(foot, hw + 1.5, idx, 12) {
+                continue;
+            }
             b.block(
                 post,
                 add(foot, [0.0, 1.4, 0.0]),

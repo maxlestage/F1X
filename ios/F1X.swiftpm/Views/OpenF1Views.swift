@@ -1101,24 +1101,12 @@ struct DriverRaceSection: View {
             }
             .lineLimit(1)
             .minimumScaleFactor(0.75)
-            ViewThatFits(in: .horizontal) {
-                Text("\(sectors) · \(speeds)")
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(sectors)
-                    Text(speeds)
-                }
-            }
-            .lineLimit(1)
-            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-            ViewThatFits(in: .horizontal) {
-                tyre + Text(" · \(gaps)")
-                VStack(alignment: .leading, spacing: 3) {
-                    tyre
-                    Text(gaps)
-                }
-            }
-            .lineLimit(1)
-            .font(.caption.monospacedDigit()).foregroundColor(.secondary)
+            Text("\(sectors) · \(speeds)")
+                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                .lineLimit(1).minimumScaleFactor(0.55)
+            (tyre + Text(" · \(gaps)"))
+                .font(.caption.monospacedDigit()).foregroundColor(.secondary)
+                .lineLimit(1).minimumScaleFactor(0.55)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 2)
@@ -1135,6 +1123,19 @@ struct DriverRaceSection: View {
                 .foregroundStyle(Color(hexString: data["colour"].string))
         }
         .chartXAxisLabel("km")
-        .frame(height: height)
+        // Peu de graduations sur les petits graphiques (plus de chiffres qui se chevauchent).
+        .chartYAxis {
+            AxisMarks(values: .automatic(desiredCount: height < 90 ? 2 : 3)) { _ in
+                AxisGridLine()
+                AxisValueLabel().font(.caption2)
+            }
+        }
+        .chartXAxis {
+            AxisMarks(values: .automatic(desiredCount: 4)) { _ in
+                AxisGridLine()
+                AxisValueLabel().font(.caption2)
+            }
+        }
+        .frame(height: max(height, 90))
     }
 }

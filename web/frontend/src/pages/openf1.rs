@@ -1277,6 +1277,108 @@ pub fn RaceDataLinks(p: &MeetingLinkProps) -> Html {
     }
 }
 
+/// Replay automatique d'une course terminée (2023 et après) sur la page du Grand Prix :
+/// démarre tout seul à ×30, voitures à leurs positions réelles sur le circuit 3D.
+#[function_component]
+pub fn RaceReplay(p: &MeetingLinkProps) -> Html {
+    use f1x_protocol::ClientMsg;
+    let sessions = use_json::<Value>(
+        (p.year >= 2023).then(|| format!("/api/of1/sessions?year={}&session_name=Race", p.year)),
+    );
+    let race = ms(&format!("{}T12:00:00Z", p.date));
+    let key = list(&sessions)
+        .into_iter()
+        .find(|x| (ms(&s(x, "date_start")) - race).abs() <= 2.0 * 86_400_000.0)
+        .and_then(|x| int(&x, "session_key"))
+        .map(|k| k as u32);
+    let live = crate::live::use_live();
+    {
+        let send = live.send.clone();
+        use_effect_with(key, move |key| {
+            if let Some(session_key) = *key {
+                send.emit(ClientMsg::Replay {
+                    session_key,
+                    speed: 30,
+                });
+            }
+            let send = send.clone();
+            move || send.emit(ClientMsg::Stop)
+        });
+    }
+    if key.is_none() {
+        return html! {};
+    }
+    let st = &*live.state;
+    let send = live.send.clone();
+    let cmd = |m: ClientMsg| {
+        let send = send.clone();
+        Callback::from(move |_: MouseEvent| send.emit(m.clone()))
+    };
+    let body = match (&st.snapshot, &st.track) {
+        (Some(snap), Some(track)) => {
+            let markers: Vec<crate::gl3d::Marker> = snap
+                .cars
+                .iter()
+                .filter(|c| c.lap_progress.is_some() && !c.retired)
+                .map(|c| crate::gl3d::Marker {
+                    key: c.code.clone(),
+                    label: format!("{} {}", c.position, c.code),
+                    colour: c.colour.clone(),
+                    fraction: c.lap_progress.unwrap_or(0.0),
+                })
+                .collect();
+            let lap = match snap.total_laps {
+                Some(total) => tr!("Tour {}/{total}", "Lap {}/{total}", snap.lap.min(total)),
+                None => tr!("Tour {}", "Lap {}", snap.lap),
+            };
+            let mut order: Vec<_> = snap.cars.iter().collect();
+            order.sort_by_key(|c| c.position);
+            let speeds = [1u32, 5, 10, 30, 60];
+            html! {
+                <>
+                    <p class="replay-lap"><strong>{ lap }</strong></p>
+                    <div class="progress"><span style={format!("width:{:.1}%", snap.progress * 100.0)}></span></div>
+                    <crate::gl3d::View3D scene={crate::gl3d::Scene::Track { map: track.clone(), ghost: false }} markers={Rc::new(markers)} />
+                    <div class="replay-controls">
+                        <button class="btn btn-ghost" onclick={cmd(ClientMsg::Seek { seconds: -120 })}>{ "−2 min" }</button>
+                        <button class="btn" onclick={cmd(if snap.paused { ClientMsg::Resume } else { ClientMsg::Pause })}>
+                            { if snap.paused { t("▶ Lecture", "▶ Play") } else { t("⏸ Pause", "⏸ Pause") } }
+                        </button>
+                        <button class="btn btn-ghost" onclick={cmd(ClientMsg::Seek { seconds: 120 })}>{ "+2 min" }</button>
+                        { for speeds.iter().map(|&v| html! {
+                            <button class={classes!("btn", "btn-ghost", (snap.speed == v).then_some("on"))}
+                                onclick={cmd(ClientMsg::Speed { speed: v })}>{ format!("×{v}") }</button>
+                        }) }
+                    </div>
+                    <ol class="rows">
+                        { for order.iter().take(10).map(|c| html! {
+                            <li class="row">
+                                <span class="pos">{ c.position }</span>
+                                <span class="team-bar" style={format!("background:#{}", c.colour)}></span>
+                                <div class="row-main"><span class="row-title">{ &c.name }</span></div>
+                                <span class="muted">{ if c.in_pit { "PIT".to_string() } else if c.position == 1 { t("Leader", "Leader").to_string() } else { c.gap.clone() } }</span>
+                            </li>
+                        }) }
+                    </ol>
+                </>
+            }
+        }
+        _ => {
+            html! { <p class="muted">{ st.loading.clone().unwrap_or_else(|| t("Chargement du replay…", "Loading replay…").into()) }</p> }
+        }
+    };
+    html! {
+        <section class="card">
+            <h2>{ t("Replay de la course", "Race replay") }</h2>
+            { body }
+            <p class="muted">{ t(
+                "Démarre tout seul à ×30. Positions de chaque pilote d'après son avancement dans le tour (données OpenF1).",
+                "Starts on its own at ×30. Each driver's position from their progress through the lap (OpenF1 data).",
+            ) }</p>
+        </section>
+    }
+}
+
 /// Couleur d'une gomme (rouge tendre, jaune medium, blanc dur, vert intermédiaire, bleu pluie).
 fn tyre_colour(c: &str) -> &'static str {
     match c {

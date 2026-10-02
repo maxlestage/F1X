@@ -1036,7 +1036,7 @@ struct TrackSceneView: UIViewRepresentable {
             // Décor détaillé (relief, vibreurs, tribunes, arbres) calculé par le serveur.
             let id = map.circuit_id
             Task { [weak self] in
-                guard let url = URL(string: "api/track3d/\(id)?v=7", relativeTo: Server.base),
+                guard let url = URL(string: "api/track3d/\(id)?v=8", relativeTo: Server.base),
                       let result = try? await URLSession.shared.data(from: url),
                       (result.1 as? HTTPURLResponse)?.statusCode == 200,
                       let groups = CarFile.parse([UInt8](result.0)) else { return }
@@ -1258,7 +1258,7 @@ struct TrackSceneView: UIViewRepresentable {
 
         /// Voiture posée sur la piste, orientée selon le cap et inclinée selon la pente.
         private func place(_ node: SCNNode, _ p: V3, _ heading: Float, _ pitch: Float) {
-            node.simdPosition = p + V3(0, 0.6, 0)
+            node.simdPosition = p + V3(0, 0.12, 0)
             node.simdOrientation = simd_quatf(angle: heading, axis: V3(0, 1, 0)) * simd_quatf(angle: pitch, axis: V3(0, 0, 1))
         }
 

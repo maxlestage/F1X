@@ -42,6 +42,18 @@ struct RaceDetailView: View {
                 }
             }
 
+            // Replay automatique de la course (vraies positions des pilotes).
+            if race.isOver(), let year = Int(race.season), year >= 2023 {
+                Section {
+                    RaceReplayCard(year: year, date: race.date)
+                } header: {
+                    Text(L("Replay de la course", "Race replay"))
+                } footer: {
+                    Text(L("Démarre tout seul à ×30. Positions de chaque pilote d'après son avancement dans le tour (données OpenF1).",
+                           "Starts on its own at ×30. Each driver's position from their progress through the lap (OpenF1 data)."))
+                }
+            }
+
             Section(L("Programme", "Schedule")) {
                 SessionsList(race: race)
             }

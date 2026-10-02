@@ -499,6 +499,11 @@ button.btn:disabled { opacity: .5; }
 .scene-nolabels .scene-labels { display: none; }
 .race-data-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 10px; }
 .race-data-btn { width: 100%; justify-content: flex-start; text-align: left; }
+.replay-lap { margin: 4px 0; font-variant-numeric: tabular-nums; }
+.replay-controls { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.replay-controls .btn { width: auto; flex: 0 0 auto; padding: 6px 12px; }
+.replay-controls .btn.on { background: var(--red); border-color: var(--red); color: #fff; }
+.team-bar { width: 3px; height: 18px; border-radius: 2px; flex: none; }
 .race-data-btn.on { background: var(--red); border-color: var(--red); color: #fff; }
 /* Sensation de vitesse (caméras qui suivent) : traînées qui filent vers les bords, vignettage, compteur. */
 .scene-hud { position: absolute; inset: 0; pointer-events: none; display: none; --rush: 0; --rev: 0%; }

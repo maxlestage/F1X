@@ -199,6 +199,15 @@ final class LiveClient: ObservableObject {
         send(["type": "replay", "session_key": session.session_key, "speed": speed])
     }
 
+    /// Replay d'une session par sa clé OpenF1 (page d'un Grand Prix).
+    func replay(key: Int, speed: Int) {
+        snapshot = nil
+        track = nil
+        error = nil
+        loading = L("Chargement du replay…", "Loading replay…")
+        send(["type": "replay", "session_key": key, "speed": speed])
+    }
+
     func followLive() {
         snapshot = nil
         track = nil
