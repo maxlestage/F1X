@@ -493,8 +493,10 @@ button.btn:disabled { opacity: .5; }
 .scene-canvas:active { cursor: grabbing; }
 .scene-track .scene-canvas { aspect-ratio: 1 / 1; max-height: 70vh; }
 .scene-labels { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
-.scene-label { position: absolute; left: 0; top: 0; min-width: 18px; padding: 1px 4px; text-align: center; border-radius: 999px; font-size: .62rem; font-weight: 700;
-  white-space: nowrap; color: #0b0b10; background: var(--team, #fff); box-shadow: 0 1px 3px rgba(0,0,0,.6); visibility: hidden; }
+.scene-label { position: absolute; left: 0; top: 0; padding: 1px 5px 1px 4px; border-radius: 5px; font-size: .6rem; font-weight: 700;
+  white-space: nowrap; color: #fff; background: rgba(8, 8, 12, .62); border-left: 3px solid var(--team, #fff);
+  box-shadow: 0 1px 2px rgba(0,0,0,.4); visibility: hidden; }
+.scene-nolabels .scene-labels { display: none; }
 .scene-tools { position: absolute; right: 8px; bottom: 8px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: calc(100% - 16px); }
 .scene-btn { min-height: 36px; min-width: 36px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line);
   background: rgba(11, 11, 16, .78); color: var(--text); font: inherit; font-size: .82rem; font-weight: 600; cursor: pointer; }
