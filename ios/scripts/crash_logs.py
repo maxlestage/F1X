@@ -41,6 +41,16 @@ apps = get(f"/apps?filter[bundleId]={BUNDLE}")
 if not apps or not apps["data"]:
     raise SystemExit("App introuvable")
 app_id = apps["data"][0]["id"]
+# Derniers builds envoyés : numéro, traitement Apple, état TestFlight (interne).
+builds = get(f"/builds?filter[app]={app_id}&sort=-uploadedDate&limit=6&include=buildBetaDetail")
+if builds:
+    details = {d["id"]: d["attributes"] for d in builds.get("included", []) if d["type"] == "buildBetaDetails"}
+    for b in builds["data"]:
+        a = b["attributes"]
+        rel = (b.get("relationships", {}).get("buildBetaDetail", {}) or {}).get("data") or {}
+        d = details.get(rel.get("id"), {})
+        print(f"Build {a.get('version')} · envoyé {a.get('uploadedDate')} · traitement {a.get('processingState')} · "
+              f"expiré {a.get('expired')} · TestFlight interne {d.get('internalBuildState')} · externe {d.get('externalBuildState')}")
 subs = get(f"/apps/{app_id}/betaFeedbackCrashSubmissions?limit=5&sort=-createdDate")
 if not subs or not subs.get("data"):
     print("Aucun rapport de plantage partagé pour l'instant (toucher « Partager » après un plantage).")
