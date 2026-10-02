@@ -116,6 +116,19 @@ impl M4 {
         ])
     }
 
+    /// Translation × lacet (Y) × tangage (Z, nez vers le haut) × échelle.
+    #[rustfmt::skip]
+    fn trsp(pos: V3, yaw: f32, pitch: f32, scale: f32) -> M4 {
+        let (s, c) = yaw.sin_cos();
+        let (sp, cp) = pitch.sin_cos();
+        M4([
+            c * cp * scale, sp * scale, -s * cp * scale, 0.0,
+            -c * sp * scale, cp * scale, s * sp * scale, 0.0,
+            s * scale, 0.0, c * scale, 0.0,
+            pos[0], pos[1], pos[2], 1.0,
+        ])
+    }
+
     fn identity() -> M4 {
         M4::trs([0.0; 3], 0.0, 1.0)
     }
@@ -842,6 +855,8 @@ struct Path {
     lap_time: f32,
     radius: f32,
     centre_y: f32,
+    /// Caméras « TV » fixes au bord de la piste.
+    tv: Vec<V3>,
 }
 
 impl Path {
@@ -857,12 +872,34 @@ impl Path {
         let d = sub(self.pts[(i + 2).min(n - 1)], self.pts[i.saturating_sub(1)]);
         (pos, (-d[2]).atan2(d[0]))
     }
+
+    /// Pente (tangage, radians) au temps donné : le nez monte en côte.
+    fn slope_at(&self, time: f32) -> f32 {
+        let n = self.pts.len();
+        let time = time.rem_euclid(self.lap_time.max(1.0));
+        let i = self.t.partition_point(|&x| x <= time).clamp(1, n - 1) - 1;
+        let d = sub(self.pts[(i + 2).min(n - 1)], self.pts[i.saturating_sub(1)]);
+        d[1].atan2((d[0] * d[0] + d[2] * d[2]).sqrt().max(1e-3))
+    }
+
+    /// Caméra TV la plus proche d'un point.
+    fn tv_spot(&self, p: V3) -> V3 {
+        self.tv
+            .iter()
+            .copied()
+            .min_by(|a, b| {
+                let da = sub(*a, p);
+                let db = sub(*b, p);
+                dot(da, da).total_cmp(&dot(db, db))
+            })
+            .unwrap_or(add(p, [40.0, 30.0, 40.0]))
+    }
 }
 
 /// Exagération du relief (sinon invisible à l'échelle d'un circuit).
-const RELIEF: f32 = 4.0;
-const HALF_WIDTH: f32 = 8.0;
-const CAR_SCALE: f32 = 5.0;
+const RELIEF: f32 = 2.5;
+const HALF_WIDTH: f32 = 12.0;
+const CAR_SCALE: f32 = 3.2;
 
 fn speed_rgba(ratio: f32) -> Rgba {
     // Même rampe que la carte 2D : #b3261e → #ffe4de.
@@ -986,11 +1023,24 @@ fn track_mesh(map: &TrackMap) -> Option<(Mesh, Path)> {
     m.face(&quad, sub(a, up), WHITE, UNLIT);
 
     let max_y = pts.iter().map(|p| p[1]).fold(0.0f32, f32::max);
+    // Caméras TV : une tous les ~14 points, à l'extérieur de la piste, en hauteur.
+    let tv = (0..n)
+        .step_by(14)
+        .enumerate()
+        .map(|(k, i)| {
+            let sgn = if k % 2 == 0 { 1.0 } else { -1.0 };
+            add(
+                add(pts[i], mul(side(i), sgn * (HALF_WIDTH + 38.0))),
+                [0.0, 16.0, 0.0],
+            )
+        })
+        .collect();
     let path = Path {
         t: raw.iter().map(|p| p.t).collect(),
         lap_time: map.lap_time as f32,
         radius: (cx * cx + cz * cz).sqrt(),
         centre_y: max_y / 2.0,
+        tv,
         pts,
     };
     Some((m, path))
@@ -1533,7 +1583,24 @@ struct LiveCar {
     paint: Paint,
     target: f32,
     cur: f32,
+    /// Décalage latéral sur la piste (plateau simulé).
+    lane: f32,
     label: Option<HtmlElement>,
+}
+
+/// Caméra des circuits.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum CamMode {
+    /// Vue d'ensemble libre (orbite autour du circuit).
+    Overview,
+    /// Derrière le pilote suivi.
+    Chase,
+    /// Dans le cockpit.
+    Cockpit,
+    /// Hélicoptère au-dessus du pilote.
+    Heli,
+    /// Caméras fixes au bord de la piste.
+    Tv,
 }
 
 struct Cam {
@@ -1545,6 +1612,16 @@ struct Cam {
 }
 
 impl Cam {
+    /// Caméra de poursuite par défaut : derrière, légèrement au-dessus.
+    fn follow() -> Cam {
+        Cam {
+            yaw: 0.0,
+            pitch: 0.35,
+            zoom: 1.0,
+            pan: [0.0; 3],
+        }
+    }
+
     fn initial(track: bool) -> Cam {
         Cam {
             yaw: 0.9,
@@ -1565,8 +1642,14 @@ struct State {
     track: Option<(Vao, Path)>,
     paint: Paint,
     ghost: bool,
-    chase: bool,
+    mode: CamMode,
     cam: Cam,
+    /// Réglages de la caméra qui suit le pilote (angle, zoom, hauteur).
+    fcam: Cam,
+    /// Pilote suivi (indice dans `cars`).
+    follow: usize,
+    /// Plateau simulé : écart en secondes de chaque voiture (vide = direct ou fantôme seul).
+    field: Vec<f32>,
     /// Point de visée lissé de la caméra embarquée (œil, cible).
     chase_cam: Option<(V3, V3)>,
     pointers: Pointers,
@@ -1621,6 +1704,52 @@ impl State {
         }
 
         let fov = 0.62f32;
+        // Positions des monoplaces (fantôme ou plateau complet, ou voitures en direct),
+        // inclinées selon la pente, avec un léger décalage latéral pour le plateau.
+        let mut placed: Vec<(M4, Paint, V3, Option<usize>)> = Vec::new();
+        let mut follow_at: Option<(V3, f32)> = None;
+        if let Some((_, path)) = &self.track {
+            let clock = self.clock as f32;
+            if self.ghost && self.field.is_empty() {
+                let (pos, heading) = path.at_time(clock);
+                let pitch = path.slope_at(clock);
+                placed.push((
+                    M4::trsp(add(pos, [0.0, 0.6, 0.0]), heading, pitch, CAR_SCALE),
+                    self.paint,
+                    pos,
+                    None,
+                ));
+                follow_at = Some((pos, heading));
+            }
+            let field = !self.field.is_empty();
+            let followed = self.follow.min(self.cars.len().saturating_sub(1));
+            for (i, car) in self.cars.iter_mut().enumerate() {
+                if field {
+                    // Plateau simulé : chaque voiture suit le tour de référence avec son écart.
+                    let off = self.field.get(i).copied().unwrap_or(0.0);
+                    car.cur = ((clock - off) / path.lap_time.max(1.0)).rem_euclid(1.0);
+                } else {
+                    // Direct / replay : avance en douceur vers la dernière position connue.
+                    let diff = (car.target - car.cur + 0.5).rem_euclid(1.0) - 0.5;
+                    car.cur = (car.cur + diff * (dt * 2.5).min(1.0)).rem_euclid(1.0);
+                }
+                let time = car.cur * path.lap_time;
+                let (pos, heading) = path.at_time(time);
+                let side = [heading.sin(), 0.0, heading.cos()];
+                let pos = add(pos, mul(side, car.lane));
+                let pitch = path.slope_at(time);
+                placed.push((
+                    M4::trsp(add(pos, [0.0, 0.6, 0.0]), heading, pitch, CAR_SCALE),
+                    car.paint,
+                    pos,
+                    Some(i),
+                ));
+                if i == followed && (field || !self.ghost) {
+                    follow_at = Some((pos, heading));
+                }
+            }
+        }
+
         let (eye, target, near, far) = match &self.track {
             None => {
                 let dist = 3.0 / ((fov / 2.0).tan() * aspect.min(1.8))
@@ -1638,32 +1767,98 @@ impl State {
             Some((_, path)) => {
                 let dist =
                     path.radius / (fov / 2.0).sin() * 1.08 / aspect.min(1.0).sqrt() * self.cam.zoom;
-                self.dist = dist;
-                if self.chase && self.ghost {
-                    let (pos, heading) = path.at_time(self.clock as f32);
-                    let fwd = [heading.cos(), 0.0, -heading.sin()];
-                    let back = 75.0 * self.cam.zoom;
-                    let want_eye = add(add(pos, mul(fwd, -back)), [0.0, 26.0 * self.cam.zoom, 0.0]);
-                    let want_target = add(add(pos, mul(fwd, 30.0)), [0.0, 4.0, 0.0]);
-                    let k = (dt * 4.0).min(1.0);
-                    let (e, tg) = self.chase_cam.unwrap_or((want_eye, want_target));
-                    let cam = (lerp3(e, want_eye, k), lerp3(tg, want_target, k));
-                    self.chase_cam = Some(cam);
-                    (cam.0, cam.1, 1.0, path.radius * 6.0)
-                } else {
-                    self.chase_cam = None;
-                    let target = add([0.0, path.centre_y, 0.0], self.cam.pan);
-                    (
-                        orbit(target, self.cam.yaw, self.cam.pitch, dist),
-                        target,
-                        dist * 0.01,
-                        dist * 4.0 + path.radius * 2.0,
-                    )
+                match (self.mode, follow_at) {
+                    (CamMode::Overview, _) | (_, None) => {
+                        self.dist = dist;
+                        self.chase_cam = None;
+                        let target = add([0.0, path.centre_y, 0.0], self.cam.pan);
+                        (
+                            orbit(target, self.cam.yaw, self.cam.pitch, dist),
+                            target,
+                            dist * 0.01,
+                            dist * 4.0 + path.radius * 2.0,
+                        )
+                    }
+                    (mode, Some((pos, heading))) => {
+                        let f = &self.fcam;
+                        let fwd = [heading.cos(), 0.0, -heading.sin()];
+                        let up = [0.0, 1.0, 0.0];
+                        let lift = [0.0, f.pan[1], 0.0];
+                        // Caméras qui suivent le pilote choisi ; un doigt fait tourner autour,
+                        // le pincement zoome, deux doigts montent ou descendent la caméra.
+                        let (want_eye, want_target, snap) = match mode {
+                            CamMode::Cockpit => {
+                                // Caméra « T » au-dessus de la prise d'air : on voit le halo et le nez.
+                                let look = heading + f.yaw;
+                                let dir = [look.cos(), 0.0, -look.sin()];
+                                let eye = add(
+                                    add(pos, mul(fwd, -0.05 * CAR_SCALE)),
+                                    [0.0, 1.32 * CAR_SCALE + 0.6, 0.0],
+                                );
+                                (
+                                    eye,
+                                    add(
+                                        add(eye, mul(dir, 80.0)),
+                                        [0.0, -9.0 + (f.pitch - 0.35) * 40.0, 0.0],
+                                    ),
+                                    true,
+                                )
+                            }
+                            CamMode::Heli => {
+                                let target = add(pos, mul(fwd, 20.0));
+                                (
+                                    orbit(
+                                        target,
+                                        -heading + PI + f.yaw,
+                                        (1.25 + (f.pitch - 0.35)).clamp(0.6, 1.53),
+                                        230.0 * f.zoom,
+                                    ),
+                                    target,
+                                    false,
+                                )
+                            }
+                            CamMode::Tv => {
+                                // Caméras fixes au bord de la piste : la plus proche filme la voiture.
+                                let spot = path.tv_spot(pos);
+                                (add(add(spot, lift), up), add(pos, [0.0, 2.0, 0.0]), false)
+                            }
+                            _ => {
+                                let target = add(add(pos, mul(fwd, 12.0)), [0.0, 3.0, 0.0]);
+                                (
+                                    add(
+                                        orbit(
+                                            target,
+                                            -heading + PI + f.yaw,
+                                            f.pitch,
+                                            62.0 * f.zoom,
+                                        ),
+                                        lift,
+                                    ),
+                                    target,
+                                    false,
+                                )
+                            }
+                        };
+                        let k = if snap { 1.0 } else { (dt * 5.0).min(1.0) };
+                        let (e, tg) = self.chase_cam.unwrap_or((want_eye, want_target));
+                        let cam = (lerp3(e, want_eye, k), lerp3(tg, want_target, k));
+                        self.chase_cam = Some(cam);
+                        self.dist = 62.0 * f.zoom;
+                        (cam.0, cam.1, 0.5, path.radius * 6.0)
+                    }
                 }
             }
         };
-        let vp =
-            M4::perspective(fov, aspect, near, far).mul(&M4::look_at(eye, target, [0.0, 1.0, 0.0]));
+        let vfov = if self.mode == CamMode::Tv && self.track.is_some() {
+            (fov / self.fcam.zoom).clamp(0.12, 1.2)
+        } else {
+            fov
+        };
+        let vp = M4::perspective(vfov, aspect, near, far).mul(&M4::look_at(
+            eye,
+            target,
+            [0.0, 1.0, 0.0],
+        ));
 
         // Soleil : plus bas sur les circuits (ombres plus longues, relief mieux lu).
         let light = if self.track.is_some() {
@@ -1671,44 +1866,17 @@ impl State {
         } else {
             norm([0.45, 0.9, 0.35])
         };
-        // Positions des monoplaces sur le circuit (fantôme + direct), calculées une fois
-        // pour la passe d'ombres et la passe principale.
-        let mut placed: Vec<(M4, Paint, V3, Option<usize>)> = Vec::new();
-        if let Some((_, path)) = &self.track {
-            if self.ghost {
-                let (pos, heading) = path.at_time(self.clock as f32);
-                placed.push((
-                    M4::trs(add(pos, [0.0, 0.6, 0.0]), heading, CAR_SCALE),
-                    self.paint,
-                    pos,
-                    None,
-                ));
-            }
-            for (i, car) in self.cars.iter_mut().enumerate() {
-                // Avance en douceur vers la dernière position connue (tour bouclé).
-                let diff = (car.target - car.cur + 0.5).rem_euclid(1.0) - 0.5;
-                car.cur = (car.cur + diff * (dt * 2.5).min(1.0)).rem_euclid(1.0);
-                let (pos, heading) = path.at_time(car.cur * path.lap_time);
-                placed.push((
-                    M4::trs(add(pos, [0.0, 0.6, 0.0]), heading, CAR_SCALE),
-                    car.paint,
-                    pos,
-                    Some(i),
-                ));
-            }
-        }
 
         let gpu = &self.gpu;
         let gl = &gpu.gl;
         let id = M4::identity();
         // Passe d'ombres (circuits) : profondeur vue du soleil, cadrée sur la vue d'ensemble
-        // ou, en caméra embarquée, serrée autour de la monoplace (ombres nettes).
+        // ou, quand une caméra suit un pilote, serrée autour de lui (ombres nettes).
         let mut lightvp = None;
         if let (Some((vao, path)), Some(sh)) = (&self.track, &gpu.shadows) {
-            let (centre, half) = if self.chase && self.ghost {
-                (placed.first().map(|p| p.2).unwrap_or(target), 160.0)
-            } else {
-                (target, path.radius * 1.3 + 60.0)
+            let (centre, half) = match follow_at {
+                Some((p, _)) if self.mode != CamMode::Overview => (p, 160.0),
+                _ => (target, path.radius * 1.3 + 60.0),
             };
             let depth = path.radius * 4.0 + 400.0;
             let leye = add(centre, mul(light, depth / 2.0));
@@ -1725,7 +1893,7 @@ impl State {
             }
             gl.disable(Gl::POLYGON_OFFSET_FILL);
             gl.bind_framebuffer(Gl::FRAMEBUFFER, None);
-            lightvp = Some((lvp, half));
+            lightvp = Some(lvp);
         }
 
         gl.viewport(0, 0, w as i32, h as i32);
@@ -1737,7 +1905,7 @@ impl State {
         gl.active_texture(Gl::TEXTURE0);
         gl.bind_texture(Gl::TEXTURE_2D, gpu.shadows.as_ref().map(|s| &s.tex));
         match &lightvp {
-            Some((lvp, _)) => {
+            Some(lvp) => {
                 gl.uniform_matrix4fv_with_f32_array(gpu.u.lightvp.as_ref(), false, &lvp.0);
                 gl.uniform1f(gpu.u.texel.as_ref(), 1.0 / SHADOW_SIZE as f32);
             }
@@ -1813,6 +1981,7 @@ impl State {
     }
 
     fn set_markers(&mut self, markers: &[Marker]) {
+        self.field.clear();
         let doc = web_sys::window().and_then(|w| w.document());
         let mut next = Vec::with_capacity(markers.len());
         for m in markers {
@@ -1849,6 +2018,7 @@ impl State {
                         paint,
                         target: m.fraction,
                         cur: m.fraction,
+                        lane: 0.0,
                         label,
                     });
                 }
@@ -1860,6 +2030,37 @@ impl State {
             }
         }
         self.cars = next;
+    }
+
+    /// Plateau complet (pilotes de la saison, livrées des écuries) qui tourne sur le tour de
+    /// référence, chacun avec son écart et un léger décalage latéral.
+    fn set_field(&mut self, drivers: &[(String, String)]) {
+        let markers: Vec<Marker> = drivers
+            .iter()
+            .map(|(code, team)| Marker {
+                key: code.clone(),
+                label: code.clone(),
+                colour: livery(team).primary.to_string(),
+                fraction: 0.0,
+            })
+            .collect();
+        self.set_markers(&markers);
+        let mut gap = 0.0f32;
+        self.field = (0..self.cars.len())
+            .map(|i| {
+                let off = gap;
+                // Écarts de 0,7 à 2,5 s, déterministes.
+                gap += 0.7 + ((i * 7 + 3) % 10) as f32 * 0.2;
+                off
+            })
+            .collect();
+        for (i, car) in self.cars.iter_mut().enumerate() {
+            if let Some((_, team)) = drivers.get(i) {
+                car.paint = livery(team).paint();
+            }
+            car.lane = [-3.5, 3.5, -1.5, 1.5][i % 4];
+        }
+        self.follow = 0;
     }
 
     // ----- Gestes -----
@@ -1884,13 +2085,21 @@ impl State {
         };
         if self.pointers.len() == 1 {
             let (_, px, py) = self.pointers[0];
-            self.cam.yaw += ((x - px) * 0.008) as f32;
-            let (lo, hi) = if self.track.is_some() {
+            let following = self.following();
+            let (lo, hi) = if following {
+                (0.02, 1.45)
+            } else if self.track.is_some() {
                 (0.12, 1.5)
             } else {
                 (-0.05, 1.45)
             };
-            self.cam.pitch = (self.cam.pitch + ((y - py) * 0.006) as f32).clamp(lo, hi);
+            let cam = if following {
+                &mut self.fcam
+            } else {
+                &mut self.cam
+            };
+            cam.yaw += ((x - px) * 0.008) as f32;
+            cam.pitch = (cam.pitch + ((y - py) * 0.006) as f32).clamp(lo, hi);
             self.pointers[0] = (id, x, y);
             return;
         }
@@ -1910,13 +2119,28 @@ impl State {
         self.pointers.retain(|p| p.0 != id);
     }
 
-    fn zoom_by(&mut self, k: f32) {
-        self.touched = true;
-        self.cam.zoom = (self.cam.zoom * k).clamp(0.2, 3.0);
+    /// Une caméra suit un pilote (les gestes la règlent au lieu de la vue d'ensemble).
+    fn following(&self) -> bool {
+        self.track.is_some() && self.mode != CamMode::Overview
     }
 
-    /// Déplace le point visé dans le plan horizontal, au rythme du doigt.
+    fn zoom_by(&mut self, k: f32) {
+        self.touched = true;
+        if self.following() {
+            self.fcam.zoom = (self.fcam.zoom * k).clamp(0.25, 4.0);
+        } else {
+            self.cam.zoom = (self.cam.zoom * k).clamp(0.2, 3.0);
+        }
+    }
+
+    /// Déplace le point visé dans le plan horizontal, au rythme du doigt (en suivi : hauteur
+    /// de la caméra).
     fn pan_by(&mut self, dx: f32, dy: f32) {
+        if self.following() {
+            let _ = dx;
+            self.fcam.pan[1] = (self.fcam.pan[1] + dy * 0.15).clamp(-20.0, 120.0);
+            return;
+        }
         let px = self.dist * 2.0 * (0.31f32).tan() / self.view_h.max(1.0);
         let (s, c) = self.cam.yaw.sin_cos();
         let right = [-s, 0.0, c];
@@ -1936,8 +2160,25 @@ impl State {
     }
 
     fn reset(&mut self) {
+        if self.following() {
+            self.fcam = Cam::follow();
+            return;
+        }
         self.cam = Cam::initial(self.track.is_some());
         self.touched = false;
+    }
+
+    fn set_mode(&mut self, mode: CamMode) {
+        if mode != self.mode {
+            self.mode = mode;
+            self.fcam = Cam::follow();
+            self.chase_cam = None;
+        }
+    }
+
+    fn set_follow(&mut self, i: usize) {
+        self.follow = i;
+        self.chase_cam = None;
     }
 }
 
@@ -1995,7 +2236,10 @@ impl Viewer {
             track,
             paint,
             ghost,
-            chase: false,
+            mode: CamMode::Overview,
+            fcam: Cam::follow(),
+            follow: 0,
+            field: Vec::new(),
             chase_cam: None,
             pointers: Vec::new(),
             touched: false,
@@ -2071,14 +2315,18 @@ pub fn View3D(props: &ViewProps) -> Html {
     let labels = use_node_ref();
     let viewer = use_mut_ref(|| None::<Viewer>);
     let failed = use_state(|| false);
-    let chase = use_state(|| false);
+    let mode = use_state(|| CamMode::Overview);
+    let follow = use_state(|| 0usize);
+    // Pilotes affichés (code, écurie) : plateau de la saison sur la fiche circuit.
+    let field = use_state(Vec::<(String, String)>::new);
     let full = use_state(|| false);
     {
-        let (canvas, labels, viewer, failed) = (
+        let (canvas, labels, viewer, failed, field) = (
             canvas.clone(),
             labels.clone(),
             viewer.clone(),
             failed.clone(),
+            field.clone(),
         );
         use_effect_with(props.scene.clone(), move |scene| {
             let made = canvas
@@ -2091,7 +2339,7 @@ pub fn View3D(props: &ViewProps) -> Html {
             if let Scene::Track { map, .. } = scene {
                 // Décor du circuit : chargé en arrière-plan, remplace le tracé simplifié.
                 let viewer = viewer.clone();
-                let url = format!("/api/track3d/{}?v=5", map.circuit_id);
+                let url = format!("/api/track3d/{}?v=6", map.circuit_id);
                 wasm_bindgen_futures::spawn_local(async move {
                     let Ok(resp) = gloo_net::http::Request::get(&url).send().await else {
                         return;
@@ -2107,6 +2355,55 @@ pub fn View3D(props: &ViewProps) -> Html {
                             v.state.borrow_mut().set_scenery(&data);
                         }
                     }
+                });
+            }
+            if let Scene::Track { ghost: true, .. } = scene {
+                // Plateau complet : pilotes de la saison et leur écurie (classement en cours).
+                let (viewer, field) = (viewer.clone(), field.clone());
+                wasm_bindgen_futures::spawn_local(async move {
+                    let Ok(resp) = gloo_net::http::Request::get(
+                        "/api/f1/current/driverStandings.json?limit=100",
+                    )
+                    .send()
+                    .await
+                    else {
+                        return;
+                    };
+                    let Ok(v) = resp.json::<serde_json::Value>().await else {
+                        return;
+                    };
+                    let list: Vec<(String, String)> = v
+                        .pointer("/MRData/StandingsTable/StandingsLists/0/DriverStandings")
+                        .and_then(|l| l.as_array())
+                        .map(|l| {
+                            l.iter()
+                                .filter_map(|d| {
+                                    let drv = d.get("Driver")?;
+                                    let code = drv
+                                        .get("code")
+                                        .and_then(|c| c.as_str())
+                                        .map(str::to_string)
+                                        .or_else(|| {
+                                            drv.get("familyName")?.as_str().map(|f| {
+                                                f.chars().take(3).collect::<String>().to_uppercase()
+                                            })
+                                        })?;
+                                    let team = d
+                                        .pointer("/Constructors/0/constructorId")?
+                                        .as_str()?
+                                        .to_string();
+                                    Some((code, team))
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    if list.is_empty() {
+                        return;
+                    }
+                    if let Some(v) = viewer.borrow().as_ref() {
+                        v.state.borrow_mut().set_field(&list);
+                    }
+                    field.set(list);
                 });
             }
             {
@@ -2140,9 +2437,11 @@ pub fn View3D(props: &ViewProps) -> Html {
     }
     {
         let viewer = viewer.clone();
-        use_effect_with(*chase, move |on| {
+        use_effect_with((*mode, *follow), move |(mode, follow)| {
             if let Some(v) = viewer.borrow().as_ref() {
-                v.state.borrow_mut().chase = *on;
+                let mut st = v.state.borrow_mut();
+                st.set_mode(*mode);
+                st.set_follow(*follow);
             }
         });
     }
@@ -2208,7 +2507,16 @@ pub fn View3D(props: &ViewProps) -> Html {
         Callback::from(move |_: MouseEvent| full.set(!*full))
     };
     let is_track = matches!(props.scene, Scene::Track { .. });
-    let ghost = matches!(props.scene, Scene::Track { ghost: true, .. });
+    // Pilotes qu'on peut suivre : plateau simulé ou voitures en direct.
+    let driver_codes: Vec<String> = if field.is_empty() {
+        props
+            .markers
+            .as_deref()
+            .map(|m| m.iter().map(|m| m.label.clone()).collect())
+            .unwrap_or_default()
+    } else {
+        field.iter().map(|(c, _)| c.clone()).collect()
+    };
     if *failed {
         return html! {
             <p class="muted">{ t("La 3D n'est pas disponible sur cet appareil (WebGL 2 requis).", "3D isn't available on this device (WebGL 2 required).") }</p>
@@ -2227,11 +2535,37 @@ pub fn View3D(props: &ViewProps) -> Html {
                 ) }</p>
             }
             <div class="scene-tools">
-                if ghost {
-                    <button class={classes!("scene-btn", chase.then_some("on"))} aria-pressed={chase.to_string()}
-                        onclick={let chase = chase.clone(); move |_| chase.set(!*chase)}>
-                        { if *chase { t("Vue d'ensemble", "Overview") } else { t("Caméra embarquée", "Onboard camera") } }
-                    </button>
+                if is_track {
+                    <select class="scene-select" aria-label={t("Caméra", "Camera")}
+                        onchange={let mode = mode.clone(); move |e: Event| {
+                            if let Some(sel) = e.target().and_then(|t| t.dyn_into::<web_sys::HtmlSelectElement>().ok()) {
+                                mode.set(match sel.value().as_str() {
+                                    "chase" => CamMode::Chase,
+                                    "cockpit" => CamMode::Cockpit,
+                                    "heli" => CamMode::Heli,
+                                    "tv" => CamMode::Tv,
+                                    _ => CamMode::Overview,
+                                });
+                            }
+                        }}>
+                        { for [(CamMode::Overview, "overview", t("🗺️ Vue d'ensemble", "🗺️ Overview")), (CamMode::Chase, "chase", t("🏎️ Poursuite", "🏎️ Chase")),
+                               (CamMode::Cockpit, "cockpit", t("👀 Embarquée", "👀 Onboard")), (CamMode::Heli, "heli", t("🚁 Hélico", "🚁 Helicopter")),
+                               (CamMode::Tv, "tv", t("📺 TV", "📺 TV"))].into_iter().map(|(m, v, label)| html! {
+                            <option value={v} selected={*mode == m}>{ label }</option>
+                        }) }
+                    </select>
+                    if *mode != CamMode::Overview && (!field.is_empty() || !driver_codes.is_empty()) {
+                        <select class="scene-select" aria-label={t("Pilote suivi", "Followed driver")}
+                            onchange={let follow = follow.clone(); move |e: Event| {
+                                if let Some(sel) = e.target().and_then(|t| t.dyn_into::<web_sys::HtmlSelectElement>().ok()) {
+                                    follow.set(sel.value().parse().unwrap_or(0));
+                                }
+                            }}>
+                            { for driver_codes.iter().enumerate().map(|(i, c)| html! {
+                                <option value={i.to_string()} selected={*follow == i}>{ c.clone() }</option>
+                            }) }
+                        </select>
+                    }
                 }
                 if *full {
                     <button class="scene-btn" aria-label={t("Recentrer", "Recentre")} onclick={recentre}>{ "⟲" }</button>
