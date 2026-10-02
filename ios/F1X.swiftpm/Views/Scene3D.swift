@@ -348,9 +348,15 @@ enum CarFile {
         return out
     }
 
+    /// Géométrie construite une seule fois ; chaque voiture en reçoit une copie qui partage
+    /// les mêmes tampons de sommets (seules les matières changent), pour ne pas multiplier
+    /// la mémoire par le nombre de voitures du plateau.
+    private static let shared: SCNGeometry? = groups.map { geometry($0, livery: .team("")) }
+
     static func geometry(livery: Livery) -> SCNGeometry? {
-        guard let groups else { return nil }
-        return geometry(groups, livery: livery)
+        guard let groups, let shared, let copy = shared.copy() as? SCNGeometry else { return nil }
+        copy.materials = groups.map { MeshBuilder.material($0.mat, livery) }
+        return copy
     }
 
     static func geometry(_ groups: [Group], livery: Livery) -> SCNGeometry {
@@ -575,9 +581,9 @@ enum Studio {
         l.shadowMode = .deferred
         l.automaticallyAdjustsShadowProjection = true
         l.maximumShadowDistance = CGFloat(radius * 3)
-        l.shadowCascadeCount = 3
-        l.shadowMapSize = CGSize(width: 4096, height: 4096)
-        l.shadowSampleCount = 16
+        l.shadowCascadeCount = 2
+        l.shadowMapSize = CGSize(width: 2048, height: 2048)
+        l.shadowSampleCount = 8
         l.shadowRadius = 2.5
         l.shadowColor = UIColor(white: 0, alpha: 0.62)
         sun.eulerAngles = SCNVector3(-0.85, 0.75, 0)
@@ -763,6 +769,7 @@ final class TrackPath {
 enum TrackModel {
     static func node(_ map: TrackMap, path: TrackPath) -> SCNNode {
         let pts = path.pts, n = pts.count
+        guard n >= 2 else { return SCNNode() }
         let closed = simd_length(pts[0] - pts[n - 1]) < 60
         func side(_ i: Int) -> V3 {
             let prev = i == 0 ? (closed ? n - 1 : 0) : i - 1
@@ -789,7 +796,9 @@ enum TrackModel {
             let j = (i + 1) % n
             let si = side(i), sj = side(j), hw = TrackPath.halfWidth
             let li = pts[i] + si * hw, ri = pts[i] - si * hw, lj = pts[j] + sj * hw, rj = pts[j] - sj * hw
-            let ratio = (Float(map.points[i].speed) - minS) / max(maxS - minS, 1)
+            // La ligne est densifiée (4 points par point GPS) : vitesse du point GPS d'origine.
+            let src = map.points[min(i * map.points.count / n, map.points.count - 1)]
+            let ratio = (Float(src.speed) - minS) / max(maxS - minS, 1)
             add([li, ri, rj, lj], V3(0, 1, 0), ramp(ratio))
             for (a, b, s) in [(li, lj, Float(1)), (ri, rj, Float(-1))] {
                 let oa = a + si * (s * 1.1), ob = b + sj * (s * 1.1)
@@ -949,6 +958,13 @@ struct TrackSceneView: UIViewRepresentable {
         }
         c.view = view
         return view
+    }
+
+    /// Libère la scène (textures, ombres) dès que la vue disparaît.
+    static func dismantleUIView(_ view: SCNView, coordinator: Coordinator) {
+        view.isPlaying = false
+        view.delegate = nil
+        view.scene = nil
     }
 
     func updateUIView(_ view: SCNView, context: Context) {
@@ -1298,7 +1314,15 @@ struct Track3DView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ZStack(alignment: .bottom) {
-                TrackSceneView(map: map, ghost: ghost, markers: markers, control: control)
+                // Une seule vue 3D à la fois : celle de la page est retirée pendant le plein écran
+                // (deux rendus simultanés du plateau complet épuisaient la mémoire).
+                Group {
+                    if full {
+                        Color(white: 0.06)
+                    } else {
+                        TrackSceneView(map: map, ghost: ghost, markers: markers, control: control)
+                    }
+                }
                     .frame(height: 340)
                     .background(Color(white: 0.06), in: RoundedRectangle(cornerRadius: 14))
                     .clipShape(RoundedRectangle(cornerRadius: 14))
