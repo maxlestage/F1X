@@ -1,0 +1,26 @@
+name: Rapports de plantage TestFlight
+
+# Récupère les derniers plantages partagés par les testeurs (bouton « Partager » de
+# TestFlight) via l'API App Store Connect, et les affiche dans le journal.
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths: [".github/workflows/crash-logs.yml", "ios/scripts/crash_logs.py"]
+
+jobs:
+  crash-logs:
+    runs-on: ubuntu-latest
+    env:
+      ISSUER_ID: ${{ secrets.ASC_ISSUER_ID || secrets.ASC_ISSUER }}
+      KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      KEY_CONTENT: ${{ secrets.ASC_KEY_P8 || secrets.ASC_KEY_CONTENT || secrets.ASC_KEY_BASE64 || secrets.ASC_KEY_PRIVATE || secrets.ASC_KEY_FILE || secrets.ASC_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rapports
+        run: |
+          key="$RUNNER_TEMP/AuthKey.p8"
+          if printf '%s' "$KEY_CONTENT" | grep -q "BEGIN PRIVATE KEY"; then printf '%s\n' "$KEY_CONTENT" > "$key"; else printf '%s' "$KEY_CONTENT" | base64 --decode > "$key"; fi
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet pyjwt cryptography
+          KEY_PATH="$key" "$RUNNER_TEMP/venv/bin/python" ios/scripts/crash_logs.py
