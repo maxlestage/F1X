@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use f1x_protocol::TrackMap;
 
 /// Mêmes constantes que les clients (repère : x − cx, altitude × RELIEF, y − cz).
-pub const RELIEF: f32 = 4.0;
-pub const HALF_WIDTH: f32 = 8.0;
+pub const RELIEF: f32 = 2.5;
+pub const HALF_WIDTH: f32 = 12.0;
 
 type V = [f32; 3];
 /// (nature, r, g, b, brillance) — nature 0 : couleur fixe.

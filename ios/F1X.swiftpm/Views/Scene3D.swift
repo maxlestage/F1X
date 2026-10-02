@@ -665,9 +665,9 @@ final class TrackPath {
     let radius: Float
     let centreY: Float
 
-    static let relief: Float = 4
-    static let halfWidth: Float = 8
-    static let carScale: Float = 5
+    static let relief: Float = 2.5
+    static let halfWidth: Float = 12
+    static let carScale: Float = 3.2
 
     init(_ map: TrackMap) {
         let cx = Float(map.width / 2), cz = Float(map.height / 2)
@@ -693,6 +693,35 @@ final class TrackPath {
         let pos = pts[i] + (pts[j] - pts[i]) * k
         let d = pts[min(i + 2, n - 1)] - pts[max(i - 1, 0)]
         return (pos, atan2(-d.z, d.x))
+    }
+
+    /// Pente (tangage, radians) au temps donné : le nez monte en côte.
+    func slope(time: Float) -> Float {
+        let n = pts.count
+        let time = time.truncatingRemainder(dividingBy: max(lapTime, 1))
+        var lo = 0, hi = n - 1
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if t[mid] <= time { lo = mid + 1 } else { hi = mid }
+        }
+        let i = max(min(lo, n - 1), 1) - 1
+        let d = pts[min(i + 2, n - 1)] - pts[max(i - 1, 0)]
+        return atan2(d.y, max((d.x * d.x + d.z * d.z).squareRoot(), 0.001))
+    }
+
+    /// Caméras « TV » fixes au bord de la piste (une tous les ~14 points, en hauteur).
+    lazy var tvSpots: [V3] = {
+        let n = pts.count
+        return stride(from: 0, to: n, by: 14).enumerated().map { (k, i) -> V3 in
+            let d = pts[min(i + 1, n - 1)] - pts[max(i - 1, 0)]
+            let side = simd_normalize(simd_cross(V3(d.x, 0, d.z), V3(0, 1, 0)))
+            let sgn: Float = k % 2 == 0 ? 1 : -1
+            return pts[i] + side * sgn * (Self.halfWidth + 38) + V3(0, 16, 0)
+        }
+    }()
+
+    func tvSpot(near p: V3) -> V3 {
+        tvSpots.min { simd_length_squared($0 - p) < simd_length_squared($1 - p) } ?? p + V3(40, 30, 40)
     }
 }
 
@@ -791,55 +820,122 @@ struct TrackMarker: Equatable {
     let fraction: Double
 }
 
+/// Caméras du circuit.
+enum TrackCam: String, CaseIterable, Identifiable {
+    case overview, chase, cockpit, heli, tv
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .overview: return L("Vue d'ensemble", "Overview")
+        case .chase: return L("Poursuite", "Chase")
+        case .cockpit: return L("Embarquée", "Onboard")
+        case .heli: return L("Hélico", "Helicopter")
+        case .tv: return L("TV", "TV")
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .overview: return "map"
+        case .chase: return "car.rear"
+        case .cockpit: return "eye"
+        case .heli: return "airplane"
+        case .tv: return "video"
+        }
+    }
+}
+
+/// Réglages partagés entre l'interface SwiftUI, les gestes et la boucle de rendu.
+final class TrackControl: ObservableObject {
+    @Published var mode: TrackCam = .overview
+    @Published var follow = 0
+    /// Pilotes qu'on peut suivre (codes).
+    @Published var drivers: [String] = []
+    // Vue d'ensemble : orbite autour du circuit.
+    var yaw: Float = 0.9
+    var pitch: Float = 0.82
+    var zoom: Float = 1
+    var pan = V3(0, 0, 0)
+    // Caméra qui suit le pilote : angle autour, zoom, hauteur.
+    var fyaw: Float = 0
+    var fpitch: Float = 0.35
+    var fzoom: Float = 1
+    var flift: Float = 0
+
+    var following: Bool { mode != .overview }
+
+    func resetCamera() {
+        if following {
+            fyaw = 0; fpitch = 0.35; fzoom = 1; flift = 0
+        } else {
+            yaw = 0.9; pitch = 0.82; zoom = 1; pan = .zero
+        }
+    }
+
+    func zoom(by k: Float) {
+        if following { fzoom = min(max(fzoom * k, 0.25), 4) } else { zoom = min(max(zoom * k, 0.2), 3) }
+    }
+}
+
 struct TrackSceneView: UIViewRepresentable {
     let map: TrackMap
-    /// Une voiture rejoue le tour de référence à vitesse réelle.
+    /// Une voiture rejoue le tour de référence (et le plateau complet de la saison).
     var ghost = true
-    var chase = false
     var markers: [TrackMarker] = []
+    @ObservedObject var control: TrackControl
 
-    func makeCoordinator() -> Coordinator { Coordinator(map: map, ghost: ghost) }
+    func makeCoordinator() -> Coordinator { Coordinator(map: map, ghost: ghost, control: control) }
 
     func makeUIView(context: Context) -> SCNView {
         let view = SCNView()
         view.backgroundColor = .clear
         view.antialiasingMode = .multisampling4X
-        view.allowsCameraControl = true
-        view.defaultCameraController.interactionMode = .orbitTurntable
-        view.defaultCameraController.maximumVerticalAngle = 89
-        view.defaultCameraController.minimumVerticalAngle = 5
+        // Caméra entièrement pilotée par nos gestes (pas de contrôle SceneKit : plus de roulis).
+        view.allowsCameraControl = false
         view.scene = context.coordinator.scene
-        view.pointOfView = context.coordinator.overview
+        view.pointOfView = context.coordinator.camera
         view.delegate = context.coordinator
         view.isPlaying = true
-        context.coordinator.view = view
+        let c = context.coordinator
+        let pan = UIPanGestureRecognizer(target: c, action: #selector(Coordinator.onPan(_:)))
+        pan.maximumNumberOfTouches = 1
+        let pan2 = UIPanGestureRecognizer(target: c, action: #selector(Coordinator.onPan2(_:)))
+        pan2.minimumNumberOfTouches = 2
+        let pinch = UIPinchGestureRecognizer(target: c, action: #selector(Coordinator.onPinch(_:)))
+        let tap = UITapGestureRecognizer(target: c, action: #selector(Coordinator.onDoubleTap))
+        tap.numberOfTapsRequired = 2
+        for g in [pan, pan2, pinch, tap] as [UIGestureRecognizer] {
+            g.delegate = c
+            view.addGestureRecognizer(g)
+        }
+        c.view = view
         return view
     }
 
     func updateUIView(_ view: SCNView, context: Context) {
-        let c = context.coordinator
-        c.chase = chase && ghost
-        view.allowsCameraControl = !c.chase
-        view.pointOfView = c.chase ? c.chaseCam : c.overview
-        c.update(markers: markers)
+        if !ghost { context.coordinator.update(markers: markers) }
     }
 
-    final class Coordinator: NSObject, SCNSceneRendererDelegate {
+    final class Coordinator: NSObject, SCNSceneRendererDelegate, UIGestureRecognizerDelegate {
         let scene: SCNScene
         let path: TrackPath
-        let overview = Studio.outdoorCamera(fov: 40)
-        let chaseCam = Studio.outdoorCamera(fov: 55)
+        let camera = Studio.outdoorCamera(fov: 40)
+        let control: TrackControl
         let ghostCar: SCNNode?
-        var chase = false
         weak var view: SCNView?
-        private var cars: [String: (node: SCNNode, target: Float, cur: Float)] = [:]
+        /// Voiture affichée (plateau simulé ou direct) : nœud, cible, position, voie, écart.
+        typealias Car = (key: String, node: SCNNode, target: Float, cur: Float, lane: Float, offset: Float)
+        private var cars: [Car] = []
+        private var field = false
         private let lock = NSLock()
         private var last: TimeInterval = 0
         private var clock: Float = 0
+        private var smoothEye: V3?
+        private var smoothTarget: V3?
 
-        init(map: TrackMap, ghost: Bool) {
+        init(map: TrackMap, ghost: Bool, control: TrackControl) {
             path = TrackPath(map)
             scene = Studio.outdoorScene(radius: path.radius)
+            self.control = control
             ghostCar = ghost ? CarModel.node(livery: .single(UIColor(Color(hexString: map.colour)))) : nil
             super.init()
             let simple = TrackModel.node(map, path: path)
@@ -847,7 +943,7 @@ struct TrackSceneView: UIViewRepresentable {
             // Décor détaillé (relief, vibreurs, tribunes, arbres) calculé par le serveur.
             let id = map.circuit_id
             Task { [weak self] in
-                guard let url = URL(string: "api/track3d/\(id)?v=5", relativeTo: Server.base),
+                guard let url = URL(string: "api/track3d/\(id)?v=6", relativeTo: Server.base),
                       let result = try? await URLSession.shared.data(from: url),
                       (result.1 as? HTTPURLResponse)?.statusCode == 200,
                       let groups = CarFile.parse([UInt8](result.0)) else { return }
@@ -858,94 +954,231 @@ struct TrackSceneView: UIViewRepresentable {
                     simple.removeFromParentNode()
                 }
             }
-            let dist = path.radius / sin(20 * .pi / 180) * 0.95
-            overview.position = SCNVector3(dist * 0.45, path.centreY + dist * 0.75, dist * 0.5)
-            overview.look(at: SCNVector3(0, path.centreY, 0))
-            scene.rootNode.addChildNode(overview)
-            scene.rootNode.addChildNode(chaseCam)
+            camera.camera?.zFar = Double(path.radius * 8)
+            scene.rootNode.addChildNode(camera)
             if let ghostCar {
                 ghostCar.scale = SCNVector3(TrackPath.carScale, TrackPath.carScale, TrackPath.carScale)
                 scene.rootNode.addChildNode(ghostCar)
+                // Plateau complet : pilotes de la saison aux couleurs de leur écurie.
+                Task { [weak self] in
+                    guard let standings = try? await F1API.shared.driverStandings(), !standings.isEmpty else { return }
+                    let list = standings.map { (($0.driver.code ?? String($0.driver.familyName.prefix(3)).uppercased()), $0.constructors.first?.constructorId ?? "") }
+                    await MainActor.run { self?.setField(list) }
+                }
             }
         }
 
+        // MARK: Voitures
+
+        private func makeCar(livery: Livery, label: String, colour: UIColor) -> SCNNode {
+            let node = CarModel.node(livery: livery)
+            node.scale = SCNVector3(TrackPath.carScale, TrackPath.carScale, TrackPath.carScale)
+            let plane = SCNPlane(width: 2.6, height: 2.6)
+            plane.firstMaterial?.diffuse.contents = Self.badge(label, colour)
+            plane.firstMaterial?.lightingModel = .constant
+            plane.firstMaterial?.readsFromDepthBuffer = false
+            let tag = SCNNode(geometry: plane)
+            tag.name = "label"
+            tag.position = SCNVector3(0, 3.2, 0)
+            tag.constraints = [SCNBillboardConstraint()]
+            tag.renderingOrder = 10
+            node.addChildNode(tag)
+            return node
+        }
+
+        /// Plateau simulé : chaque voiture suit le tour de référence avec son écart (0,7 à 2,5 s).
+        @MainActor
+        func setField(_ drivers: [(String, String)]) {
+            lock.lock()
+            for c in cars { c.node.removeFromParentNode() }
+            var gap: Float = 0
+            cars = drivers.enumerated().map { (i, d) -> Car in
+                let node = makeCar(livery: .team(d.1), label: d.0, colour: Livery.team(d.1).primary)
+                scene.rootNode.addChildNode(node)
+                let offset = gap
+                gap += 0.7 + Float((i * 7 + 3) % 10) * 0.2
+                let lanes: [Float] = [-3.5, 3.5, -1.5, 1.5]
+                return (key: d.0, node: node, target: 0, cur: 0, lane: lanes[i % 4], offset: offset)
+            }
+            field = true
+            lock.unlock()
+            ghostCar?.isHidden = true
+            control.drivers = drivers.map(\.0)
+        }
+
+        /// Voitures en direct / replay (Race Center).
         func update(markers: [TrackMarker]) {
             lock.lock()
             defer { lock.unlock() }
-            var seen = Set<String>()
+            field = false
+            var next: [Car] = []
             for m in markers {
-                seen.insert(m.key)
                 let f = Float(m.fraction)
-                if var entry = cars[m.key] {
-                    entry.target = f
-                    cars[m.key] = entry
-                    (entry.node.childNode(withName: "label", recursively: false)?.geometry as? SCNPlane)?.firstMaterial?.diffuse.contents = Self.badge(m.label, m.colour)
+                if let i = cars.firstIndex(where: { $0.key == m.key }) {
+                    var e = cars.remove(at: i)
+                    e.target = f
+                    (e.node.childNode(withName: "label", recursively: false)?.geometry as? SCNPlane)?.firstMaterial?.diffuse.contents = Self.badge(m.label, UIColor(Color(hexString: m.colour)))
+                    next.append(e)
                 } else {
-                    let node = CarModel.node(livery: .single(UIColor(Color(hexString: m.colour))))
-                    node.scale = SCNVector3(TrackPath.carScale, TrackPath.carScale, TrackPath.carScale)
-                    let plane = SCNPlane(width: 1.6, height: 1.6)
-                    plane.firstMaterial?.diffuse.contents = Self.badge(m.label, m.colour)
-                    plane.firstMaterial?.lightingModel = .constant
-                    plane.firstMaterial?.readsFromDepthBuffer = false
-                    let label = SCNNode(geometry: plane)
-                    label.name = "label"
-                    label.position = SCNVector3(0, 2.4, 0)
-                    label.constraints = [SCNBillboardConstraint()]
-                    label.renderingOrder = 10
-                    node.addChildNode(label)
+                    let colour = UIColor(Color(hexString: m.colour))
+                    let node = makeCar(livery: .single(colour), label: m.label, colour: colour)
                     scene.rootNode.addChildNode(node)
-                    cars[m.key] = (node, f, f)
+                    next.append((key: m.key, node: node, target: f, cur: f, lane: 0, offset: 0))
                 }
             }
-            for key in cars.keys where !seen.contains(key) {
-                cars[key]?.node.removeFromParentNode()
-                cars[key] = nil
+            for gone in cars { gone.node.removeFromParentNode() }
+            cars = next
+            let labels = markers.map(\.label)
+            if control.drivers != labels {
+                DispatchQueue.main.async { self.control.drivers = labels }
             }
         }
 
-        static func badge(_ text: String, _ colour: String) -> UIImage {
-            let size = CGSize(width: 64, height: 64)
+        static func badge(_ text: String, _ colour: UIColor) -> UIImage {
+            let size = CGSize(width: 96, height: 48)
             return UIGraphicsImageRenderer(size: size).image { _ in
-                UIColor(Color(hexString: colour)).setFill()
-                UIBezierPath(ovalIn: CGRect(x: 4, y: 4, width: 56, height: 56)).fill()
-                let attrs: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 28, weight: .heavy), .foregroundColor: UIColor.black]
+                colour.setFill()
+                UIBezierPath(roundedRect: CGRect(x: 2, y: 2, width: 92, height: 44), cornerRadius: 22).fill()
+                var white: CGFloat = 0
+                _ = colour.getWhite(&white, alpha: nil)
+                let attrs: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 26, weight: .heavy),
+                                                            .foregroundColor: white > 0.6 ? UIColor.black : UIColor.white]
                 let s = NSString(string: text)
                 let b = s.size(withAttributes: attrs)
                 s.draw(at: CGPoint(x: (size.width - b.width) / 2, y: (size.height - b.height) / 2), withAttributes: attrs)
             }
         }
 
+        // MARK: Gestes
+
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            (g is UIPinchGestureRecognizer && other is UIPanGestureRecognizer) || (g is UIPanGestureRecognizer && other is UIPinchGestureRecognizer)
+        }
+
+        @objc func onPan(_ g: UIPanGestureRecognizer) {
+            let d = g.translation(in: g.view)
+            g.setTranslation(.zero, in: g.view)
+            if control.following {
+                control.fyaw -= Float(d.x) * 0.008
+                control.fpitch = min(max(control.fpitch + Float(d.y) * 0.006, 0.02), 1.45)
+            } else {
+                control.yaw += Float(d.x) * 0.008
+                control.pitch = min(max(control.pitch + Float(d.y) * 0.006, 0.12), 1.5)
+            }
+        }
+
+        @objc func onPan2(_ g: UIPanGestureRecognizer) {
+            let d = g.translation(in: g.view)
+            g.setTranslation(.zero, in: g.view)
+            if control.following {
+                control.flift = min(max(control.flift + Float(d.y) * 0.15, -20), 120)
+            } else {
+                let px = path.radius * 2.4 * control.zoom / Float(max(g.view?.bounds.height ?? 400, 1))
+                let right = V3(-sin(control.yaw), 0, cos(control.yaw))
+                let fwd = V3(-cos(control.yaw), 0, -sin(control.yaw))
+                var p = control.pan + right * (-Float(d.x) * px) + fwd * (Float(d.y) * px)
+                let len = simd_length(p)
+                if len > path.radius { p *= path.radius / len }
+                control.pan = p
+            }
+        }
+
+        @objc func onPinch(_ g: UIPinchGestureRecognizer) {
+            control.zoom(by: Float(1 / max(g.scale, 0.01)))
+            g.scale = 1
+        }
+
+        @objc func onDoubleTap() { control.resetCamera() }
+
+        // MARK: Rendu
+
         func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
             let dt = Float(last == 0 ? 0 : min(time - last, 0.1))
             last = time
             clock += dt
-            if let ghostCar {
+            var followed: (V3, Float)?
+            if let ghostCar, !ghostCar.isHidden {
                 let (p, h) = path.at(time: clock)
-                ghostCar.position = SCNVector3(p.x, p.y + 0.6, p.z)
-                ghostCar.eulerAngles.y = h
-                if chase {
-                    let fwd = V3(cos(h), 0, -sin(h))
-                    let want = p - fwd * 75 + V3(0, 26, 0)
-                    let target = p + fwd * 30 + V3(0, 4, 0)
-                    let cur = chaseCam.simdPosition
-                    let k = min(dt * 4, 1)
-                    chaseCam.simdPosition = cur == .zero ? want : cur + (want - cur) * k
-                    chaseCam.simdLook(at: target)
-                }
+                place(ghostCar, p, h, path.slope(time: clock))
+                followed = (p, h)
             }
             lock.lock()
-            defer { lock.unlock() }
-            for (key, entry) in cars {
-                var e = entry
-                let diff = (e.target - e.cur + 0.5).truncatingRemainder(dividingBy: 1) - 0.5
-                let wrapped = diff < -0.5 ? diff + 1 : diff
-                e.cur = (e.cur + wrapped * min(dt * 2.5, 1)).truncatingRemainder(dividingBy: 1)
-                if e.cur < 0 { e.cur += 1 }
-                let (p, h) = path.at(time: e.cur * path.lapTime)
-                e.node.position = SCNVector3(p.x, p.y + 0.6, p.z)
-                e.node.eulerAngles.y = h
-                cars[key] = e
+            let pick = min(control.follow, max(cars.count - 1, 0))
+            for i in cars.indices {
+                if field {
+                    cars[i].cur = ((clock - cars[i].offset) / max(path.lapTime, 1)).truncatingRemainder(dividingBy: 1)
+                    if cars[i].cur < 0 { cars[i].cur += 1 }
+                } else {
+                    let diff = (cars[i].target - cars[i].cur + 0.5).truncatingRemainder(dividingBy: 1) - 0.5
+                    let wrapped = diff < -0.5 ? diff + 1 : diff
+                    var c = (cars[i].cur + wrapped * min(dt * 2.5, 1)).truncatingRemainder(dividingBy: 1)
+                    if c < 0 { c += 1 }
+                    cars[i].cur = c
+                }
+                let tm = cars[i].cur * path.lapTime
+                let (p0, h) = path.at(time: tm)
+                let p = p0 + V3(sin(h), 0, cos(h)) * cars[i].lane
+                place(cars[i].node, p, h, path.slope(time: tm))
+                if i == pick { followed = (p, h) }
             }
+            lock.unlock()
+            updateCamera(followed: followed, dt: dt)
+        }
+
+        /// Voiture posée sur la piste, orientée selon le cap et inclinée selon la pente.
+        private func place(_ node: SCNNode, _ p: V3, _ heading: Float, _ pitch: Float) {
+            node.simdPosition = p + V3(0, 0.6, 0)
+            node.simdOrientation = simd_quatf(angle: heading, axis: V3(0, 1, 0)) * simd_quatf(angle: pitch, axis: V3(0, 0, 1))
+        }
+
+        private func orbit(_ target: V3, _ yaw: Float, _ pitch: Float, _ dist: Float) -> V3 {
+            target + V3(dist * cos(pitch) * cos(yaw), dist * sin(pitch), dist * cos(pitch) * sin(yaw))
+        }
+
+        private func updateCamera(followed: (V3, Float)?, dt: Float) {
+            let c = control
+            var eye: V3, target: V3, snap = false
+            var fov: CGFloat = 40
+            if c.following, let (pos, h) = followed {
+                let fwd = V3(cos(h), 0, -sin(h))
+                switch c.mode {
+                case .cockpit:
+                    // Caméra « T » au-dessus de la prise d'air : halo et nez visibles.
+                    let look = h + c.fyaw
+                    let dir = V3(cos(look), 0, -sin(look))
+                    eye = pos + fwd * (-0.05 * TrackPath.carScale) + V3(0, 1.32 * TrackPath.carScale + 0.6, 0)
+                    target = eye + dir * 80 + V3(0, -9 + (c.fpitch - 0.35) * 40, 0)
+                    snap = true
+                    fov = 62
+                case .heli:
+                    target = pos + fwd * 20
+                    eye = orbit(target, -h + .pi + c.fyaw, min(max(1.25 + (c.fpitch - 0.35), 0.6), 1.53), 230 * c.fzoom)
+                case .tv:
+                    target = pos + V3(0, 2, 0)
+                    eye = path.tvSpot(near: pos) + V3(0, c.flift, 0)
+                    fov = CGFloat(min(max(36 / c.fzoom, 7), 70))
+                default:
+                    target = pos + fwd * 12 + V3(0, 3, 0)
+                    eye = orbit(target, -h + .pi + c.fyaw, c.fpitch, 62 * c.fzoom) + V3(0, c.flift, 0)
+                    fov = 55
+                }
+                let k = snap ? 1 : min(dt * 5, 1)
+                let e0 = smoothEye ?? eye, t0 = smoothTarget ?? target
+                eye = e0 + (eye - e0) * k
+                target = t0 + (target - t0) * k
+                smoothEye = eye
+                smoothTarget = target
+            } else {
+                smoothEye = nil
+                smoothTarget = nil
+                let fovRad: Float = 40 * .pi / 180
+                let dist = path.radius / sin(fovRad / 2) * 1.08 * c.zoom
+                target = V3(0, path.centreY, 0) + c.pan
+                eye = orbit(target, c.yaw, c.pitch, dist)
+            }
+            camera.simdPosition = eye
+            camera.simdLook(at: target, up: V3(0, 1, 0), localFront: V3(0, 0, -1))
+            if camera.camera?.fieldOfView != fov { camera.camera?.fieldOfView = fov }
         }
     }
 }
@@ -983,34 +1216,37 @@ struct CarCard: View {
     }
 }
 
-/// Circuit en relief, avec voiture fantôme et caméra embarquée.
+/// Circuit en relief : plateau complet, choix du pilote suivi et de la caméra
+/// (vue d'ensemble, poursuite, embarquée, hélico, TV), zoom, angle et hauteur au doigt.
 struct Track3DView: View {
     let map: TrackMap
     var markers: [TrackMarker] = []
     var ghost = true
-    @State private var chase = false
+    @StateObject private var control = TrackControl()
     @State private var full = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ZStack(alignment: .bottomTrailing) {
-                TrackSceneView(map: map, ghost: ghost, chase: chase, markers: markers)
-                    .frame(height: 320)
+            ZStack(alignment: .bottom) {
+                TrackSceneView(map: map, ghost: ghost, markers: markers, control: control)
+                    .frame(height: 340)
                     .background(Color(white: 0.06), in: RoundedRectangle(cornerRadius: 14))
                     .clipShape(RoundedRectangle(cornerRadius: 14))
                 controls.padding(8)
             }
-            Text(map.hasRelief
-                 ? L("Tracé GPS réel avec son relief (dénivelé ×4), coloré selon la vitesse.", "Real GPS layout with elevation (×4), coloured by speed.")
-                 : L("Tracé GPS réel coloré selon la vitesse.", "Real GPS layout coloured by speed."))
+            Text(L("Tracé GPS réel avec son relief (×2,5). Un doigt : tourner · pincer : zoomer · deux doigts : déplacer / hauteur · double toucher : recentrer.",
+                   "Real GPS layout with elevation (×2.5). One finger: rotate · pinch: zoom · two fingers: move / height · double tap: recentre."))
                 .font(.footnote).foregroundStyle(.secondary)
         }
         .fullScreenCover(isPresented: $full) {
-            ZStack(alignment: .topTrailing) {
+            ZStack(alignment: .bottom) {
                 Color.black.ignoresSafeArea()
-                TrackSceneView(map: map, ghost: ghost, chase: chase, markers: markers).ignoresSafeArea()
-                VStack(alignment: .trailing) {
-                    Button { full = false } label: { Image(systemName: "xmark.circle.fill").font(.largeTitle) }.tint(.white)
+                TrackSceneView(map: map, ghost: ghost, markers: markers, control: control).ignoresSafeArea()
+                VStack {
+                    HStack {
+                        Spacer()
+                        Button { full = false } label: { Image(systemName: "xmark.circle.fill").font(.largeTitle) }.tint(.white)
+                    }
                     Spacer()
                     controls
                 }
@@ -1021,15 +1257,41 @@ struct Track3DView: View {
 
     private var controls: some View {
         HStack(spacing: 8) {
-            if ghost {
-                Button(chase ? L("Vue d'ensemble", "Overview") : L("Caméra embarquée", "Onboard")) { chase.toggle() }
-                    .buttonStyle(.borderedProminent).tint(chase ? .f1Red : .black.opacity(0.6))
+            Menu {
+                Picker(L("Caméra", "Camera"), selection: $control.mode) {
+                    ForEach(TrackCam.allCases) { Label($0.label, systemImage: $0.symbol).tag($0) }
+                }
+            } label: {
+                Label(control.mode.label, systemImage: control.mode.symbol)
+                    .lineLimit(1)
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .background(.black.opacity(0.65), in: Capsule())
             }
+            if control.mode != .overview && !control.drivers.isEmpty {
+                Menu {
+                    Picker(L("Pilote", "Driver"), selection: $control.follow) {
+                        ForEach(Array(control.drivers.enumerated()), id: \.offset) { i, code in Text(code).tag(i) }
+                    }
+                } label: {
+                    Text(control.drivers[min(control.follow, control.drivers.count - 1)])
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .background(.black.opacity(0.65), in: Capsule())
+                }
+            }
+            Spacer(minLength: 0)
+            Button { control.zoom(by: 0.8) } label: { Image(systemName: "plus") }
+                .frame(width: 34, height: 34).background(.black.opacity(0.65), in: Circle())
+            Button { control.zoom(by: 1.25) } label: { Image(systemName: "minus") }
+                .frame(width: 34, height: 34).background(.black.opacity(0.65), in: Circle())
+            Button { control.resetCamera() } label: { Image(systemName: "arrow.counterclockwise") }
+                .frame(width: 34, height: 34).background(.black.opacity(0.65), in: Circle())
             if !full {
                 Button { full = true } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
-                    .buttonStyle(.borderedProminent).tint(.black.opacity(0.6))
+                    .frame(width: 34, height: 34).background(.black.opacity(0.65), in: Circle())
             }
         }
         .font(.footnote.bold())
+        .foregroundStyle(.white)
+        .onChange(of: control.mode) { _, _ in control.resetCamera() }
     }
 }
