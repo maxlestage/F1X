@@ -103,6 +103,7 @@ fn app(state: AppState) -> Router {
         .route("/track3d/{circuit_id}", get(track3d))
         .route("/of1/telemetry", get(of1_telemetry))
         .route("/of1/pitdetail", get(of1_pit_detail))
+        .route("/of1/driverrace", get(of1_driver_race))
         .route("/mapkit-token", get(mapkit_token))
         .route("/of1/{endpoint}", get(of1_relay))
         .route(
@@ -398,9 +399,10 @@ async fn of1_relay(
 struct TelemetryQuery {
     session_key: u32,
     drivers: String,
+    /// Tour choisi (sinon le meilleur tour de chaque pilote).
+    lap: Option<u32>,
 }
 
-/// Télémétrie comparée (meilleur tour de 2-3 pilotes, alignée sur la distance).
 /// Jeton MapKit JS (Apple Maps sur le site) ; 404 si aucune clé n'est configurée.
 async fn mapkit_token(headers: axum::http::HeaderMap) -> Response {
     match mapkit::token(&assets::origin(&headers)) {
@@ -448,6 +450,25 @@ async fn of1_pit_detail(State(s): State<AppState>, Query(q): Query<PitDetailQuer
     }
 }
 
+#[derive(serde::Deserialize)]
+struct DriverRaceQuery {
+    session_key: u32,
+    driver: u32,
+}
+
+/// Fiche course d'un pilote (tour par tour, résumé, messages, radios).
+async fn of1_driver_race(State(s): State<AppState>, Query(q): Query<DriverRaceQuery>) -> Response {
+    match s.hub.openf1.driver_race(q.session_key, q.driver).await {
+        Ok(v) => (
+            [(header::CACHE_CONTROL, "public, max-age=600")],
+            axum::Json(v),
+        )
+            .into_response(),
+        Err(err) => (StatusCode::BAD_GATEWAY, err).into_response(),
+    }
+}
+
+/// Télémétrie comparée (meilleur tour ou tour choisi de 1 à 3 pilotes, alignée sur la distance).
 async fn of1_telemetry(State(s): State<AppState>, Query(q): Query<TelemetryQuery>) -> Response {
     let drivers: Vec<u32> = q
         .drivers
@@ -457,7 +478,7 @@ async fn of1_telemetry(State(s): State<AppState>, Query(q): Query<TelemetryQuery
     if drivers.is_empty() {
         return StatusCode::BAD_REQUEST.into_response();
     }
-    match s.hub.openf1.telemetry(q.session_key, &drivers).await {
+    match s.hub.openf1.telemetry(q.session_key, &drivers, q.lap).await {
         Ok(v) => (
             [(header::CACHE_CONTROL, "public, max-age=3600")],
             axum::Json(v),
