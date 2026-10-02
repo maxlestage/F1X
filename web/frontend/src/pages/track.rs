@@ -203,8 +203,8 @@ pub fn TrackPanel(props: &PanelProps) -> Html {
                 <crate::gl3d::View3D scene={crate::gl3d::Scene::Track { map: props.track.clone(), ghost: true }} />
                 <p class="muted">{ if relief {
                     t(
-                        "Tracé GPS réel avec son relief (dénivelé exagéré ×4), coloré selon la vitesse. La voiture rejoue le meilleur tour à vitesse réelle.",
-                        "Real GPS layout with its elevation (exaggerated ×4), coloured by speed. The car replays the fastest lap at real speed.",
+                        "Tracé GPS réel avec son relief (dénivelé exagéré ×2,5). Tout le plateau tourne sur le meilleur tour : choisis la caméra (poursuite, embarquée, hélico, TV) et le pilote suivi.",
+                        "Real GPS layout with its elevation (exaggerated ×2.5). The whole field laps on the fastest lap: pick the camera (chase, onboard, helicopter, TV) and the driver to follow.",
                     )
                 } else {
                     t(

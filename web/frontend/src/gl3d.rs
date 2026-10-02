@@ -2318,7 +2318,7 @@ pub fn View3D(props: &ViewProps) -> Html {
     let mode = use_state(|| CamMode::Overview);
     let follow = use_state(|| 0usize);
     // Pilotes affichés (code, écurie) : plateau de la saison sur la fiche circuit.
-    let field = use_state(Vec::<(String, String)>::new);
+    let field = use_state(Vec::<(String, String, String)>::new);
     let full = use_state(|| false);
     {
         let (canvas, labels, viewer, failed, field) = (
@@ -2372,7 +2372,7 @@ pub fn View3D(props: &ViewProps) -> Html {
                     let Ok(v) = resp.json::<serde_json::Value>().await else {
                         return;
                     };
-                    let list: Vec<(String, String)> = v
+                    let list: Vec<(String, String, String)> = v
                         .pointer("/MRData/StandingsTable/StandingsLists/0/DriverStandings")
                         .and_then(|l| l.as_array())
                         .map(|l| {
@@ -2392,7 +2392,14 @@ pub fn View3D(props: &ViewProps) -> Html {
                                         .pointer("/Constructors/0/constructorId")?
                                         .as_str()?
                                         .to_string();
-                                    Some((code, team))
+                                    let name = format!(
+                                        "{} {}",
+                                        drv.get("givenName").and_then(|n| n.as_str()).unwrap_or(""),
+                                        drv.get("familyName")
+                                            .and_then(|n| n.as_str())
+                                            .unwrap_or("")
+                                    );
+                                    Some((code, team, name))
                                 })
                                 .collect()
                         })
@@ -2401,7 +2408,11 @@ pub fn View3D(props: &ViewProps) -> Html {
                         return;
                     }
                     if let Some(v) = viewer.borrow().as_ref() {
-                        v.state.borrow_mut().set_field(&list);
+                        let pairs: Vec<(String, String)> = list
+                            .iter()
+                            .map(|(c, t, _)| (c.clone(), t.clone()))
+                            .collect();
+                        v.state.borrow_mut().set_field(&pairs);
                     }
                     field.set(list);
                 });
@@ -2515,7 +2526,8 @@ pub fn View3D(props: &ViewProps) -> Html {
             .map(|m| m.iter().map(|m| m.label.clone()).collect())
             .unwrap_or_default()
     } else {
-        field.iter().map(|(c, _)| c.clone()).collect()
+        // Noms complets dans le sélecteur (le code reste au-dessus des voitures).
+        field.iter().map(|(_, _, n)| n.clone()).collect()
     };
     if *failed {
         return html! {

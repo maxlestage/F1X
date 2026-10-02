@@ -1,3 +1,4 @@
+import MapKit
 import SwiftUI
 
 // Photos libres (Wikimedia Commons, via le serveur F1X) et tracés 2D des circuits.
@@ -229,6 +230,38 @@ struct TrackPanel: View {
             } catch {
                 unavailable = true
             }
+        }
+    }
+}
+
+/// Carte Plans (Apple Maps) du circuit : vue satellite en relief, ouverture dans Plans.
+struct CircuitMapView: View {
+    let name: String
+    let lat: Double
+    let lon: Double
+
+    private var coordinate: CLLocationCoordinate2D { CLLocationCoordinate2D(latitude: lat, longitude: lon) }
+    private var query: String { name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "" }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Map(initialPosition: .camera(MapCamera(centerCoordinate: coordinate, distance: 4200, heading: 0, pitch: 45))) {
+                Marker(name, systemImage: "flag.checkered", coordinate: coordinate).tint(Color.f1Red)
+            }
+            .mapStyle(.hybrid(elevation: .realistic))
+            .frame(height: 280)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            HStack {
+                if let url = URL(string: "https://maps.apple.com/?ll=\(lat),\(lon)&q=\(query)&z=15&t=k") {
+                    Link(destination: url) { Label(L("Ouvrir dans Plans", "Open in Maps"), systemImage: "map") }
+                        .buttonStyle(.bordered)
+                }
+                if let url = URL(string: "https://maps.apple.com/?daddr=\(lat),\(lon)") {
+                    Link(destination: url) { Label(L("Itinéraire", "Directions"), systemImage: "car") }
+                        .buttonStyle(.bordered)
+                }
+            }
+            .font(.footnote.bold())
         }
     }
 }

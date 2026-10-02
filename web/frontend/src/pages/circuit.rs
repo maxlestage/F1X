@@ -48,11 +48,12 @@ pub fn CircuitPage(props: &IdProps) -> Html {
     let winners = use_f1(f1(format!("circuits/{id}/results/1.json"), 100));
     let fastest = use_f1(f1(format!("circuits/{id}/fastest/1/results.json"), 100));
     let current = use_f1(f1("current.json", 100));
-    // Tracé GPS : seulement pour les circuits utilisés depuis 2023 (données OpenF1).
+    // Tracé GPS : circuits utilisés depuis 2023 (données OpenF1), y compris celui du Grand
+    // Prix à venir (tracé embarqué par le serveur ou essais déjà courus).
     let recent = races.done().is_some_and(|d| {
         d.races()
             .iter()
-            .any(|r| r.season.parse::<u32>().unwrap_or(0) >= 2023 && r.is_over(now_ms()))
+            .any(|r| r.season.parse::<u32>().unwrap_or(0) >= 2023)
     });
     let attempt = use_state(|| 0u32);
     let track = use_json::<TrackMap>(recent.then(|| super::track_url(&id, *attempt)));
@@ -71,7 +72,15 @@ pub fn CircuitPage(props: &IdProps) -> Html {
         };
     };
     let loc = &circuit.location;
+    // iPhone, iPad et Mac : Plans (Apple Maps) ; ailleurs : OpenStreetMap.
+    let apple = crate::util::is_apple_device();
+    let name_q = js_sys::encode_uri_component(&circuit.circuit_name)
+        .as_string()
+        .unwrap_or_default();
     let map_url = match (&loc.lat, &loc.long) {
+        (Some(lat), Some(lon)) if apple => Some(format!(
+            "https://maps.apple.com/?ll={lat},{lon}&q={name_q}&z=15&t=k"
+        )),
         (Some(lat), Some(lon)) => Some(format!(
             "https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map=14/{lat}/{lon}"
         )),
@@ -159,7 +168,9 @@ pub fn CircuitPage(props: &IdProps) -> Html {
                     <p class="muted">{ tr!("Coordonnées : {lat}, {lon}", "Coordinates: {lat}, {lon}") }</p>
                 }
                 if let Some(url) = map_url {
-                    <a class="btn btn-ghost" href={url} target="_blank" rel="noopener">{ t("Voir sur la carte ↗", "View on the map ↗") }</a>
+                    <a class="btn btn-ghost" href={url} target="_blank" rel="noopener">{
+                        if apple { t("Ouvrir dans Plans ↗", "Open in Apple Maps ↗") } else { t("Voir sur la carte ↗", "View on the map ↗") }
+                    }</a>
                 }
                 if let Some(url) = &circuit.url {
                     <a class="link" href={url.clone()} target="_blank" rel="noopener">{ t("Wikipédia ↗", "Wikipedia ↗") }</a>
@@ -195,6 +206,14 @@ pub fn CircuitPage(props: &IdProps) -> Html {
                 <section class="card">
                     <h2>{ t("Carte", "Map") }</h2>
                     { osm_embed(lat, lon) }
+                    <div class="map-actions">
+                        <a class="btn btn-ghost" href={format!("https://maps.apple.com/?ll={lat},{lon}&q={name_q}&z=15&t=k")} target="_blank" rel="noopener">
+                            { t("🗺️ Ouvrir dans Plans", "🗺️ Open in Apple Maps") }
+                        </a>
+                        <a class="btn btn-ghost" href={format!("https://maps.apple.com/?daddr={lat},{lon}")} target="_blank" rel="noopener">
+                            { t("🧭 Itinéraire", "🧭 Directions") }
+                        </a>
+                    </div>
                 </section>
             }
 

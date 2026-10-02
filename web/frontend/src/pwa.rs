@@ -158,6 +158,7 @@ pub fn AppFooter() -> Html {
                 { link("/confidentialite", t("Confidentialité", "Privacy")) }
                 { link("/credits", t("Crédits et sources", "Credits & sources")) }
             </nav>
+            <p class="app-foot-author">{ t("Conçu et développé par ", "Designed and built by ") }<strong>{ "Maxime Nathan Lestage" }</strong></p>
             <p>{ crate::tr!("© {} F1X · Tous droits réservés", "© {} F1X · All rights reserved", crate::util::current_year()) }</p>
             <p class="app-foot-note">{ t(
                 "Site non officiel, sans lien avec la Formula 1, la FIA ou les écuries. F1 et Formula 1 sont des marques de Formula One Licensing B.V.",
