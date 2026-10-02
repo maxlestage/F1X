@@ -278,14 +278,42 @@ pub struct CircuitTrackProps {
     pub name: AttrValue,
 }
 
+/// URL du tracé ; `attempt` > 0 force une nouvelle requête (bouton « Réessayer »).
+pub fn track_url(circuit_id: &str, attempt: u32) -> String {
+    if attempt == 0 {
+        format!("/api/track/{circuit_id}")
+    } else {
+        format!("/api/track/{circuit_id}?essai={attempt}")
+    }
+}
+
+/// Tracé momentanément indisponible (OpenF1 saturé ou séance en direct) : message + réessai.
+pub fn track_unavailable(attempt: &UseStateHandle<u32>) -> Html {
+    let retry = {
+        let attempt = attempt.clone();
+        Callback::from(move |_: MouseEvent| attempt.set(*attempt + 1))
+    };
+    html! {
+        <div class="track-retry">
+            <p class="muted">{ t(
+                "Tracé momentanément indisponible (source OpenF1 saturée ou séance en direct).",
+                "Layout temporarily unavailable (OpenF1 busy or a live session is running).",
+            ) }</p>
+            <button class="btn btn-ghost" onclick={retry}>{ t("Réessayer", "Retry") }</button>
+        </div>
+    }
+}
+
 #[function_component]
 pub fn CircuitTrack(props: &CircuitTrackProps) -> Html {
-    let track = crate::api::use_json::<TrackMap>(Some(format!("/api/track/{}", props.circuit_id)));
+    let attempt = use_state(|| 0u32);
+    let track = crate::api::use_json::<TrackMap>(Some(track_url(&props.circuit_id, *attempt)));
     let body = match &track {
         None => crate::components::loading(),
         Some(Ok(map)) => html! { <TrackPanel track={map.clone()} /> },
         // Circuit jamais utilisé depuis 2023 (pas de données GPS) : rien à dessiner.
-        Some(Err(_)) => return html! {},
+        Some(Err((404, _))) => return html! {},
+        Some(Err(_)) => track_unavailable(&attempt),
     };
     html! {
         <section class="card">
