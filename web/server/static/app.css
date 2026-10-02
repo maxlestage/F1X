@@ -745,6 +745,7 @@ button.btn:disabled { opacity: .5; }
 /* Fiche course du pilote. */
 .drv-title { font-weight: 800; font-size: 1.1rem; margin: 10px 0 6px; border-left: 4px solid var(--team, var(--line)); padding-left: 8px; }
 .lap-row .row-sub { display: block; }
+.lap-row .row-title { white-space: nowrap; }
 .lap-badge { margin-left: 8px; font-size: .7rem; font-weight: 800; color: #111; background: var(--yellow, #facc15); border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
 .tyre-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: middle; box-shadow: 0 0 0 2px rgba(0,0,0,.35); }
 .lap-row .pos { min-width: 3.6ch; white-space: nowrap; }

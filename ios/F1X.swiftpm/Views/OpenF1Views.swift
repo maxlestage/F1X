@@ -1075,29 +1075,50 @@ struct DriverRaceSection: View {
         let spd = { (k: String) in l[k].int.map(String.init) ?? "–" }
         let badge: String? = l["pit_in"].bool
             ? (l["stop"].double.map { L("Arrêt \(String(format: "%.1f", $0)) s", "Stop \(String(format: "%.1f", $0)) s") } ?? L("Arrêt", "Pit"))
-            : (l["pit_out"].bool ? L("Sortie des stands", "Pit exit") : nil)
-        let age = l["tyre_age"].int.map { L(" · \($0) tours", " · \($0) laps") } ?? ""
+            : (l["pit_out"].bool ? L("Sortie", "Out") : nil)
+        let age = l["tyre_age"].int.map { L(" · \($0) t", " · \($0) l") } ?? ""
+        let sectors = "S1 \(sec("s1")) · S2 \(sec("s2")) · S3 \(sec("s3"))"
+        let speeds = "\(spd("i1"))/\(spd("i2"))/\(spd("st")) km/h"
+        let tyre = Text("● ").foregroundColor(tyreColor(l["compound"].string))
+            + Text("\(l["compound"].string.capitalized)\(age)")
+        let gaps = "\(L("leader", "leader")) \(gap(l["gap"])) · \(L("devant", "ahead")) \(gap(l["interval"]))"
+        // Chaque information tient sur sa ligne, sans jamais couper un temps en morceaux.
         return VStack(alignment: .leading, spacing: 3) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(L("Tour \(l["lap"].string)", "Lap \(l["lap"].string)"))
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("T\(l["lap"].string)")
                     .font(.caption.weight(.heavy))
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(Color(white: 0.2), in: Capsule())
-                    .fixedSize()
                 Text(l["time"].double.map(formatLap) ?? "–").font(.body.monospacedDigit().weight(.semibold))
                 Text("P\(l["position"].string)").font(.footnote.weight(.bold)).foregroundStyle(.secondary)
                 if let badge {
-                    Text(badge).font(.caption2.weight(.heavy)).foregroundStyle(.black)
+                    Label(badge, systemImage: "wrench.and.screwdriver.fill")
+                        .font(.caption2.weight(.heavy)).foregroundStyle(.black)
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(Color.yellow, in: Capsule())
-                        .fixedSize()
+                }
+                Spacer(minLength: 0)
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            ViewThatFits(in: .horizontal) {
+                Text("\(sectors) · \(speeds)")
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(sectors)
+                    Text(speeds)
                 }
             }
-            Text("S1 \(sec("s1")) · S2 \(sec("s2")) · S3 \(sec("s3"))").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-            Text(L("I1 \(spd("i1")) · I2 \(spd("i2")) · piège \(spd("st")) km/h", "I1 \(spd("i1")) · I2 \(spd("i2")) · trap \(spd("st")) km/h"))
-                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-            (Text("● ").foregroundColor(tyreColor(l["compound"].string)) + Text("\(l["compound"].string.capitalized)\(age) · leader \(gap(l["gap"])) · \(L("devant", "ahead")) \(gap(l["interval"]))"))
-                .font(.caption.monospacedDigit()).foregroundColor(.secondary)
+            .lineLimit(1)
+            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            ViewThatFits(in: .horizontal) {
+                tyre + Text(" · \(gaps)")
+                VStack(alignment: .leading, spacing: 3) {
+                    tyre
+                    Text(gaps)
+                }
+            }
+            .lineLimit(1)
+            .font(.caption.monospacedDigit()).foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 2)
