@@ -20,10 +20,12 @@ struct CalendarView: View {
                 let nextId = races.first { !$0.isOver() }?.id
                 Section {
                     ForEach(races) { race in
+                        // Saison en cours : les Grands Prix déjà courus passent en sombre.
+                        let past = season == "current" && race.isOver()
                         NavigationLink(value: race) {
-                            CalendarRow(race: race, isNext: race.id == nextId, winner: winners[race.round])
+                            CalendarRow(race: race, isNext: race.id == nextId, isPast: past, winner: winners[race.round])
                         }
-                        .listRowBackground(race.id == nextId ? Color.f1Red.opacity(0.18) : nil)
+                        .listRowBackground(race.id == nextId ? Color.f1Red.opacity(0.18) : past ? Color(hex: 0x0A0A0F) : nil)
                     }
                 }
             }
@@ -55,6 +57,7 @@ struct CalendarView: View {
 private struct CalendarRow: View {
     let race: Race
     let isNext: Bool
+    let isPast: Bool
     let winner: RaceResult?
 
     var body: some View {
@@ -89,6 +92,15 @@ private struct CalendarRow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            if isPast {
+                Text(L("Terminé", "Done"))
+                    .font(.caption2.bold())
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color(hex: 0x15151D), in: Capsule())
+                    .overlay(Capsule().stroke(Color(hex: 0x22222D), lineWidth: 1))
+                    .foregroundStyle(Color(hex: 0x6C6C80))
+            }
             if isNext {
                 Text(L("Prochain", "Next"))
                     .font(.caption2.bold())
@@ -98,6 +110,6 @@ private struct CalendarRow: View {
                     .foregroundStyle(.white)
             }
         }
-        .opacity(race.isOver() && winner == nil ? 0.6 : 1)
+        .opacity(isPast ? 0.62 : race.isOver() && winner == nil ? 0.6 : 1)
     }
 }

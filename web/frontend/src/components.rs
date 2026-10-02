@@ -48,6 +48,12 @@ pub fn Layout(props: &LayoutProps) -> Html {
             t.0.emit(());
         }
     });
+    // Changement de rubrique : grand logo animé au centre, bref et sans bloquer l'écran.
+    let tab = props.tab;
+    let intro = use_state(move || {
+        let prev = LAST_TAB.with(|c| c.replace(tab));
+        prev.is_some() && tab.is_some() && prev != tab
+    });
     use_effect_with(props.title.clone(), |title| {
         set_title(title);
         if let Some(w) = web_sys::window() {
@@ -60,6 +66,7 @@ pub fn Layout(props: &LayoutProps) -> Html {
                 <Link<Route> to={Route::Home} classes="brand">
                     <span class="brand-mark">{ "F1" }</span><span class="brand-x">{ "X" }</span>
                 </Link<Route>>
+                if let Some(tab) = props.tab { { section_logo(tab, false) } }
                 if !props.title.is_empty() {
                     <h1 class="topbar-title">{ props.title.clone() }</h1>
                 }
@@ -73,6 +80,14 @@ pub fn Layout(props: &LayoutProps) -> Html {
                     { other.code().to_uppercase() }
                 </button>
             </header>
+            if *intro {
+                if let Some(tab) = props.tab {
+                    <div class={classes!("sec-intro", section(tab).0)} aria-hidden="true">
+                        { section_logo(tab, true) }
+                        <span class="sec-intro-label">{ section(tab).2 }</span>
+                    </div>
+                }
+            }
             <main class="page">{ props.children.clone() }</main>
             <crate::pwa::AppFooter />
             <TabBar active={props.tab} />
@@ -410,6 +425,33 @@ pub fn nav_row(route: Route, title: Html, sub: String, trailing: Option<String>)
             if let Some(t) = trailing { <span class="pts">{ t }</span> }
         </li>
     }
+}
+
+/// Identité visuelle de chaque rubrique : classe CSS (couleur), pictogramme, nom.
+fn section(tab: Tab) -> (&'static str, &'static str, &'static str) {
+    match tab {
+        Tab::Home => ("sec-home", ICON_HOME, t("Accueil", "Home")),
+        Tab::Live => ("sec-live", ICON_LIVE, t("Direct", "Live")),
+        Tab::Calendar => ("sec-cal", ICON_CAL, t("Calendrier", "Calendar")),
+        Tab::Standings => ("sec-standings", ICON_TROPHY, t("Classements", "Standings")),
+        Tab::Archives => ("sec-explore", ICON_ARCHIVE, t("Explorer", "Explore")),
+    }
+}
+
+/// Logo de rubrique : écusson incliné à la couleur de la rubrique, animé à l'affichage.
+fn section_logo(tab: Tab, big: bool) -> Html {
+    let (class, icon, _) = section(tab);
+    html! {
+        <span class={classes!("sec-logo", class, big.then_some("sec-logo-big"))} aria-hidden="true">
+            <span class="sec-trail"></span>
+            <span class="sec-badge">{ Html::from_html_unchecked(AttrValue::from(icon)) }</span>
+        </span>
+    }
+}
+
+thread_local! {
+    /// Dernière rubrique affichée (pour n'animer l'intro qu'au changement de rubrique).
+    static LAST_TAB: std::cell::Cell<Option<Tab>> = const { std::cell::Cell::new(None) };
 }
 
 const ICON_HOME: &str = r#"<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>"#;

@@ -40,6 +40,19 @@
   <link rel="stylesheet" href="/static/app.css?v={{CSS}}">
 </head>
 <body>
+  <div id="splash" aria-hidden="true"><div class="splash-inner"><div class="lights"><span class="light"></span><span class="light"></span><span class="light"></span><span class="light"></span><span class="light"></span></div><div class="splash-logo"><span class="f1">F1</span><span class="x">X</span></div><div class="splash-line"></div></div></div>
+  <script>
+    // Animation de démarrage : une fois par session, touchée = passée, retirée à la fin.
+    (function () {
+      var s = document.getElementById("splash");
+      var seen = false;
+      try { seen = sessionStorage.getItem("f1x-splash") === "1"; sessionStorage.setItem("f1x-splash", "1"); } catch (e) {}
+      if (seen) { s.remove(); return; }
+      var done = function () { if (s.parentNode) s.remove(); };
+      s.addEventListener("click", done);
+      setTimeout(done, 2600);
+    })();
+  </script>
   <div id="app"><div class="boot"><span class="brand"><span class="brand-mark">F1</span><span class="brand-x">X</span></span></div></div>
   <noscript><p class="boot">F1X a besoin de JavaScript/WebAssembly activé. · F1X needs JavaScript/WebAssembly.</p></noscript>
   <!-- Seul JS du site : démarrer le module WebAssembly généré depuis le code Rust (Yew),

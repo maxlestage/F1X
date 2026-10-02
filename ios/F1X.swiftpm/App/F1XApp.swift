@@ -12,20 +12,48 @@ struct F1XApp: App {
 }
 
 /// Barre d'onglets du bas, comme sur le site. Toute la navigation est verticale :
-/// aucune vue ne défile horizontalement.
+/// aucune vue ne défile horizontalement. Écran de démarrage animé, logo de rubrique
+/// animé à chaque changement d'onglet et de page.
 struct RootView: View {
+    @State private var tab: AppSection = .home
+    @State private var intro: AppSection?
+    @State private var splash = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        TabView {
-            NavigationStack { HomeView() }
-                .tabItem { Label(L("Accueil", "Home"), systemImage: "house.fill") }
-            NavigationStack { LiveView() }
-                .tabItem { Label(L("Direct", "Live"), systemImage: "dot.radiowaves.left.and.right") }
-            NavigationStack { CalendarView() }
-                .tabItem { Label(L("Calendrier", "Calendar"), systemImage: "calendar") }
-            NavigationStack { StandingsView() }
-                .tabItem { Label(L("Classements", "Standings"), systemImage: "trophy.fill") }
-            NavigationStack { ExplorerView() }
-                .tabItem { Label(L("Explorer", "Explore"), systemImage: "archivebox.fill") }
+        ZStack {
+            TabView(selection: $tab) {
+                stack(.home) { HomeView() }
+                stack(.live) { LiveView() }
+                stack(.calendar) { CalendarView() }
+                stack(.standings) { StandingsView() }
+                stack(.explore) { ExplorerView() }
+            }
+            if let intro {
+                SectionIntro(section: intro)
+                    .id(intro)
+                    .transition(.opacity)
+            }
+            if splash && !reduceMotion {
+                SplashView { withAnimation(.easeIn(duration: 0.35)) { splash = false } }
+                    .transition(.opacity)
+                    .zIndex(10)
+            }
         }
+        .onChange(of: tab) { _, new in
+            guard !reduceMotion else { return }
+            withAnimation(.easeOut(duration: 0.15)) { intro = new }
+            Task {
+                try? await Task.sleep(nanoseconds: 750_000_000)
+                if intro == new { withAnimation(.easeIn(duration: 0.25)) { intro = nil } }
+            }
+        }
+    }
+
+    private func stack<Content: View>(_ section: AppSection, @ViewBuilder content: () -> Content) -> some View {
+        NavigationStack { content().sectionLogo() }
+            .environment(\.appSection, section)
+            .tabItem { Label(section.label, systemImage: section.symbol) }
+            .tag(section)
     }
 }
