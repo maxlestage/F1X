@@ -174,6 +174,8 @@ struct TrackPanel: View {
 
     @State private var map: TrackMap?
     @State private var failed = false
+    @State private var unavailable = false
+    @State private var attempt = 0
     @State private var three = false
 
     var body: some View {
@@ -205,13 +207,27 @@ struct TrackPanel: View {
             } else if failed {
                 Text(L("Tracé disponible pour les circuits utilisés depuis 2023 (données GPS OpenF1).", "Layout available for circuits used since 2023 (OpenF1 GPS data)."))
                     .font(.footnote).foregroundStyle(.secondary)
+            } else if unavailable {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(L("Tracé momentanément indisponible (source OpenF1 saturée ou séance en direct).", "Layout temporarily unavailable (OpenF1 busy or a live session is running)."))
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Button(L("Réessayer", "Retry")) { attempt += 1 }
+                        .buttonStyle(.bordered)
+                }
             } else {
                 ProgressView().frame(maxWidth: .infinity, minHeight: 120)
             }
         }
-        .task(id: circuitId) {
+        .task(id: "\(circuitId)-\(attempt)") {
             three = start3D
-            do { map = try await ServerAPI.shared.track(circuitId) } catch { failed = true }
+            unavailable = false
+            do {
+                map = try await ServerAPI.shared.track(circuitId)
+            } catch let error as URLError where error.code == .fileDoesNotExist {
+                failed = true
+            } catch {
+                unavailable = true
+            }
         }
     }
 }

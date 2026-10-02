@@ -417,6 +417,8 @@ async fn of1_telemetry(State(s): State<AppState>, Query(q): Query<TelemetryQuery
     }
 }
 
+include!(concat!(env!("OUT_DIR"), "/bundled_tracks.rs"));
+
 /// Tracé d'un circuit : dernière course disputée depuis 2023 (données OpenF1).
 async fn load_track(
     s: &AppState,
@@ -431,6 +433,10 @@ async fn load_track(
     }
     if let Some(t) = s.hub.openf1.cached_track(id).await {
         return Ok(t);
+    }
+    // Tracé embarqué dans le binaire : aucune dépendance à OpenF1.
+    if let Some(t) = bundled_track(id).and_then(|json| serde_json::from_str(json).ok()) {
+        return Ok(s.hub.openf1.remember_track(id, t).await);
     }
     let Some(races) = s.api.all(&format!("circuits/{id}/races.json")).await else {
         return Err(Box::new(
