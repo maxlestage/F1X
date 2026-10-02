@@ -1,0 +1,44 @@
+# Récupère des enregistrements libres (Wikimedia Commons, CC BY-SA 3.0) de F1 et les dépose,
+# convertis en WAV mono, sur la branche « sounds-raw » (sans toucher à master).
+name: Sons libres (Commons)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths: [.github/workflows/fetch-sounds.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Télécharger et convertir
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null
+          mkdir out && cd out
+          UA="F1X-app/1.0 (https://f1x-29170430865f.herokuapp.com; maxlestage@icloud.com)"
+          get() {
+            for i in 1 2 3 4 5; do
+              curl -sfL -A "$UA" -o "$2.ogg" "https://upload.wikimedia.org/wikipedia/commons/$1" && break
+              sleep $((i * 10))
+            done
+            ffmpeg -loglevel error -y -i "$2.ogg" -ac 1 -ar 22050 "$2.wav" && rm "$2.ogg"
+            sleep 3
+          }
+          get "a/aa/Ferrari_F60_%282009%29.ogg" f60
+          get "3/32/Red_Bull-Renault_RB5_%282009%29.ogg" rb5
+          get "c/cd/Williams-Renault_FW18_%281996%29.ogg" fw18
+          get "0/0c/F1-start-echoing-in-the-grounds-of-Goodwood-House.ogg" start
+          get "f/f5/Williams-Cosworth_FW32_%282010%29.ogg" fw32
+          ls -la
+      - name: Déposer sur la branche sounds-raw
+        run: |
+          cd out
+          git init -q -b sounds-raw
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add . && git commit -qm "Enregistrements Commons (CC BY-SA 3.0, Edvvc)"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" sounds-raw
