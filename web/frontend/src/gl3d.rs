@@ -1035,8 +1035,9 @@ fn track_mesh(map: &TrackMap) -> Option<(Mesh, Path)> {
             )
         })
         .collect();
+    let (pts, times) = densify(&pts, &raw.iter().map(|p| p.t).collect::<Vec<_>>(), 4);
     let path = Path {
-        t: raw.iter().map(|p| p.t).collect(),
+        t: times,
         lap_time: map.lap_time as f32,
         radius: (cx * cx + cz * cz).sqrt(),
         centre_y: max_y / 2.0,
@@ -1044,6 +1045,45 @@ fn track_mesh(map: &TrackMap) -> Option<(Mesh, Path)> {
         pts,
     };
     Some((m, path))
+}
+
+/// Trajectoire lissée (Catmull-Rom) : `sub` points intermédiaires entre deux points GPS,
+/// pour des déplacements fluides dans les virages (cap et position continus).
+fn densify(pts: &[V3], t: &[f32], sub: usize) -> (Vec<V3>, Vec<f32>) {
+    let n = pts.len();
+    if n < 4 || t.len() != n {
+        return (pts.to_vec(), t.to_vec());
+    }
+    let at = |i: isize| pts[i.clamp(0, n as isize - 1) as usize];
+    let mut out = Vec::with_capacity(n * sub);
+    let mut times = Vec::with_capacity(n * sub);
+    for i in 0..n - 1 {
+        let (p0, p1, p2, p3) = (
+            at(i as isize - 1),
+            at(i as isize),
+            at(i as isize + 1),
+            at(i as isize + 2),
+        );
+        for k in 0..sub {
+            let u = k as f32 / sub as f32;
+            let (u2, u3) = (u * u, u * u * u);
+            let c = |a: f32, b: f32, c: f32, d: f32| {
+                0.5 * (2.0 * b
+                    + (-a + c) * u
+                    + (2.0 * a - 5.0 * b + 4.0 * c - d) * u2
+                    + (-a + 3.0 * b - 3.0 * c + d) * u3)
+            };
+            out.push([
+                c(p0[0], p1[0], p2[0], p3[0]),
+                c(p0[1], p1[1], p2[1], p3[1]),
+                c(p0[2], p1[2], p2[2], p3[2]),
+            ]);
+            times.push(t[i] + (t[i + 1] - t[i]) * u);
+        }
+    }
+    out.push(pts[n - 1]);
+    times.push(t[n - 1]);
+    (out, times)
 }
 
 // ---------- WebGL ----------
@@ -1652,6 +1692,10 @@ struct State {
     field: Vec<f32>,
     /// Point de visée lissé de la caméra embarquée (œil, cible).
     chase_cam: Option<(V3, V3)>,
+    /// Cap lissé de la caméra qui suit (rotation fluide dans les virages).
+    fhead: Option<f32>,
+    /// Vitesse de lecture (×1, ×2, ×4).
+    speed: f32,
     pointers: Pointers,
     /// L'utilisateur a pris la main : plus de rotation automatique.
     touched: bool,
@@ -1689,7 +1733,7 @@ impl State {
         if rect.bottom() < 0.0 || rect.top() > vh || rect.width() < 1.0 {
             return;
         }
-        self.clock += dt as f64;
+        self.clock += (dt * self.speed) as f64;
         let dpr = win.device_pixel_ratio().min(2.0);
         let (w, h) = ((rect.width() * dpr) as u32, (rect.height() * dpr) as u32);
         if self.canvas.width() != w || self.canvas.height() != h {
@@ -1771,6 +1815,7 @@ impl State {
                     (CamMode::Overview, _) | (_, None) => {
                         self.dist = dist;
                         self.chase_cam = None;
+                        self.fhead = None;
                         let target = add([0.0, path.centre_y, 0.0], self.cam.pan);
                         (
                             orbit(target, self.cam.yaw, self.cam.pitch, dist),
@@ -1779,7 +1824,13 @@ impl State {
                             dist * 4.0 + path.radius * 2.0,
                         )
                     }
-                    (mode, Some((pos, heading))) => {
+                    (mode, Some((pos, car_heading))) => {
+                        // Cap lissé : la caméra tourne en douceur avec la voiture dans les
+                        // virages, tout en restant collée à sa position (pas de retard).
+                        let prev = self.fhead.unwrap_or(car_heading);
+                        let turn = (car_heading - prev + PI).rem_euclid(TAU) - PI;
+                        let heading = prev + turn * (dt * 6.0).min(1.0);
+                        self.fhead = Some(heading);
                         let f = &self.fcam;
                         let fwd = [heading.cos(), 0.0, -heading.sin()];
                         let up = [0.0, 1.0, 0.0];
@@ -1839,7 +1890,12 @@ impl State {
                                 )
                             }
                         };
-                        let k = if snap { 1.0 } else { (dt * 5.0).min(1.0) };
+                        // Position suivie sans retard ; seule la caméra TV glisse d'un poste à l'autre.
+                        let k = if snap || mode != CamMode::Tv {
+                            1.0
+                        } else {
+                            (dt * 5.0).min(1.0)
+                        };
                         let (e, tg) = self.chase_cam.unwrap_or((want_eye, want_target));
                         let cam = (lerp3(e, want_eye, k), lerp3(tg, want_target, k));
                         self.chase_cam = Some(cam);
@@ -2241,6 +2297,8 @@ impl Viewer {
             follow: 0,
             field: Vec::new(),
             chase_cam: None,
+            fhead: None,
+            speed: 1.0,
             pointers: Vec::new(),
             touched: false,
             last_tap: 0.0,
@@ -2321,6 +2379,7 @@ pub fn View3D(props: &ViewProps) -> Html {
     let field = use_state(Vec::<(String, String, String, String)>::new);
     let full = use_state(|| false);
     let show_labels = use_state(|| true);
+    let speed = use_state(|| 1u32);
     {
         let (canvas, labels, viewer, failed, field) = (
             canvas.clone(),
@@ -2586,6 +2645,12 @@ pub fn View3D(props: &ViewProps) -> Html {
                     }
                 }
                 if is_track {
+                    <button class="scene-btn" aria-label={t("Vitesse de lecture", "Playback speed")}
+                        onclick={let with = with.clone(); let speed = speed.clone(); move |_| {
+                            let next = match *speed { 1 => 2, 2 => 4, _ => 1 };
+                            speed.set(next);
+                            with(Box::new(move |s| s.speed = next as f32));
+                        }}>{ format!("×{}", *speed) }</button>
                     <button class={classes!("scene-btn", show_labels.then_some("on"))} aria-pressed={show_labels.to_string()}
                         onclick={let s = show_labels.clone(); move |_| s.set(!*s)}>{ t("Noms", "Names") }</button>
                 }
