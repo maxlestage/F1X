@@ -218,8 +218,8 @@ struct SplashView: View {
             .opacity(leave ? 0 : 1)
         }
         .contentShape(Rectangle())
-        .onTapGesture { onFinish() }
-        .onDisappear { fx.stop() }
+        // Toucher pour passer coupe aussi le moteur ; sinon il finit sa montée en régime.
+        .onTapGesture { fx.stop(); onFinish() }
         .task {
             fx.play()
             for i in 1...5 {
