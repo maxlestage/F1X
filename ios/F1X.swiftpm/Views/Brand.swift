@@ -146,7 +146,8 @@ struct SectionIntro: View {
 
 /// Écran de démarrage « départ de course » (~1,8 s) : feu tricolore (rouges, orange, vert),
 /// lignes de vitesse, logo qui arrive en trombe (étiré, dépassement, secousse), vibreur
-/// rouge et blanc, puis tout repart vers la droite.
+/// rouge et blanc, puis tout repart vers la droite. Le tout au son d'un moteur qui monte
+/// dans les tours, avec les vibrations du téléphone calées sur le régime.
 struct SplashView: View {
     let onFinish: () -> Void
 
@@ -160,6 +161,8 @@ struct SplashView: View {
     @State private var shake: CGFloat = 0
     @State private var kerb = false
     @State private var leave = false
+    /// Moteur qui rugit et vibrations calées sur les feux et le départ.
+    @State private var fx = StartFX()
 
     var body: some View {
         GeometryReader { geo in
@@ -216,7 +219,9 @@ struct SplashView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { onFinish() }
+        .onDisappear { fx.stop() }
         .task {
+            fx.play()
             for i in 1...5 {
                 try? await Task.sleep(nanoseconds: 70_000_000)
                 lights = i
