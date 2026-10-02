@@ -467,23 +467,30 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
             // Contraintes en « cône » autour de chaque point de piste : le relief ne monte
             // jamais au-dessus du revêtement (talus doux, pas de piste encaissée) et ne descend
             // pas trop dessous (pas de piste suspendue dans le vide).
+            // Distances aux SEGMENTS de piste (pas seulement aux points GPS : sur les longues
+            // lignes droites, les points sont espacés et le relief remontait entre deux).
             let (mut cap, mut floor) = (f32::MAX, f32::MIN);
             let edge = hw + step * 1.2;
-            for p in pts.iter() {
-                let d = ((p[0] - x).powi(2) + (p[2] - z).powi(2)).sqrt();
-                let beyond = (d - edge).max(0.0);
-                cap = cap.min(p[1] - 0.6 + 0.30 * beyond);
-                floor = floor.max(p[1] - 0.6 - 0.45 * beyond);
+            for k in 0..segs {
+                let (a, c) = (pts[k], pts[at(k as isize + 1)]);
+                let (dx, dz) = (c[0] - a[0], c[2] - a[2]);
+                let len2 = (dx * dx + dz * dz).max(1e-6);
+                let t = (((x - a[0]) * dx + (z - a[2]) * dz) / len2).clamp(0.0, 1.0);
+                let (px, pz, py) = (a[0] + dx * t, a[2] + dz * t, a[1] + (c[1] - a[1]) * t);
+                let d2 = (px - x).powi(2) + (pz - z).powi(2);
+                let beyond = (d2.sqrt() - edge).max(0.0);
+                cap = cap.min(py - 0.6 + 0.30 * beyond);
+                floor = floor.max(py - 0.6 - 0.45 * beyond);
+                if d2 < best {
+                    best = d2;
+                    best_y = py;
+                }
             }
             for p in pts.iter().step_by(2) {
                 let d2 = (p[0] - x).powi(2) + (p[2] - z).powi(2);
                 let w = 1.0 / (d2 + 400.0).powi(2);
                 wsum += w;
                 hsum += w * p[1];
-                if d2 < best {
-                    best = d2;
-                    best_y = p[1];
-                }
             }
             let d = best.sqrt();
             // Près de la piste : à la hauteur du revêtement (un peu dessous) ; au loin : relief

@@ -20,6 +20,7 @@ struct Race: Decodable, Identifiable, Hashable, Sendable {
     let sprintResults: [RaceResult]?
     let qualifyingResults: [QualifyingResult]?
     let pitStops: [PitStop]?
+    let laps: [LapData]?
 
     var id: String { "\(season)-\(round)" }
     var roundNumber: Int { Int(round) ?? 0 }
@@ -68,7 +69,25 @@ struct Race: Decodable, Identifiable, Hashable, Sendable {
         case sprintResults = "SprintResults"
         case qualifyingResults = "QualifyingResults"
         case pitStops = "PitStops"
+        case laps = "Laps"
     }
+}
+
+/// Tour d'une course : position et temps de chaque pilote (Jolpica `laps`).
+struct LapData: Decodable, Sendable {
+    let number: String
+    let timings: [LapTiming]
+
+    enum CodingKeys: String, CodingKey {
+        case number
+        case timings = "Timings"
+    }
+}
+
+struct LapTiming: Decodable, Sendable {
+    let driverId: String
+    let position: String
+    let time: String?
 }
 
 struct Session: Decodable, Sendable {
@@ -157,11 +176,18 @@ struct FastestLap: Decodable, Sendable {
     let rank: String?
     let lap: String?
     let time: TimeValue?
+    let averageSpeed: AverageSpeed?
 
     enum CodingKeys: String, CodingKey {
         case rank, lap
         case time = "Time"
+        case averageSpeed = "AverageSpeed"
     }
+}
+
+struct AverageSpeed: Decodable, Sendable {
+    let units: String?
+    let speed: String
 }
 
 struct RaceResult: Decodable, Identifiable, Sendable {

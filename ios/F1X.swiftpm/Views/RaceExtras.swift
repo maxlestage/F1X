@@ -1,0 +1,255 @@
+import Charts
+import SwiftUI
+
+// Sections complètes d'une page de Grand Prix (comme sur le site) : arrêts par pilote,
+// meilleurs tours, analyse tour par tour (positions, tours en tête), bilan de course.
+
+/// « 2.456 » → « 2,456 s », « 1:02.3 » inchangé.
+private func stopDuration(_ d: String?) -> String {
+    guard let d else { return "–" }
+    return d.contains(":") ? d : "\(d.replacingOccurrences(of: ".", with: isFrench ? "," : ".")) s"
+}
+
+/// Tous les passages aux stands, groupés par pilote dans l'ordre d'arrivée.
+struct PitStopsSection: View {
+    let pits: [PitStop]
+    let results: [RaceResult]
+
+    var body: some View {
+        let byDriver = Dictionary(grouping: pits, by: \.driverId)
+        let fastest = pits.compactMap { p in p.duration.flatMap(Double.init).map { (p, $0) } }.min { $0.1 < $1.1 }
+        let order = results.map(\.driver.driverId) + byDriver.keys.filter { id in !results.contains { $0.driver.driverId == id } }.sorted()
+        Section(L("Arrêts aux stands (\(pits.count))", "Pit stops (\(pits.count))")) {
+            if let f = fastest {
+                Label(L("Le plus rapide : \(name(f.0.driverId)) — \(stopDuration(f.0.duration)) (tour \(f.0.lap))",
+                        "Fastest: \(name(f.0.driverId)) — \(stopDuration(f.0.duration)) (lap \(f.0.lap))"),
+                      systemImage: "stopwatch")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(Color.f1Purple)
+            }
+            ForEach(order.filter { byDriver[$0] != nil }, id: \.self) { id in
+                let stops = (byDriver[id] ?? []).sorted { (Int($0.stop) ?? 0) < (Int($1.stop) ?? 0) }
+                let result = results.first { $0.driver.driverId == id }
+                let total = stops.compactMap { $0.duration.flatMap(Double.init) }.reduce(0, +)
+                HStack(alignment: .top, spacing: 10) {
+                    Text(result?.positionText ?? "–")
+                        .font(.body.monospacedDigit().weight(.bold))
+                        .frame(width: 28, alignment: .leading)
+                    Rectangle().fill(Team.color(result?.constructor.constructorId)).frame(width: 3)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(name(id)).font(.body.weight(.semibold))
+                        ForEach(stops) { s in
+                            Text(L("Arrêt \(s.stop) · tour \(s.lap) · \(stopDuration(s.duration))",
+                                   "Stop \(s.stop) · lap \(s.lap) · \(stopDuration(s.duration))"))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(s.id == fastest?.0.id ? Color.f1Purple : .secondary)
+                        }
+                    }
+                    Spacer(minLength: 4)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("\(stops.count)").font(.title3.weight(.heavy))
+                        Text(stops.count > 1 ? L("arrêts", "stops") : L("arrêt", "stop")).font(.caption2).foregroundStyle(.secondary)
+                        if total > 0 {
+                            Text(String(format: "%.1f s", total)).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            Text(L("Durée = temps passé dans la voie des stands (entrée → sortie), source Jolpica.",
+                   "Duration = time spent in the pit lane (entry → exit), Jolpica data."))
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+    }
+
+    private func name(_ id: String) -> String {
+        results.first { $0.driver.driverId == id }.map { "\($0.driver.givenName) \($0.driver.familyName)" } ?? id.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+}
+
+/// Meilleurs tours de la course (classement, tour, vitesse moyenne).
+struct FastestLapsSection: View {
+    let results: [RaceResult]
+
+    var body: some View {
+        let laps = results.filter { $0.fastestLap?.time != nil }
+            .sorted { (Int($0.fastestLap?.rank ?? "") ?? 99) < (Int($1.fastestLap?.rank ?? "") ?? 99) }
+        if !laps.isEmpty {
+            Section(L("Meilleurs tours", "Fastest laps")) {
+                ForEach(laps.prefix(10)) { r in
+                    let f = r.fastestLap!
+                    let detail = [f.lap.map { L("tour \($0)", "lap \($0)") },
+                                  f.averageSpeed.map { "\($0.speed) km/h" }].compactMap { $0 }.joined(separator: " · ")
+                    NavigationLink(value: r.driver) {
+                        StandingRow(position: f.rank ?? "–", teamId: r.constructor.constructorId,
+                                    title: driverTitle(r.driver), subtitle: [r.constructor.name, detail].joined(separator: " · ")) {
+                            PointsLabel(value: f.time?.time ?? "", suffix: "")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Bilan : arrivés, abandons et autres statuts.
+struct RaceSummarySection: View {
+    let results: [RaceResult]
+
+    var body: some View {
+        let groups = Dictionary(grouping: results) { r -> String in
+            let s = r.status ?? ""
+            if s == "Finished" || s.hasPrefix("+") || s == "Lapped" { return L("Classés à l'arrivée", "Classified finishers") }
+            return r.outcome.isEmpty ? s : r.outcome
+        }
+        .map { ($0.key, $0.value) }
+        .sorted { $0.1.count > $1.1.count }
+        if !groups.isEmpty {
+            Section(L("Bilan de la course", "Race summary")) {
+                ForEach(groups, id: \.0) { g in
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack {
+                            Text(g.0).font(.body.weight(.semibold))
+                            Spacer()
+                            Text("\(g.1.count)").font(.body.monospacedDigit().weight(.bold))
+                        }
+                        if g.1.count <= 6 {
+                            Text(g.1.map(\.driver.familyName).joined(separator: ", "))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Analyse tour par tour (Jolpica `laps`) : positions des 10 premiers et tours en tête.
+struct LapByLapSection: View {
+    let season: String
+    let round: Int
+    let results: [RaceResult]
+    let pits: [PitStop]
+
+    @State private var laps: [LapData] = []
+    @State private var state = 0 // 0 inactif, 1 chargement, 2 prêt, 3 erreur
+
+    private struct Pt: Identifiable {
+        let id = UUID()
+        let driver: String
+        let lap: Int
+        let pos: Int
+    }
+
+    var body: some View {
+        Section(L("Tour par tour", "Lap by lap")) {
+            switch state {
+            case 0:
+                Text(L("Position de chaque pilote à chaque tour, tours en tête et passages aux stands.",
+                       "Each driver's position on every lap, laps led and pit stops."))
+                    .font(.footnote).foregroundStyle(.secondary)
+                Button(L("Charger l'analyse", "Load the analysis")) { Task { await load() } }
+            case 1:
+                ProgressView().frame(maxWidth: .infinity)
+            case 3:
+                Text(L("Données tour par tour indisponibles.", "Lap data unavailable.")).foregroundStyle(.secondary)
+                Button(L("Réessayer", "Retry")) { Task { await load() } }
+            default:
+                content
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        let top = results.prefix(10).map(\.driver)
+        let codes = Dictionary(uniqueKeysWithValues: top.map { ($0.driverId, $0.code ?? String($0.familyName.prefix(3)).uppercased()) })
+        let pts: [Pt] = laps.flatMap { lap in
+            lap.timings.compactMap { t in
+                guard let c = codes[t.driverId], let p = Int(t.position) else { return nil }
+                return Pt(driver: c, lap: Int(lap.number) ?? 0, pos: p)
+            }
+        }
+        Text(L("Positions des 10 premiers à l'arrivée", "Positions of the top 10 finishers"))
+            .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        Chart(pts) {
+            LineMark(x: .value(L("Tour", "Lap"), $0.lap), y: .value("Position", $0.pos))
+                .interpolationMethod(.stepEnd)
+                .foregroundStyle(by: .value(L("Pilote", "Driver"), $0.driver))
+        }
+        .chartYScale(domain: .automatic(includesZero: false, reversed: true))
+        .chartForegroundStyleScale(domain: top.map { codes[$0.driverId] ?? "" },
+                                   range: results.prefix(10).map { Team.color($0.constructor.constructorId) })
+        .frame(height: 260)
+        // Tours en tête.
+        let leaders = laps.compactMap { $0.timings.first { $0.position == "1" }?.driverId }
+        let led = Dictionary(grouping: leaders, by: { $0 }).mapValues(\.count).sorted { $0.value > $1.value }
+        Text(L("Tours en tête (\(laps.count) tours)", "Laps led (\(laps.count) laps)"))
+            .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        ForEach(led, id: \.key) { e in
+            let r = results.first { $0.driver.driverId == e.key }
+            HStack {
+                Rectangle().fill(Team.color(r?.constructor.constructorId)).frame(width: 3, height: 20)
+                Text(r.map { "\($0.driver.givenName) \($0.driver.familyName)" } ?? e.key)
+                Spacer()
+                Text("\(e.value)").font(.body.monospacedDigit().weight(.bold))
+                GeometryReader { g in
+                    Capsule().fill(Team.color(r?.constructor.constructorId))
+                        .frame(width: g.size.width * CGFloat(e.value) / CGFloat(max(laps.count, 1)))
+                }
+                .frame(width: 80, height: 6)
+            }
+        }
+        Text(L("Temps au tour enregistrés : \(laps.reduce(0) { $0 + $1.timings.count })", "Lap times recorded: \(laps.reduce(0) { $0 + $1.timings.count })"))
+            .font(.caption2).foregroundStyle(.secondary)
+    }
+
+    private func load() async {
+        state = 1
+        do {
+            laps = try await F1API.shared.laps(season: season, round: round)
+            state = laps.isEmpty ? 3 : 2
+        } catch {
+            state = 3
+        }
+    }
+}
+
+/// Tracé du circuit (contour), comme sur la page d'accueil du site.
+struct TrackOutline: View {
+    let circuitId: String
+    var height: CGFloat = 190
+
+    @State private var map: TrackMap?
+
+    var body: some View {
+        VStack {
+            if let map {
+                GeometryReader { geo in
+                    let pad = 30.0
+                    let w = map.width + 2 * pad, h = map.height + 2 * pad
+                    let gw = Double(geo.size.width), gh = Double(geo.size.height)
+                    let scale = min(gw / w, gh / h)
+                    let ox = (gw - w * scale) / 2, oy = (gh - h * scale) / 2
+                    let pt = { (p: TrackPoint) in CGPoint(x: ox + (p.x + pad) * scale, y: oy + (p.y + pad) * scale) }
+                    Canvas { ctx, _ in
+                        var path = Path()
+                        for (i, p) in map.points.enumerated() {
+                            if i == 0 { path.move(to: pt(p)) } else { path.addLine(to: pt(p)) }
+                        }
+                        path.closeSubpath()
+                        ctx.stroke(path, with: .color(.white.opacity(0.18)), style: StrokeStyle(lineWidth: 12, lineCap: .round, lineJoin: .round))
+                        ctx.stroke(path, with: .color(.white), style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round))
+                        if let first = map.points.first {
+                            let c = pt(first)
+                            ctx.fill(Path(ellipseIn: CGRect(x: c.x - 6, y: c.y - 6, width: 12, height: 12)), with: .color(.white))
+                            ctx.fill(Path(ellipseIn: CGRect(x: c.x - 4.5, y: c.y - 4.5, width: 9, height: 9)), with: .color(Color.f1Red))
+                        }
+                    }
+                }
+                .frame(height: height)
+                .accessibilityLabel(L("Tracé du circuit", "Circuit layout"))
+            }
+        }
+        .task(id: circuitId) { map = try? await ServerAPI.shared.track(circuitId) }
+    }
+}

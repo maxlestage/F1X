@@ -40,6 +40,18 @@ actor F1API {
         try await races("\(season)/\(round)/pitstops.json?limit=100").first?.pitStops ?? []
     }
 
+    /// Tous les tours d'une course (positions et temps de chaque pilote), pages fusionnées.
+    func laps(season: String = "current", round: Int) async throws -> [LapData] {
+        let pages = try await races("\(season)/\(round)/laps.json", all: true)
+        var byLap: [Int: [LapTiming]] = [:]
+        for race in pages {
+            for lap in race.laps ?? [] {
+                byLap[Int(lap.number) ?? 0, default: []] += lap.timings
+            }
+        }
+        return byLap.keys.sorted().map { LapData(number: String($0), timings: byLap[$0] ?? []) }
+    }
+
     /// Vainqueurs de chaque saison ou d'un circuit (`results/1`).
     func winners(_ prefix: String) async throws -> [Race] {
         try await races("\(prefix)/results/1.json?limit=100", all: true)

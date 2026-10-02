@@ -123,6 +123,7 @@ private struct NextRaceCard: View {
                 .fixedSize(horizontal: false, vertical: true)
             Text("\(race.circuit.circuitName) — \(race.circuit.location.locality)")
                 .foregroundStyle(.secondary)
+            TrackOutline(circuitId: race.circuit.circuitId)
             if let start = race.start { CountdownView(target: start) }
             SessionsList(race: race)
             NavigationLink(value: race) {
