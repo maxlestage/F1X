@@ -671,11 +671,39 @@ final class TrackPath {
 
     init(_ map: TrackMap) {
         let cx = Float(map.width / 2), cz = Float(map.height / 2)
-        pts = map.points.map { V3(Float($0.x) - cx, Float($0.z ?? 0) * Self.relief, Float($0.y) - cz) }
-        t = map.points.map { Float($0.t) }
+        let raw = map.points.map { V3(Float($0.x) - cx, Float($0.z ?? 0) * Self.relief, Float($0.y) - cz) }
+        let rawT = map.points.map { Float($0.t) }
+        // Trajectoire lissée (Catmull-Rom, 4 points entre deux points GPS) : cap et position
+        // continus, déplacements fluides dans les virages.
+        let dense = Self.densify(raw, rawT, 4)
+        pts = dense.0
+        t = dense.1
         lapTime = Float(map.lap_time)
         radius = (cx * cx + cz * cz).squareRoot()
         centreY = (pts.map(\.y).max() ?? 0) / 2
+    }
+
+    static func densify(_ p: [V3], _ t: [Float], _ sub: Int) -> ([V3], [Float]) {
+        let n = p.count
+        guard n >= 4, t.count == n else { return (p, t) }
+        func at(_ i: Int) -> V3 { p[min(max(i, 0), n - 1)] }
+        var out: [V3] = [], times: [Float] = []
+        out.reserveCapacity(n * sub)
+        for i in 0..<(n - 1) {
+            let p0 = at(i - 1), p1 = at(i), p2 = at(i + 1), p3 = at(i + 2)
+            for k in 0..<sub {
+                let u = Float(k) / Float(sub), u2 = u * u, u3 = u2 * u
+                let a = p1 * 2
+                let b = (p2 - p0) * u
+                let c = (p0 * 2 - p1 * 5 + p2 * 4 - p3) * u2
+                let d = (p1 * 3 - p0 - p2 * 3 + p3) * u3
+                out.append((a + b + c + d) * 0.5)
+                times.append(t[i] + (t[i + 1] - t[i]) * u)
+            }
+        }
+        out.append(p[n - 1])
+        times.append(t[n - 1])
+        return (out, times)
     }
 
     /// Position et cap (radians autour de Y) au temps donné du tour.
@@ -709,10 +737,10 @@ final class TrackPath {
         return atan2(d.y, max((d.x * d.x + d.z * d.z).squareRoot(), 0.001))
     }
 
-    /// Caméras « TV » fixes au bord de la piste (une tous les ~14 points, en hauteur).
+    /// Caméras « TV » fixes au bord de la piste (une tous les ~14 points GPS, en hauteur).
     lazy var tvSpots: [V3] = {
         let n = pts.count
-        return stride(from: 0, to: n, by: 14).enumerated().map { (k, i) -> V3 in
+        return stride(from: 0, to: n, by: 56).enumerated().map { (k, i) -> V3 in
             let d = pts[min(i + 1, n - 1)] - pts[max(i - 1, 0)]
             let side = simd_normalize(simd_cross(V3(d.x, 0, d.z), V3(0, 1, 0)))
             let sgn: Float = k % 2 == 0 ? 1 : -1
@@ -852,6 +880,8 @@ final class TrackControl: ObservableObject {
     @Published var drivers: [String] = []
     /// Noms des pilotes au-dessus des voitures.
     @Published var showLabels = true
+    /// Vitesse de lecture (×1, ×2, ×4).
+    @Published var speed: Float = 1
     // Vue d'ensemble : orbite autour du circuit.
     var yaw: Float = 0.9
     var pitch: Float = 0.82
@@ -897,6 +927,7 @@ struct TrackSceneView: UIViewRepresentable {
         view.pointOfView = context.coordinator.camera
         view.delegate = context.coordinator
         view.isPlaying = true
+        view.preferredFramesPerSecond = 120 // ProMotion : jusqu'à 120 images/s
         let c = context.coordinator
         let pan = UIPanGestureRecognizer(target: c, action: #selector(Coordinator.onPan(_:)))
         pan.maximumNumberOfTouches = 1
@@ -933,6 +964,7 @@ struct TrackSceneView: UIViewRepresentable {
         private var clock: Float = 0
         private var smoothEye: V3?
         private var smoothTarget: V3?
+        private var smoothHeading: Float?
 
         init(map: TrackMap, ghost: Bool, control: TrackControl) {
             path = TrackPath(map)
@@ -1108,7 +1140,7 @@ struct TrackSceneView: UIViewRepresentable {
         func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
             let dt = Float(last == 0 ? 0 : min(time - last, 0.1))
             last = time
-            clock += dt
+            clock += dt * control.speed
             var followed: (V3, Float)?
             if let ghostCar, !ghostCar.isHidden {
                 let (p, h) = path.at(time: clock)
@@ -1161,7 +1193,14 @@ struct TrackSceneView: UIViewRepresentable {
             let c = control
             var eye: V3, target: V3, snap = false
             var fov: CGFloat = 40
-            if c.following, let (pos, h) = followed {
+            if c.following, let (pos, carHeading) = followed {
+                // Cap lissé : la caméra tourne en douceur avec la voiture dans les virages,
+                // tout en restant collée à sa position (pas de retard).
+                let prev = smoothHeading ?? carHeading
+                var turn = (carHeading - prev).truncatingRemainder(dividingBy: 2 * .pi)
+                if turn > .pi { turn -= 2 * .pi } else if turn < -.pi { turn += 2 * .pi }
+                let h = prev + turn * min(dt * 6, 1)
+                smoothHeading = h
                 let fwd = V3(cos(h), 0, -sin(h))
                 switch c.mode {
                 case .cockpit:
@@ -1184,7 +1223,8 @@ struct TrackSceneView: UIViewRepresentable {
                     eye = orbit(target, -h + .pi + c.fyaw, c.fpitch, 62 * c.fzoom) + V3(0, c.flift, 0)
                     fov = 55
                 }
-                let k = snap ? 1 : min(dt * 5, 1)
+                // Seule la caméra TV glisse d'un poste à l'autre ; les autres suivent sans retard.
+                let k: Float = snap || c.mode != .tv ? 1 : min(dt * 5, 1)
                 let e0 = smoothEye ?? eye, t0 = smoothTarget ?? target
                 eye = e0 + (eye - e0) * k
                 target = t0 + (target - t0) * k
@@ -1193,6 +1233,7 @@ struct TrackSceneView: UIViewRepresentable {
             } else {
                 smoothEye = nil
                 smoothTarget = nil
+                smoothHeading = nil
                 let fovRad: Float = 40 * .pi / 180
                 let dist = path.radius / sin(fovRad / 2) * 1.08 * c.zoom
                 target = V3(0, path.centreY, 0) + c.pan
@@ -1307,6 +1348,9 @@ struct Track3DView: View {
             }
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
+                Button { control.speed = control.speed >= 4 ? 1 : control.speed * 2 } label: { Text("×\(Int(control.speed))").monospacedDigit() }
+                    .frame(width: 38, height: 34).background(.black.opacity(0.65), in: Capsule())
+                    .accessibilityLabel(L("Vitesse de lecture", "Playback speed"))
                 Button { control.showLabels.toggle() } label: { Image(systemName: control.showLabels ? "tag.fill" : "tag.slash") }
                     .frame(width: 34, height: 34).background(.black.opacity(0.65), in: Circle())
                     .accessibilityLabel(L("Afficher les noms", "Show names"))
