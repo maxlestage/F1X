@@ -530,6 +530,82 @@ enum Studio {
         return scene
     }
 
+    /// Ciel de jour : bleu en haut, horizon pâle et brumeux (fond des circuits).
+    static let daySky: UIImage = {
+        let size = CGSize(width: 16, height: 256)
+        return UIGraphicsImageRenderer(size: size).image { ctx in
+            let colors = [UIColor(red: 0.24, green: 0.45, blue: 0.78, alpha: 1).cgColor,
+                          UIColor(red: 0.47, green: 0.65, blue: 0.88, alpha: 1).cgColor,
+                          UIColor(red: 0.78, green: 0.84, blue: 0.90, alpha: 1).cgColor,
+                          UIColor(red: 0.62, green: 0.68, blue: 0.70, alpha: 1).cgColor] as CFArray
+            let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 0.38, 0.5, 1])!
+            ctx.cgContext.drawLinearGradient(g, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
+        }
+    }()
+
+    /// Environnement d'éclairage extérieur (ciel, horizon, sol herbeux) : lumière indirecte réaliste.
+    static let dayEnvironment: UIImage = {
+        let size = CGSize(width: 512, height: 256)
+        return UIGraphicsImageRenderer(size: size).image { ctx in
+            let colors = [UIColor(red: 0.36, green: 0.52, blue: 0.80, alpha: 1).cgColor,
+                          UIColor(red: 0.70, green: 0.78, blue: 0.88, alpha: 1).cgColor,
+                          UIColor(red: 0.30, green: 0.34, blue: 0.26, alpha: 1).cgColor,
+                          UIColor(red: 0.16, green: 0.19, blue: 0.13, alpha: 1).cgColor] as CFArray
+            let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 0.48, 0.52, 1])!
+            ctx.cgContext.drawLinearGradient(g, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
+            // Soleil.
+            ctx.cgContext.setFillColor(UIColor(white: 1, alpha: 0.95).cgColor)
+            ctx.cgContext.fillEllipse(in: CGRect(x: 300, y: 40, width: 18, height: 18))
+        }
+    }()
+
+    /// Scène extérieure des circuits : ciel de jour, soleil avec ombres douces en cascades.
+    static func outdoorScene(radius: Float) -> SCNScene {
+        let scene = SCNScene()
+        scene.lightingEnvironment.contents = dayEnvironment
+        scene.lightingEnvironment.intensity = 0.9
+        scene.background.contents = daySky
+        let sun = SCNNode()
+        sun.light = SCNLight()
+        let l = sun.light!
+        l.type = .directional
+        l.intensity = 1150
+        l.color = UIColor(red: 1.0, green: 0.95, blue: 0.86, alpha: 1)
+        l.castsShadow = true
+        l.shadowMode = .deferred
+        l.automaticallyAdjustsShadowProjection = true
+        l.maximumShadowDistance = CGFloat(radius * 3)
+        l.shadowCascadeCount = 3
+        l.shadowMapSize = CGSize(width: 4096, height: 4096)
+        l.shadowSampleCount = 16
+        l.shadowRadius = 2.5
+        l.shadowColor = UIColor(white: 0, alpha: 0.62)
+        sun.eulerAngles = SCNVector3(-0.85, 0.75, 0)
+        scene.rootNode.addChildNode(sun)
+        // Brume de distance à la couleur de l'horizon.
+        scene.fogColor = UIColor(red: 0.74, green: 0.80, blue: 0.88, alpha: 1)
+        scene.fogStartDistance = CGFloat(radius * 0.9)
+        scene.fogEndDistance = CGFloat(radius * 7)
+        scene.fogDensityExponent = 1.4
+        return scene
+    }
+
+    /// Caméra extérieure : exposition maîtrisée (pas d'herbe fluo), occlusion ambiante.
+    static func outdoorCamera(fov: CGFloat) -> SCNNode {
+        let node = camera(fov: fov, far: 20_000)
+        let c = node.camera!
+        c.zNear = 0.5
+        c.wantsExposureAdaptation = false
+        c.exposureOffset = -0.35
+        c.bloomIntensity = 0.08
+        c.screenSpaceAmbientOcclusionIntensity = 0.9
+        c.screenSpaceAmbientOcclusionRadius = 3
+        c.screenSpaceAmbientOcclusionNormalThreshold = 0.3
+        c.contrast = 0.08
+        c.saturation = 0.95
+        return node
+    }
+
     static func camera(fov: CGFloat = 35, far: Double = 200) -> SCNNode {
         let cam = SCNNode()
         cam.camera = SCNCamera()
@@ -749,10 +825,10 @@ struct TrackSceneView: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, SCNSceneRendererDelegate {
-        let scene = Studio.scene()
+        let scene: SCNScene
         let path: TrackPath
-        let overview = Studio.camera(fov: 40, far: 20_000)
-        let chaseCam = Studio.camera(fov: 55, far: 20_000)
+        let overview = Studio.outdoorCamera(fov: 40)
+        let chaseCam = Studio.outdoorCamera(fov: 55)
         let ghostCar: SCNNode?
         var chase = false
         weak var view: SCNView?
@@ -763,19 +839,15 @@ struct TrackSceneView: UIViewRepresentable {
 
         init(map: TrackMap, ghost: Bool) {
             path = TrackPath(map)
+            scene = Studio.outdoorScene(radius: path.radius)
             ghostCar = ghost ? CarModel.node(livery: .single(UIColor(Color(hexString: map.colour)))) : nil
             super.init()
             let simple = TrackModel.node(map, path: path)
             scene.rootNode.addChildNode(simple)
-            // Ciel et brouillard de distance.
-            scene.background.contents = Studio.sky
-            scene.fogColor = UIColor(red: 0.12, green: 0.165, blue: 0.24, alpha: 1)
-            scene.fogStartDistance = CGFloat(path.radius * 0.6)
-            scene.fogEndDistance = CGFloat(path.radius * 6)
             // Décor détaillé (relief, vibreurs, tribunes, arbres) calculé par le serveur.
             let id = map.circuit_id
             Task { [weak self] in
-                guard let url = URL(string: "api/track3d/\(id)?v=3", relativeTo: Server.base),
+                guard let url = URL(string: "api/track3d/\(id)?v=4", relativeTo: Server.base),
                       let result = try? await URLSession.shared.data(from: url),
                       (result.1 as? HTTPURLResponse)?.statusCode == 200,
                       let groups = CarFile.parse([UInt8](result.0)) else { return }

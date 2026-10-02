@@ -68,34 +68,37 @@ struct SectionBadge: View {
 
     var body: some View {
         let (dark, light) = section.colors
-        HStack(spacing: size * 0.12) {
-            // Traînée de vitesse.
+        // L'écusson seul occupe la place (centré dans la bulle de la barre) ; la traînée de
+        // vitesse est dessinée à sa gauche, hors mise en page.
+        ZStack {
+            Slanted(radius: size * 0.2)
+                .fill(LinearGradient(colors: [light, dark], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .shadow(color: dark.opacity(0.5), radius: size * 0.3, y: size * 0.08)
+            Image(systemName: section.symbol)
+                .font(.system(size: size * 0.52, weight: .bold))
+                .foregroundStyle(.white)
+                .scaleEffect(shown ? 1 : 0.2)
+                .rotationEffect(.degrees(shown ? 0 : -30))
+            // Reflet qui traverse l'écusson.
+            LinearGradient(colors: [.clear, .white.opacity(0.75), .clear], startPoint: .leading, endPoint: .trailing)
+                .frame(width: size * 0.5)
+                .offset(x: shine ? size * 1.2 : -size * 1.2)
+                .mask(Slanted(radius: size * 0.2))
+        }
+        .frame(width: size * 1.35, height: size)
+        .offset(x: shown ? 0 : -size)
+        .opacity(shown ? 1 : 0)
+        .overlay(alignment: .leading) {
             VStack(alignment: .trailing, spacing: size * 0.16) {
                 Capsule().fill(light.opacity(0.55)).frame(width: size * 0.5, height: size * 0.08)
                 Capsule().fill(LinearGradient(colors: [.clear, light], startPoint: .leading, endPoint: .trailing))
                     .frame(width: size * 0.85, height: size * 0.12)
                 Capsule().fill(light.opacity(0.35)).frame(width: size * 0.4, height: size * 0.08)
             }
+            .frame(width: size * 0.85, alignment: .trailing)
+            .offset(x: -size * 0.97 + (shown ? -size * 0.6 : 0))
             .opacity(shown ? 0 : 1)
-            .offset(x: shown ? -size * 0.6 : 0)
-            ZStack {
-                Slanted(radius: size * 0.2)
-                    .fill(LinearGradient(colors: [light, dark], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .shadow(color: dark.opacity(0.5), radius: size * 0.3, y: size * 0.08)
-                Image(systemName: section.symbol)
-                    .font(.system(size: size * 0.52, weight: .bold))
-                    .foregroundStyle(.white)
-                    .scaleEffect(shown ? 1 : 0.2)
-                    .rotationEffect(.degrees(shown ? 0 : -30))
-                // Reflet qui traverse l'écusson.
-                LinearGradient(colors: [.clear, .white.opacity(0.75), .clear], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: size * 0.5)
-                    .offset(x: shine ? size * 1.2 : -size * 1.2)
-                    .mask(Slanted(radius: size * 0.2))
-            }
-            .frame(width: size * 1.35, height: size)
-            .offset(x: shown ? 0 : -size)
-            .opacity(shown ? 1 : 0)
+            .allowsHitTesting(false)
         }
         .accessibilityHidden(true)
         .onAppear { animate() }
