@@ -83,25 +83,17 @@ struct RaceDetailView: View {
                 }
             }
 
+            FastestLapsSection(results: results)
+
             if !pits.isEmpty {
-                Section(L("Arrêts aux stands", "Pit stops")) {
-                    let fastest = pits.compactMap { p in p.duration.flatMap(Double.init).map { (p, $0) } }.min { $0.1 < $1.1 }
-                    if let f = fastest {
-                        Text(L("Arrêt le plus court : \(name(f.0.driverId)) en \(String(format: "%.3f", f.1)) s (tour \(f.0.lap))",
-                               "Quickest stop: \(name(f.0.driverId)) in \(String(format: "%.3f", f.1)) s (lap \(f.0.lap))"))
-                            .font(.subheadline.bold())
-                    }
-                    ForEach(pits) { p in
-                        HStack {
-                            Text(name(p.driverId)).bold()
-                            Spacer()
-                            Text(L("Tour \(p.lap) · arrêt \(p.stop) · \(p.duration ?? "–") s", "Lap \(p.lap) · stop \(p.stop) · \(p.duration ?? "–") s"))
-                                .font(.footnote.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
+                PitStopsSection(pits: pits, results: results)
             }
+
+            if race.isOver(), (Int(race.season) ?? 0) >= 1996, !results.isEmpty {
+                LapByLapSection(season: race.season, round: race.roundNumber, results: results, pits: pits)
+            }
+
+            RaceSummarySection(results: results)
 
             if !isLoading && race.isOver() && results.isEmpty {
                 Section {
