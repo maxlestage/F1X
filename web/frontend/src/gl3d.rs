@@ -1755,7 +1755,7 @@ impl State {
                     0.74,
                     0.80,
                     0.88,
-                    1.0 / (path.radius * 7.0),
+                    1.0 / (path.radius * 10.0),
                 );
             }
             None => {
