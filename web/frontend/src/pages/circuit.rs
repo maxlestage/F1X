@@ -54,7 +54,8 @@ pub fn CircuitPage(props: &IdProps) -> Html {
             .iter()
             .any(|r| r.season.parse::<u32>().unwrap_or(0) >= 2023 && r.is_over(now_ms()))
     });
-    let track = use_json::<TrackMap>(recent.then(|| format!("/api/track/{id}")));
+    let attempt = use_state(|| 0u32);
+    let track = use_json::<TrackMap>(recent.then(|| super::track_url(&id, *attempt)));
 
     // Les infos du circuit viennent de la liste de ses Grands Prix (une requête de moins).
     let Some(circuit) = races
@@ -186,9 +187,7 @@ pub fn CircuitPage(props: &IdProps) -> Html {
                             "Layout available for circuits used since 2023 (OpenF1 GPS data).",
                         ) }</p>
                     },
-                    Some(Err(_)) => html! {
-                        <p class="muted">{ t("Tracé momentanément indisponible.", "Layout temporarily unavailable.") }</p>
-                    },
+                    Some(Err(_)) => super::track_unavailable(&attempt),
                 } }
             </section>
 
