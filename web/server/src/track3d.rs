@@ -428,14 +428,16 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
         for gx in 0..=grid {
             let (x, z) = (-ext + gx as f32 * step, -ext + gz as f32 * step);
             let (mut wsum, mut hsum, mut best, mut best_y) = (1e-4f32, mean * 1e-4, f32::MAX, mean);
-            // Plus bas point de piste dans le voisinage : le relief passe toujours dessous.
-            let reach = (hw + step * 1.8).powi(2);
-            let mut low = f32::MAX;
+            // Contraintes en « cône » autour de chaque point de piste : le relief ne monte
+            // jamais au-dessus du revêtement (talus doux, pas de piste encaissée) et ne descend
+            // pas trop dessous (pas de piste suspendue dans le vide).
+            let (mut cap, mut floor) = (f32::MAX, f32::MIN);
+            let edge = hw + step * 1.2;
             for p in pts.iter() {
-                let d2 = (p[0] - x).powi(2) + (p[2] - z).powi(2);
-                if d2 < reach {
-                    low = low.min(p[1]);
-                }
+                let d = ((p[0] - x).powi(2) + (p[2] - z).powi(2)).sqrt();
+                let beyond = (d - edge).max(0.0);
+                cap = cap.min(p[1] - 0.6 + 0.30 * beyond);
+                floor = floor.max(p[1] - 0.6 - 0.45 * beyond);
             }
             for p in pts.iter().step_by(2) {
                 let d2 = (p[0] - x).powi(2) + (p[2] - z).powi(2);
@@ -449,13 +451,13 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
             }
             let d = best.sqrt();
             // Près de la piste : à la hauteur du revêtement (un peu dessous) ; au loin : relief
-            // moyen des alentours ; transition douce entre les deux (pas de falaise).
+            // moyen des alentours ; transition douce entre les deux.
             let far = hsum / wsum;
             let k = ((d - (hw + 6.0)) / 90.0).clamp(0.0, 1.0);
             let k = k * k * (3.0 - 2.0 * k);
-            let near = best_y.min(low) - 0.6;
+            let near = best_y - 0.6;
             let y = near + (far - near) * k;
-            h[gz * (grid + 1) + gx] = if low < f32::MAX { y.min(low - 0.6) } else { y };
+            h[gz * (grid + 1) + gx] = y.max(floor).min(cap);
             dist[gz * (grid + 1) + gx] = d;
         }
     }
