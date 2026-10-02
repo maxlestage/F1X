@@ -75,7 +75,7 @@ struct FastestLapsSection: View {
             .sorted { (Int($0.fastestLap?.rank ?? "") ?? 99) < (Int($1.fastestLap?.rank ?? "") ?? 99) }
         if !laps.isEmpty {
             Section(L("Meilleurs tours", "Fastest laps")) {
-                ForEach(laps.prefix(10)) { r in
+                ForEach(Array(laps.prefix(10).enumerated()), id: \.offset) { _, r in
                     let f = r.fastestLap!
                     let detail = [f.lap.map { L("tour \($0)", "lap \($0)") },
                                   f.averageSpeed.map { "\($0.speed) km/h" }].compactMap { $0 }.joined(separator: " · ")
@@ -162,7 +162,15 @@ struct LapByLapSection: View {
     @ViewBuilder
     private var content: some View {
         let top = results.prefix(10).map(\.driver)
-        let codes = Dictionary(uniqueKeysWithValues: top.map { ($0.driverId, $0.code ?? String($0.familyName.prefix(3)).uppercased()) })
+        let codes = Dictionary(top.map { ($0.driverId, $0.code ?? String($0.familyName.prefix(3)).uppercased()) }, uniquingKeysWith: { a, _ in a })
+        // Légende sans doublon (deux pilotes au même code feraient planter Charts).
+        let legend: [(String, Color)] = {
+            var seen = Set<String>()
+            return zip(top, results.prefix(10)).compactMap { d, r in
+                let c = codes[d.driverId] ?? ""
+                return seen.insert(c).inserted ? (c, Team.color(r.constructor.constructorId)) : nil
+            }
+        }()
         let pts: [Pt] = laps.flatMap { lap in
             lap.timings.compactMap { t in
                 guard let c = codes[t.driverId], let p = Int(t.position) else { return nil }
@@ -177,8 +185,7 @@ struct LapByLapSection: View {
                 .foregroundStyle(by: .value(L("Pilote", "Driver"), $0.driver))
         }
         .chartYScale(domain: .automatic(includesZero: false, reversed: true))
-        .chartForegroundStyleScale(domain: top.map { codes[$0.driverId] ?? "" },
-                                   range: results.prefix(10).map { Team.color($0.constructor.constructorId) })
+        .chartForegroundStyleScale(domain: legend.map(\.0), range: legend.map(\.1))
         .frame(height: 260)
         // Tours en tête.
         let leaders = laps.compactMap { $0.timings.first { $0.position == "1" }?.driverId }

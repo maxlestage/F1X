@@ -65,7 +65,7 @@ struct LiveView: View {
                        "Relive any session since 2023 as if it were live: order, gaps, tyres, pit stops, flags, weather and race control."))
                     .font(.footnote).foregroundStyle(.secondary)
                 Picker(L("Année", "Year"), selection: $year) {
-                    ForEach((2023...Calendar.current.component(.year, from: .now)).reversed(), id: \.self) { Text(String($0)).tag($0) }
+                    ForEach((2023...max(2023, Calendar.current.component(.year, from: .now))).reversed(), id: \.self) { Text(String($0)).tag($0) }
                 }
                 Picker(L("Vitesse", "Speed"), selection: $speed) {
                     ForEach([1, 5, 10, 30, 60], id: \.self) { Text("×\($0)").tag($0) }
@@ -266,7 +266,7 @@ struct LiveView: View {
     private func feedSection(_ snap: Snapshot) -> some View {
         Section(L("Chronologie", "Timeline")) {
             if snap.events.isEmpty { Text(L("Rien pour l'instant.", "Nothing yet.")).foregroundStyle(.secondary) }
-            ForEach(snap.events.prefix(40)) { e in
+            ForEach(Array(snap.events.prefix(40).enumerated()), id: \.offset) { _, e in
                 HStack(alignment: .top) {
                     Text(e.icon).frame(width: 24)
                     VStack(alignment: .leading) {
@@ -277,7 +277,7 @@ struct LiveView: View {
             }
         }
         Section(L("Direction de course", "Race control")) {
-            ForEach(snap.race_control.prefix(20)) { m in
+            ForEach(Array(snap.race_control.prefix(20).enumerated()), id: \.offset) { _, m in
                 VStack(alignment: .leading, spacing: 2) {
                     Text(m.message).font(.footnote).fixedSize(horizontal: false, vertical: true)
                     Text([m.lap.map { L("Tour \($0)", "Lap \($0)") }, m.flag].compactMap { $0 }.joined(separator: " · "))

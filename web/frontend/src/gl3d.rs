@@ -852,6 +852,8 @@ fn car_mesh() -> Mesh {
 struct Path {
     pts: Vec<V3>,
     t: Vec<f32>,
+    /// Vitesse (km/h) du point GPS d'origine pour chaque point de la ligne densifiée.
+    speeds: Vec<f32>,
     lap_time: f32,
     radius: f32,
     centre_y: f32,
@@ -871,6 +873,19 @@ impl Path {
         let pos = lerp3(self.pts[i], self.pts[j], k);
         let d = sub(self.pts[(i + 2).min(n - 1)], self.pts[i.saturating_sub(1)]);
         (pos, (-d[2]).atan2(d[0]))
+    }
+
+    /// Vitesse (km/h) au temps donné du tour.
+    fn speed_at(&self, time: f32) -> f32 {
+        let n = self.pts.len().min(self.speeds.len());
+        if n < 2 {
+            return 0.0;
+        }
+        let time = time.rem_euclid(self.lap_time.max(1.0));
+        let i = self.t.partition_point(|&x| x <= time).clamp(1, n - 1) - 1;
+        let j = (i + 1).min(n - 1);
+        let k = ((time - self.t[i]) / (self.t[j] - self.t[i]).max(1e-3)).clamp(0.0, 1.0);
+        self.speeds[i] + (self.speeds[j] - self.speeds[i]) * k
     }
 
     /// Pente (tangage, radians) au temps donné : le nez monte en côte.
@@ -1036,8 +1051,13 @@ fn track_mesh(map: &TrackMap) -> Option<(Mesh, Path)> {
         })
         .collect();
     let (pts, times) = densify(&pts, &raw.iter().map(|p| p.t).collect::<Vec<_>>(), 4);
+    let (dn, rn) = (pts.len(), raw.len());
+    let speeds = (0..dn)
+        .map(|i| raw[(i * rn / dn.max(1)).min(rn.saturating_sub(1))].speed as f32)
+        .collect();
     let path = Path {
         t: times,
+        speeds,
         lap_time: map.lap_time as f32,
         radius: (cx * cx + cz * cz).sqrt(),
         centre_y: max_y / 2.0,
@@ -1707,6 +1727,13 @@ struct State {
     clock: f64,
     cars: Vec<LiveCar>,
     labels: Option<HtmlElement>,
+    /// Effets de vitesse (traînées, compteur) par-dessus la vue.
+    hud: Option<HtmlElement>,
+    /// Vitesse lissée de la voiture suivie, temps réel (vibrations), angle de vue lissé.
+    kmh: f32,
+    wall: f32,
+    vfov_s: f32,
+    hud_at: f64,
     canvas: HtmlCanvasElement,
 }
 
@@ -1734,6 +1761,7 @@ impl State {
             return;
         }
         self.clock += (dt * self.speed) as f64;
+        self.wall += dt;
         let dpr = win.device_pixel_ratio().min(2.0);
         let (w, h) = ((rect.width() * dpr) as u32, (rect.height() * dpr) as u32);
         if self.canvas.width() != w || self.canvas.height() != h {
@@ -1752,6 +1780,7 @@ impl State {
         // inclinées selon la pente, avec un léger décalage latéral pour le plateau.
         let mut placed: Vec<(M4, Paint, V3, Option<usize>)> = Vec::new();
         let mut follow_at: Option<(V3, f32)> = None;
+        let mut follow_kmh = 0.0f32;
         if let Some((_, path)) = &self.track {
             let clock = self.clock as f32;
             if self.ghost && self.field.is_empty() {
@@ -1764,6 +1793,7 @@ impl State {
                     None,
                 ));
                 follow_at = Some((pos, heading));
+                follow_kmh = path.speed_at(clock);
             }
             let field = !self.field.is_empty();
             let followed = self.follow.min(self.cars.len().saturating_sub(1));
@@ -1790,10 +1820,23 @@ impl State {
                 ));
                 if i == followed && (field || !self.ghost) {
                     follow_at = Some((pos, heading));
+                    follow_kmh = path.speed_at(time);
                 }
             }
         }
 
+        self.kmh += (follow_kmh - self.kmh) * (dt * 4.0).min(1.0);
+        // Sensation de vitesse : 0 sous 100 km/h, 1 vers 320 km/h.
+        let rush = ((self.kmh - 100.0) / 220.0).clamp(0.0, 1.0);
+        let wt = self.wall;
+        let shake = mul(
+            [
+                (wt * 37.0).sin() * 0.6 + (wt * 61.0).sin() * 0.4,
+                (wt * 43.0).sin() * 0.7 + (wt * 79.0).sin() * 0.3,
+                (wt * 53.0).sin() * 0.5,
+            ],
+            rush * rush,
+        );
         let (eye, target, near, far) = match &self.track {
             None => {
                 let dist = 3.0 / ((fov / 2.0).tan() * aspect.min(1.8))
@@ -1847,9 +1890,9 @@ impl State {
                                     [0.0, 1.32 * CAR_SCALE + 0.6, 0.0],
                                 );
                                 (
-                                    eye,
+                                    add(eye, mul(shake, 0.06 * CAR_SCALE)),
                                     add(
-                                        add(eye, mul(dir, 80.0)),
+                                        add(add(eye, mul(dir, 80.0)), mul(shake, 0.5)),
                                         [0.0, -9.0 + (f.pitch - 0.35) * 40.0, 0.0],
                                     ),
                                     true,
@@ -1875,15 +1918,16 @@ impl State {
                             }
                             _ => {
                                 let target = add(add(pos, mul(fwd, 12.0)), [0.0, 3.0, 0.0]);
+                                // Poursuite plus basse et plus proche à pleine vitesse.
                                 (
                                     add(
                                         orbit(
                                             target,
                                             -heading + PI + f.yaw,
-                                            f.pitch,
-                                            62.0 * f.zoom,
+                                            f.pitch * (1.0 - 0.3 * rush),
+                                            62.0 * f.zoom * (1.0 - 0.15 * rush),
                                         ),
-                                        lift,
+                                        add(lift, mul(shake, 0.35)),
                                     ),
                                     target,
                                     false,
@@ -1905,11 +1949,21 @@ impl State {
                 }
             }
         };
-        let vfov = if self.mode == CamMode::Tv && self.track.is_some() {
-            (fov / self.fcam.zoom).clamp(0.12, 1.2)
-        } else {
-            fov
+        let following = self.following() && follow_at.is_some();
+        let want_fov = match (self.track.is_some(), self.mode) {
+            (true, CamMode::Tv) => (fov / self.fcam.zoom).clamp(0.12, 1.2),
+            // L'angle s'ouvre avec la vitesse : le décor défile plus vite sur les bords.
+            (true, CamMode::Cockpit) if following => 1.05 + rush * 0.28,
+            (true, CamMode::Chase) if following => 0.9 + rush * 0.3,
+            _ => fov,
         };
+        if (self.vfov_s - want_fov).abs() > 0.2 {
+            self.vfov_s = want_fov;
+        } else {
+            self.vfov_s += (want_fov - self.vfov_s) * (dt * 3.0).min(1.0);
+        }
+        let vfov = self.vfov_s;
+        self.update_hud(t, following, rush);
         let vp = M4::perspective(vfov, aspect, near, far).mul(&M4::look_at(
             eye,
             target,
@@ -2018,6 +2072,29 @@ impl State {
                     }
                 }
             }
+        }
+    }
+
+    /// Compteur et traînées de vitesse (mis à jour ~12 fois par seconde).
+    fn update_hud(&mut self, t: f64, following: bool, rush: f32) {
+        if t - self.hud_at < 80.0 {
+            return;
+        }
+        self.hud_at = t;
+        let Some(hud) = &self.hud else { return };
+        let style = hud.style();
+        if !following {
+            let _ = style.set_property("display", "none");
+            return;
+        }
+        let _ = style.set_property("display", "block");
+        let _ = style.set_property("--rush", &format!("{rush:.2}"));
+        let _ = style.set_property(
+            "--rev",
+            &format!("{:.0}%", (self.kmh / 3.4).clamp(0.0, 100.0)),
+        );
+        if let Some(gauge) = hud.last_element_child() {
+            gauge.set_inner_html(&format!("<b>{:.0}</b> km/h", self.kmh));
         }
     }
 
@@ -2262,6 +2339,7 @@ impl Viewer {
     fn new(
         canvas: HtmlCanvasElement,
         labels: Option<HtmlElement>,
+        hud: Option<HtmlElement>,
         scene: &Scene,
     ) -> Option<Viewer> {
         let gpu = Gpu::new(&canvas)?;
@@ -2308,6 +2386,11 @@ impl Viewer {
             clock: 0.0,
             cars: Vec::new(),
             labels,
+            hud,
+            kmh: 0.0,
+            wall: 0.0,
+            vfov_s: 0.62,
+            hud_at: 0.0,
             canvas,
         }));
         let alive = Rc::new(Cell::new(true));
@@ -2371,6 +2454,7 @@ fn lock_scroll(lock: bool) {
 pub fn View3D(props: &ViewProps) -> Html {
     let canvas = use_node_ref();
     let labels = use_node_ref();
+    let hud = use_node_ref();
     let viewer = use_mut_ref(|| None::<Viewer>);
     let failed = use_state(|| false);
     let mode = use_state(|| CamMode::Overview);
@@ -2381,17 +2465,23 @@ pub fn View3D(props: &ViewProps) -> Html {
     let show_labels = use_state(|| true);
     let speed = use_state(|| 1u32);
     {
-        let (canvas, labels, viewer, failed, field) = (
+        let (canvas, labels, hud, viewer, failed, field) = (
             canvas.clone(),
             labels.clone(),
+            hud.clone(),
             viewer.clone(),
             failed.clone(),
             field.clone(),
         );
         use_effect_with(props.scene.clone(), move |scene| {
-            let made = canvas
-                .cast::<HtmlCanvasElement>()
-                .and_then(|c| Viewer::new(c, labels.cast::<HtmlElement>(), scene));
+            let made = canvas.cast::<HtmlCanvasElement>().and_then(|c| {
+                Viewer::new(
+                    c,
+                    labels.cast::<HtmlElement>(),
+                    hud.cast::<HtmlElement>(),
+                    scene,
+                )
+            });
             if made.is_none() {
                 failed.set(true);
             }
@@ -2605,6 +2695,7 @@ pub fn View3D(props: &ViewProps) -> Html {
                 aria-label={if is_track { t("Circuit en 3D", "3D circuit") } else { t("Monoplace en 3D", "3D car") }}
                 {onpointerdown} {onpointermove} onpointerup={onpointerup.clone()} onpointercancel={onpointerup} {onwheel} />
             <div ref={labels} class="scene-labels" aria-hidden="true"></div>
+            <div ref={hud} class="scene-hud" aria-hidden="true"><div class="scene-fx"></div><div class="scene-speed"></div></div>
             if *full {
                 <p class="scene-hint">{ t(
                     "1 doigt : tourner · 2 doigts : zoomer et déplacer · double toucher : recentrer",

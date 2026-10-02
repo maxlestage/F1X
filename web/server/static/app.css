@@ -497,6 +497,22 @@ button.btn:disabled { opacity: .5; }
   white-space: nowrap; color: #fff; background: rgba(8, 8, 12, .62); border-left: 3px solid var(--team, #fff);
   box-shadow: 0 1px 2px rgba(0,0,0,.4); visibility: hidden; }
 .scene-nolabels .scene-labels { display: none; }
+/* Sensation de vitesse (caméras qui suivent) : traînées qui filent vers les bords, vignettage, compteur. */
+.scene-hud { position: absolute; inset: 0; pointer-events: none; display: none; --rush: 0; --rev: 0%; }
+.scene-fx { position: absolute; inset: 0; overflow: hidden; opacity: var(--rush); transition: opacity .3s;
+  box-shadow: inset 0 0 140px rgba(0, 0, 0, .55); }
+.scene-fx::before, .scene-fx::after { content: ""; position: absolute; inset: -30%; transform-origin: 50% 47%;
+  background: repeating-conic-gradient(from 0deg at 50% 47%, rgba(255,255,255,.5) 0 .3deg, transparent .3deg 6.5deg);
+  -webkit-mask: radial-gradient(circle at 50% 47%, transparent 26%, #000 55%);
+  mask: radial-gradient(circle at 50% 47%, transparent 26%, #000 55%);
+  animation: speed-rush .42s linear infinite; }
+.scene-fx::after { animation-delay: -.21s;
+  background: repeating-conic-gradient(from 3.1deg at 50% 47%, rgba(255,255,255,.4) 0 .25deg, transparent .25deg 8deg); }
+@keyframes speed-rush { from { transform: scale(1); opacity: 0; } 35% { opacity: 1; } to { transform: scale(1.4); opacity: 0; } }
+.scene-speed { position: absolute; left: 10px; top: 10px; padding: 3px 10px 6px; border-radius: 8px; color: #fff;
+  background: rgba(8, 8, 12, .62) linear-gradient(90deg, #22c55e, #facc15, var(--red)) no-repeat left bottom / var(--rev) 3px; }
+.scene-speed { font-size: .7rem; font-weight: 700; color: rgba(255,255,255,.75); }
+.scene-speed b { font-size: 1.45rem; font-weight: 900; font-style: italic; color: #fff; font-variant-numeric: tabular-nums; }
 .scene-tools { position: absolute; right: 8px; bottom: 8px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: calc(100% - 16px); }
 .scene-btn { min-height: 36px; min-width: 36px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line);
   background: rgba(11, 11, 16, .78); color: var(--text); font: inherit; font-size: .82rem; font-weight: 600; cursor: pointer; }
@@ -677,6 +693,7 @@ button.btn:disabled { opacity: .5; }
   .sec-intro, #splash { display: none; }
   .sec-badge, .sec-badge svg, .sec-badge::after, .sec-trail { animation: none; }
   .sec-trail { display: none; }
+  .scene-fx::before, .scene-fx::after { animation: none; display: none; }
 }
 
 /* Sélecteurs de caméra et de pilote (vue 3D des circuits). */

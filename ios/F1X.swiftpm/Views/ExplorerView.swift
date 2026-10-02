@@ -211,7 +211,7 @@ struct CompareView: View {
                     row(L("Meilleurs tours", "Fastest laps"), sa.fastest, sb.fastest)
                     row(L("Saisons", "Seasons"), sa.seasons.count, sb.seasons.count)
                 }
-                let common = Dictionary(uniqueKeysWithValues: cb.map { ($0.id, $0) })
+                let common = Dictionary(cb.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
                 let duels = ca.compactMap { r -> (Int, Int)? in
                     guard let o = common[r.id], let pa = r.results?.first.flatMap({ Int($0.position) }),
                           let pb = o.results?.first.flatMap({ Int($0.position) }) else { return nil }

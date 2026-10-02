@@ -118,12 +118,12 @@ struct TrackMapView: View {
                             let p = pt(first)
                             ctx.fill(Path(ellipseIn: CGRect(x: p.x - 6, y: p.y - 6, width: 12, height: 12)), with: .color(.white))
                         }
-                        if let i = picked {
+                        if let i = picked, map.points.indices.contains(i) {
                             let p = pt(map.points[i])
                             ctx.fill(Path(ellipseIn: CGRect(x: p.x - 8, y: p.y - 8, width: 16, height: 16)), with: .color(.white))
                         }
                     }
-                    ForEach(markers, id: \.key) { m in
+                    ForEach(map.points.isEmpty ? [] : markers, id: \.key) { m in
                         let target = m.fraction * map.lap_time
                         let idx = map.points.firstIndex { $0.t >= target } ?? 0
                         let p = pt(map.points[idx])
@@ -161,7 +161,7 @@ struct TrackMapView: View {
     }
 
     private var readout: String {
-        guard let i = picked else { return L("Touche le tracé pour lire la télémétrie.", "Touch the track to read the telemetry.") }
+        guard let i = picked, map.points.indices.contains(i) else { return L("Touche le tracé pour lire la télémétrie.", "Touch the track to read the telemetry.") }
         let p = map.points[i]
         return L("\(p.speed) km/h · rapport \(p.gear) · gaz \(p.throttle) %\(p.brake ? " · freinage" : "") · \(String(format: "%.1f", p.t)) s",
                  "\(p.speed) km/h · gear \(p.gear) · throttle \(p.throttle)%\(p.brake ? " · braking" : "") · \(String(format: "%.1f", p.t)) s")
