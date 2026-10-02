@@ -692,12 +692,19 @@ final class TrackPath {
         for i in 0..<(n - 1) {
             let p0 = at(i - 1), p1 = at(i), p2 = at(i + 1), p3 = at(i + 2)
             for k in 0..<sub {
-                let u = Float(k) / Float(sub), u2 = u * u, u3 = u2 * u
-                let a = p1 * 2
-                let b = (p2 - p0) * u
-                let c = (p0 * 2 - p1 * 5 + p2 * 4 - p3) * u2
-                let d = (p1 * 3 - p0 - p2 * 3 + p3) * u3
-                out.append((a + b + c + d) * 0.5)
+                let u: Float = Float(k) / Float(sub)
+                let u2: Float = u * u
+                let u3: Float = u2 * u
+                // Poids de la spline de Catmull-Rom.
+                let w0: Float = -0.5 * u3 + u2 - 0.5 * u
+                let w1: Float = 1.5 * u3 - 2.5 * u2 + 1
+                let w2: Float = -1.5 * u3 + 2 * u2 + 0.5 * u
+                let w3: Float = 0.5 * u3 - 0.5 * u2
+                var q: V3 = p0 * w0
+                q += p1 * w1
+                q += p2 * w2
+                q += p3 * w3
+                out.append(q)
                 times.append(t[i] + (t[i + 1] - t[i]) * u)
             }
         }
