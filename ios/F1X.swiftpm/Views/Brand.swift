@@ -144,13 +144,15 @@ struct SectionIntro: View {
     }
 }
 
-/// Écran de démarrage « départ de course » (~1,4 s) : feux rouges express, extinction,
+/// Écran de démarrage « départ de course » (~1,8 s) : feu tricolore (rouges, orange, vert),
 /// lignes de vitesse, logo qui arrive en trombe (étiré, dépassement, secousse), vibreur
 /// rouge et blanc, puis tout repart vers la droite.
 struct SplashView: View {
     let onFinish: () -> Void
 
     @State private var lights = 0
+    /// Couleur du feu tricolore : 0 rouge, 1 orange, 2 vert.
+    @State private var stage = 0
     @State private var lightsOut = false
     @State private var streaks = false
     @State private var logo = false
@@ -179,11 +181,12 @@ struct SplashView: View {
                     HStack(spacing: 9) {
                         ForEach(0..<5, id: \.self) { i in
                             let on = i < lights
+                            let lamp = Self.lamp(stage)
                             Circle()
-                                .fill(on ? Color(hex: 0xFF1E10) : Color(hex: 0x2A0A0A))
+                                .fill(on ? lamp.fill : Color(hex: 0x2A0A0A))
                                 .frame(width: 18, height: 18)
-                                .shadow(color: on ? Color(hex: 0xFF2A1A) : .clear, radius: 8)
-                                .overlay(Circle().stroke(on ? Color(hex: 0xFF6A5A) : Color(hex: 0x1A1A22), lineWidth: 2))
+                                .shadow(color: on ? lamp.glow : .clear, radius: 8)
+                                .overlay(Circle().stroke(on ? lamp.rim : Color(hex: 0x1A1A22), lineWidth: 2))
                         }
                     }
                     .opacity(lightsOut ? 0 : 1)
@@ -218,8 +221,12 @@ struct SplashView: View {
                 try? await Task.sleep(nanoseconds: 70_000_000)
                 lights = i
             }
-            try? await Task.sleep(nanoseconds: 90_000_000)
-            // Extinction des feux : départ !
+            // Vrai feu tricolore : rouge, puis orange, puis vert… départ !
+            try? await Task.sleep(nanoseconds: 110_000_000)
+            withAnimation(.easeInOut(duration: 0.06)) { stage = 1 }
+            try? await Task.sleep(nanoseconds: 160_000_000)
+            withAnimation(.easeInOut(duration: 0.06)) { stage = 2 }
+            try? await Task.sleep(nanoseconds: 180_000_000)
             withAnimation(.easeIn(duration: 0.18)) { lightsOut = true }
             streaks = true
             withAnimation(.easeOut(duration: 0.22)) { logo = true }
@@ -235,6 +242,17 @@ struct SplashView: View {
             withAnimation(.easeIn(duration: 0.3)) { leave = true }
             try? await Task.sleep(nanoseconds: 300_000_000)
             onFinish()
+        }
+    }
+}
+
+extension SplashView {
+    /// Teintes d'un feu allumé : remplissage, halo, liseré.
+    static func lamp(_ stage: Int) -> (fill: Color, glow: Color, rim: Color) {
+        switch stage {
+        case 1: return (Color(hex: 0xFFA500), Color(hex: 0xFFB020), Color(hex: 0xFFD27A))
+        case 2: return (Color(hex: 0x18E05A), Color(hex: 0x1EE860), Color(hex: 0x8AFFB0))
+        default: return (Color(hex: 0xFF1E10), Color(hex: 0xFF2A1A), Color(hex: 0xFF6A5A))
         }
     }
 }

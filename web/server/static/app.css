@@ -646,17 +646,20 @@ button.btn:disabled { opacity: .5; }
 #splash {
   position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; overflow: hidden;
   background: radial-gradient(ellipse at 50% 55%, #1a0705 0%, #07070b 60%);
-  animation: splash-out .32s 1.12s cubic-bezier(.6, 0, .9, .4) forwards;
+  animation: splash-out .32s 1.48s cubic-bezier(.6, 0, .9, .4) forwards;
 }
 #splash .splash-inner { position: relative; display: flex; flex-direction: column; align-items: center; gap: 18px; }
-#splash .lights { display: flex; gap: 9px; animation: lights-away .2s .42s ease-in forwards; }
-#splash .light { width: 18px; height: 18px; border-radius: 50%; background: #2a0a0a; box-shadow: inset 0 0 0 2px #1a1a22; animation: light-on .05s both; }
-#splash .light:nth-child(1) { animation-delay: .02s; }
-#splash .light:nth-child(2) { animation-delay: .09s; }
-#splash .light:nth-child(3) { animation-delay: .16s; }
-#splash .light:nth-child(4) { animation-delay: .23s; }
-#splash .light:nth-child(5) { animation-delay: .30s; }
+#splash .lights { display: flex; gap: 9px; animation: lights-away .2s .78s ease-in forwards; }
+#splash .light { width: 18px; height: 18px; border-radius: 50%; background: #2a0a0a; box-shadow: inset 0 0 0 2px #1a1a22; animation: light-on .05s both, light-amber .06s .44s forwards, light-green .06s .6s forwards; }
+#splash .light:nth-child(1) { animation-delay: .02s, .44s, .6s; }
+#splash .light:nth-child(2) { animation-delay: .09s, .44s, .6s; }
+#splash .light:nth-child(3) { animation-delay: .16s, .44s, .6s; }
+#splash .light:nth-child(4) { animation-delay: .23s, .44s, .6s; }
+#splash .light:nth-child(5) { animation-delay: .30s, .44s, .6s; }
+/* Vrai feu tricolore : rouges un à un, puis orange, puis vert… départ ! */
 @keyframes light-on { to { background: #ff1e10; box-shadow: 0 0 16px #ff2a1a, inset 0 0 0 2px #ff6a5a; } }
+@keyframes light-amber { to { background: #ffa500; box-shadow: 0 0 16px #ffb020, inset 0 0 0 2px #ffd27a; } }
+@keyframes light-green { to { background: #18e05a; box-shadow: 0 0 18px #1ee860, inset 0 0 0 2px #8affb0; } }
 @keyframes lights-away { to { opacity: 0; transform: scale(.6); } }
 /* Lignes de vitesse qui traversent l'écran. */
 #splash .speed { position: absolute; inset: 0; pointer-events: none; }
@@ -665,23 +668,23 @@ button.btn:disabled { opacity: .5; }
   background: linear-gradient(90deg, transparent, rgba(255,255,255,.85));
   animation: speed-line .38s cubic-bezier(.2, .7, .3, 1) both;
 }
-#splash .speed i:nth-child(1) { top: 30%; animation-delay: .42s; }
-#splash .speed i:nth-child(2) { top: 41%; width: 60vw; animation-delay: .45s; background: linear-gradient(90deg, transparent, #e10600); height: 4px; }
-#splash .speed i:nth-child(3) { top: 47%; animation-delay: .48s; }
-#splash .speed i:nth-child(4) { top: 56%; width: 70vw; animation-delay: .44s; background: linear-gradient(90deg, transparent, #e10600); height: 3px; }
-#splash .speed i:nth-child(5) { top: 63%; animation-delay: .5s; }
-#splash .speed i:nth-child(6) { top: 72%; width: 35vw; animation-delay: .53s; }
+#splash .speed i:nth-child(1) { top: 30%; animation-delay: .78s; }
+#splash .speed i:nth-child(2) { top: 41%; width: 60vw; animation-delay: .81s; background: linear-gradient(90deg, transparent, #e10600); height: 4px; }
+#splash .speed i:nth-child(3) { top: 47%; animation-delay: .84s; }
+#splash .speed i:nth-child(4) { top: 56%; width: 70vw; animation-delay: .8s; background: linear-gradient(90deg, transparent, #e10600); height: 3px; }
+#splash .speed i:nth-child(5) { top: 63%; animation-delay: .86s; }
+#splash .speed i:nth-child(6) { top: 72%; width: 35vw; animation-delay: .89s; }
 @keyframes speed-line { from { transform: translateX(0); opacity: 1; } to { transform: translateX(-260vw); opacity: .2; } }
 #splash .splash-logo {
   position: relative; font-weight: 900; font-style: italic; font-size: 4.6rem; letter-spacing: -.04em; line-height: 1;
-  animation: logo-slam .36s .44s cubic-bezier(.15, .9, .25, 1.25) both, logo-shake .16s .8s linear;
+  animation: logo-slam .36s .8s cubic-bezier(.15, .9, .25, 1.25) both, logo-shake .16s 1.16s linear;
 }
 #splash .splash-logo .f1 { color: #f4f4f8; }
 #splash .splash-logo .x { color: #e10600; text-shadow: 0 0 22px rgba(225, 6, 0, .55); }
 #splash .splash-line {
   width: 0; height: 9px; border-radius: 2px; transform: skewX(-25deg);
   background: repeating-linear-gradient(90deg, #e10600 0 16px, #f4f4f8 16px 32px);
-  animation: kerb .3s .72s cubic-bezier(.2, .8, .3, 1) forwards;
+  animation: kerb .3s 1.08s cubic-bezier(.2, .8, .3, 1) forwards;
 }
 @keyframes logo-slam {
   0% { transform: translateX(-90vw) skewX(-35deg) scaleX(1.9); opacity: 0; filter: blur(8px); }
