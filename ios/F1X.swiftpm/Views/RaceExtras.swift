@@ -321,55 +321,65 @@ struct PitDetailSection: View {
         }
     }
 
+    // Mise en page verticale : chaque ligne occupe toute la largeur et passe à la ligne
+    // normalement (lisible aussi avec les grandes tailles de texte).
     private func row(_ s: Stop, fastest: Double?) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Text("T\(s.lap)").font(.subheadline.monospacedDigit().weight(.heavy)).frame(width: 38, alignment: .leading)
-            Rectangle().fill(Color(hexString: s.colour)).frame(width: 3)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(s.name.capitalized).font(.body.weight(.semibold)) + Text(" · \(s.team)").font(.caption).foregroundColor(.secondary)
-                HStack(spacing: 4) {
-                    tyre(s.tyre_before, after: false)
-                    Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.secondary)
-                    tyre(s.tyre_after, after: true)
+            Rectangle().fill(Color(hexString: s.colour)).frame(width: 4)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(L("Tour \(s.lap)", "Lap \(s.lap)"))
+                        .font(.caption.weight(.heavy))
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Color(white: 0.2), in: Capsule())
+                        .fixedSize()
+                    Text(s.name.capitalized).font(.body.weight(.semibold))
                 }
-                let lane = s.lane_duration.map { L("Voie \(String(format: "%.1f", $0)) s", "Lane \(String(format: "%.1f", $0)) s") }
+                Text(s.team).font(.caption).foregroundStyle(.secondary)
+                tyres(s)
+                let lane = s.lane_duration.map { L("Voie des stands \(String(format: "%.1f", $0)) s", "Pit lane \(String(format: "%.1f", $0)) s") }
                 let stop = s.stop_duration.map { L("immobilisé \(String(format: "%.1f", $0)) s", "stationary \(String(format: "%.1f", $0)) s") }
-                Text([lane, stop].compactMap { $0 }.joined(separator: " · "))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(s.stop_duration != nil && s.stop_duration == fastest ? Color.f1Purple : .secondary)
+                let best = s.stop_duration != nil && s.stop_duration == fastest
+                Text([lane, stop, best ? L("le plus rapide", "fastest") : nil].compactMap { $0 }.joined(separator: " · "))
+                    .font(.footnote.monospacedDigit())
+                    .foregroundStyle(best ? Color.f1Purple : .secondary)
+                if let b = s.position_before, let a = s.position_after {
+                    Text(a == b ? L("Position conservée : P\(b)", "Kept position: P\(b)")
+                                : L("P\(b) → P\(a) (\(a > b ? "−" : "+")\(abs(a - b)) place\(abs(a - b) > 1 ? "s" : ""))",
+                                    "P\(b) → P\(a) (\(a > b ? "−" : "+")\(abs(a - b)))"))
+                        .font(.footnote.monospacedDigit().weight(.bold))
+                        .foregroundStyle(a > b ? Color.red : (a < b ? Color.green : Color.secondary))
+                }
             }
-            Spacer(minLength: 4)
-            if let b = s.position_before, let a = s.position_after {
-                Text("P\(b) → P\(a)")
-                    .font(.footnote.monospacedDigit().weight(.bold))
-                    .foregroundStyle(a > b ? Color.red : (a < b ? Color.green : Color.secondary))
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func tyreName(_ c: String) -> String {
+        switch c {
+        case "SOFT": return L("Tendres", "Soft")
+        case "MEDIUM": return "Medium"
+        case "HARD": return L("Durs", "Hard")
+        case "INTERMEDIATE": return L("Intermédiaires", "Inters")
+        case "WET": return L("Pluie", "Wet")
+        default: return "?"
         }
     }
 
-    private func tyre(_ t: Tyre?, after: Bool) -> some View {
-        let label: String
-        if let t {
-            let name: String = switch t.compound {
-            case "SOFT": L("Tendre", "Soft")
-            case "MEDIUM": "Medium"
-            case "HARD": L("Dur", "Hard")
-            case "INTERMEDIATE": L("Inter", "Inter")
-            case "WET": L("Pluie", "Wet")
-            default: "?"
-            }
-            if after {
-                let age = t.age_at_start ?? 0
-                label = "\(name) " + (age == 0 ? L("neufs", "new") : L("usagés (\(age) t.)", "used (\(age) laps)"))
-            } else {
-                label = "\(name) " + L("\(t.age_end ?? 0) tours", "\(t.age_end ?? 0) laps")
-            }
-        } else {
-            label = "?"
-        }
-        return HStack(spacing: 4) {
-            Circle().fill(tyreColor(t?.compound)).frame(width: 9, height: 9)
-            Text(label).font(.caption)
-        }
+    /// « ● Medium (20 tours) → ● Tendres usagés (4 tours) », en un seul texte qui passe à la ligne.
+    private func tyres(_ s: Stop) -> some View {
+        let dot = { (c: String?) -> Text in Text("● ").foregroundColor(tyreColor(c)) }
+        let before: Text = s.tyre_before.map { (t: Tyre) -> Text in
+            dot(t.compound) + Text(L("\(tyreName(t.compound)) (\(t.age_end ?? 0) tours)", "\(tyreName(t.compound)) (\(t.age_end ?? 0) laps)"))
+        } ?? Text("?")
+        let after: Text = s.tyre_after.map { (t: Tyre) -> Text in
+            let age = t.age_at_start ?? 0
+            let state = age == 0 ? L("neufs", "new") : L("usagés, \(age) tours", "used, \(age) laps")
+            return dot(t.compound) + Text("\(tyreName(t.compound)) \(state)")
+        } ?? Text("?")
+        return (before + Text("  →  ").foregroundColor(.secondary) + after)
+            .font(.subheadline)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
