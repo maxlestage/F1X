@@ -885,9 +885,27 @@ impl OpenF1 {
         best.sort_by(|a, b| a.0.total_cmp(&b.0));
         best.dedup_by_key(|l| l.1);
         if let Some(session) = d.session.clone() {
-            for lap in best.into_iter().take(2) {
+            // Même tracé que le décor 3D du circuit (identifiant Ergast), pour que les voitures
+            // du replay roulent exactement sur la piste dessinée.
+            let ergast = ergast_circuit(&session.circuit);
+            if let Some(id) = ergast {
+                if let Some(t) = self.cached_track(id).await {
+                    d.track = Some(t);
+                } else if let Some(t) = crate::bundled_track(id)
+                    .and_then(|json| serde_json::from_str::<TrackMap>(json).ok())
+                {
+                    d.track = Some(self.remember_track(id, t).await);
+                }
+            }
+            for lap in best.into_iter().take(if d.track.is_some() { 0 } else { 2 }) {
                 match self
-                    .build_track(&session.circuit, session.year, key, &session.location, lap)
+                    .build_track(
+                        ergast.unwrap_or(&session.circuit),
+                        session.year,
+                        key,
+                        &session.location,
+                        lap,
+                    )
                     .await
                 {
                     Ok(track) => {
@@ -1141,4 +1159,37 @@ impl OpenF1 {
             stats,
         }))
     }
+}
+
+/// Nom court OpenF1 d'un circuit → identifiant Ergast/Jolpica (celui du décor 3D).
+pub fn ergast_circuit(short: &str) -> Option<&'static str> {
+    Some(match short.to_lowercase().as_str() {
+        "sakhir" | "bahrain" => "bahrain",
+        "jeddah" => "jeddah",
+        "melbourne" => "albert_park",
+        "suzuka" => "suzuka",
+        "shanghai" => "shanghai",
+        "miami" => "miami",
+        "imola" => "imola",
+        "monte carlo" | "monaco" => "monaco",
+        "catalunya" | "barcelona" => "catalunya",
+        "montreal" => "villeneuve",
+        "spielberg" => "red_bull_ring",
+        "silverstone" => "silverstone",
+        "hungaroring" | "budapest" => "hungaroring",
+        "spa-francorchamps" | "spa" => "spa",
+        "zandvoort" => "zandvoort",
+        "monza" => "monza",
+        "baku" => "baku",
+        "singapore" => "marina_bay",
+        "austin" => "americas",
+        "mexico city" => "rodriguez",
+        "interlagos" | "sao paulo" => "interlagos",
+        "las vegas" => "vegas",
+        "lusail" | "losail" => "losail",
+        "yas marina circuit" | "yas marina" | "abu dhabi" => "yas_marina",
+        "madring" | "madrid" => "madring",
+        "sepang" => "sepang",
+        _ => return None,
+    })
 }

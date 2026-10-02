@@ -1787,7 +1787,7 @@ impl State {
                 let (pos, heading) = path.at_time(clock);
                 let pitch = path.slope_at(clock);
                 placed.push((
-                    M4::trsp(add(pos, [0.0, 0.6, 0.0]), heading, pitch, CAR_SCALE),
+                    M4::trsp(add(pos, [0.0, 0.12, 0.0]), heading, pitch, CAR_SCALE),
                     self.paint,
                     pos,
                     None,
@@ -1813,7 +1813,7 @@ impl State {
                 let pos = add(pos, mul(side, car.lane));
                 let pitch = path.slope_at(time);
                 placed.push((
-                    M4::trsp(add(pos, [0.0, 0.6, 0.0]), heading, pitch, CAR_SCALE),
+                    M4::trsp(add(pos, [0.0, 0.12, 0.0]), heading, pitch, CAR_SCALE),
                     car.paint,
                     pos,
                     Some(i),
@@ -2489,7 +2489,7 @@ pub fn View3D(props: &ViewProps) -> Html {
             if let Scene::Track { map, .. } = scene {
                 // Décor du circuit : chargé en arrière-plan, remplace le tracé simplifié.
                 let viewer = viewer.clone();
-                let url = format!("/api/track3d/{}?v=7", map.circuit_id);
+                let url = format!("/api/track3d/{}?v=8", map.circuit_id);
                 wasm_bindgen_futures::spawn_local(async move {
                     let Ok(resp) = gloo_net::http::Request::get(&url).send().await else {
                         return;
