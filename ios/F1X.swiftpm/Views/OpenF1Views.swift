@@ -38,7 +38,7 @@ enum JSONValue: Decodable, Sendable, Hashable {
     var string: String {
         switch self {
         case .str(let s): return s
-        case .num(let d): return d == d.rounded() ? String(Int(d)) : String(d)
+        case .num(let d): return d == d.rounded() && abs(d) < 9e15 ? String(Int(d)) : String(d)
         default: return ""
         }
     }
@@ -48,7 +48,7 @@ enum JSONValue: Decodable, Sendable, Hashable {
         return nil
     }
 
-    var int: Int? { double.map { Int($0) } }
+    var int: Int? { double.flatMap { $0.isFinite && abs($0) < 9e15 ? Int($0) : nil } }
 
     var bool: Bool {
         if case .bool(let b) = self { return b }
@@ -113,7 +113,7 @@ struct DataYearView: View {
 
     private var years: [Int] {
         let now = Calendar.current.component(.year, from: Date())
-        return Array((2023...now).reversed())
+        return Array((2023...max(2023, now)).reversed())
     }
 
     var body: some View {
@@ -528,7 +528,7 @@ struct TyresSection: View {
                     BarMark(xStart: .value(L("Tour", "Lap"), $0.start), xEnd: .value(L("Tour", "Lap"), $0.end), y: .value(L("Pilote", "Driver"), $0.driver))
                         .foregroundStyle(tyreColor($0.compound))
                 }
-                .chartYScale(domain: all.map { of1Code(drivers, $0) })
+                .chartYScale(domain: { var seen = Set<String>(); return all.map { of1Code(drivers, $0) }.filter { seen.insert($0).inserted } }())
                 .frame(height: CGFloat(max(all.count, 1)) * 18 + 30)
                 Text(L("Rouge tendre · jaune medium · blanc dur · vert intermédiaire · bleu pluie.", "Red soft · yellow medium · white hard · green intermediate · blue wet."))
                     .font(.caption).foregroundStyle(.secondary)

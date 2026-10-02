@@ -160,6 +160,7 @@ func L(_ fr: String, _ en: String) -> String { isFrench ? fr : en }
 
 /// « 92.345 » → « 1:32.345 ».
 func formatLap(_ seconds: Double) -> String {
+    guard seconds.isFinite, abs(seconds) < 1e7 else { return "–" }
     let m = Int(seconds) / 60
     let s = seconds - Double(m * 60)
     return m > 0 ? String(format: "%d:%06.3f", m, s) : String(format: "%.3f", s)

@@ -57,19 +57,19 @@ struct RaceDetailView: View {
 
             if !results.isEmpty {
                 Section(L("Course", "Race")) {
-                    ForEach(results) { ResultRow(result: $0) }
+                    ForEach(Array(results.enumerated()), id: \.offset) { ResultRow(result: $0.element) }
                 }
             }
 
             if !sprint.isEmpty {
                 Section("Sprint") {
-                    ForEach(sprint) { ResultRow(result: $0) }
+                    ForEach(Array(sprint.enumerated()), id: \.offset) { ResultRow(result: $0.element) }
                 }
             }
 
             if !qualifying.isEmpty {
                 Section(L("Qualifications", "Qualifying")) {
-                    ForEach(qualifying) { q in
+                    ForEach(Array(qualifying.enumerated()), id: \.offset) { _, q in
                         NavigationLink(value: q.driver) {
                             StandingRow(
                                 position: q.position,

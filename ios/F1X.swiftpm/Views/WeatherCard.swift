@@ -146,7 +146,8 @@ enum WeatherText {
     static func compass(_ deg: Double) -> String {
         let fr = ["N", "NE", "E", "SE", "S", "SO", "O", "NO"]
         let en = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
-        let i = Int(((deg.truncatingRemainder(dividingBy: 360)) + 22.5) / 45) % 8
+        guard deg.isFinite else { return "" }
+        let i = ((Int((deg.truncatingRemainder(dividingBy: 360) + 382.5) / 45) % 8) + 8) % 8
         return isFrench ? fr[i] : en[i]
     }
 

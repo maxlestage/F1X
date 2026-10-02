@@ -311,6 +311,7 @@ enum CarFile {
         func i16(_ o: Int) -> Float { Float(Int16(bitPattern: UInt16(b[o]) | UInt16(b[o + 1]) << 8)) }
         // Version 1 : échelle fixe (monoplace) ; version 2 : échelle en tête (décor de circuit).
         let version = u32(4)
+        guard b.count >= (version >= 2 ? 16 : 12) else { return nil }
         let scale: Float = version >= 2 ? Float(bitPattern: UInt32(u32(8))) : 4096
         let count = version >= 2 ? u32(12) : u32(8)
         var off = version >= 2 ? 16 : 12
@@ -667,6 +668,8 @@ struct CarSceneView: UIViewRepresentable {
 final class TrackPath {
     let pts: [V3]
     let t: [Float]
+    /// Vitesse (km/h) du point GPS d'origine, pour chaque point de la ligne densifiée.
+    let speeds: [Float]
     let lapTime: Float
     let radius: Float
     let centreY: Float
@@ -684,6 +687,8 @@ final class TrackPath {
         let dense = Self.densify(raw, rawT, 4)
         pts = dense.0
         t = dense.1
+        let n = dense.0.count, m = map.points.count
+        speeds = (0..<n).map { i in m == 0 ? 0 : Float(map.points[min(i * m / max(n, 1), m - 1)].speed) }
         lapTime = Float(map.lap_time)
         radius = (cx * cx + cz * cz).squareRoot()
         centreY = (pts.map(\.y).max() ?? 0) / 2
@@ -722,6 +727,7 @@ final class TrackPath {
     /// Position et cap (radians autour de Y) au temps donné du tour.
     func at(time: Float) -> (V3, Float) {
         let n = pts.count
+        guard n > 1 else { return (pts.first ?? V3(0, 0, 0), 0) }
         let time = time.truncatingRemainder(dividingBy: max(lapTime, 1))
         var lo = 0, hi = n - 1
         while lo < hi {
@@ -736,9 +742,26 @@ final class TrackPath {
         return (pos, atan2(-d.z, d.x))
     }
 
+    /// Vitesse (km/h) au temps donné du tour.
+    func speed(time: Float) -> Float {
+        let n = pts.count
+        guard n > 1 else { return 0 }
+        let time = time.truncatingRemainder(dividingBy: max(lapTime, 1))
+        var lo = 0, hi = n - 1
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if t[mid] <= time { lo = mid + 1 } else { hi = mid }
+        }
+        let i = max(min(lo, n - 1), 1) - 1
+        let j = min(i + 1, n - 1)
+        let k = max(0, min(1, (time - t[i]) / max(t[j] - t[i], 0.001)))
+        return speeds[i] + (speeds[j] - speeds[i]) * k
+    }
+
     /// Pente (tangage, radians) au temps donné : le nez monte en côte.
     func slope(time: Float) -> Float {
         let n = pts.count
+        guard n > 1 else { return 0 }
         let time = time.truncatingRemainder(dividingBy: max(lapTime, 1))
         var lo = 0, hi = n - 1
         while lo < hi {
@@ -888,8 +911,16 @@ enum TrackCam: String, CaseIterable, Identifiable {
     }
 }
 
+/// Compteur de la voiture suivie (publié à part pour ne pas redessiner toute la vue).
+final class SpeedHUD: ObservableObject {
+    @Published var kmh = 0
+    /// Intensité des effets de vitesse (0 à 1).
+    @Published var rush: Float = 0
+}
+
 /// Réglages partagés entre l'interface SwiftUI, les gestes et la boucle de rendu.
 final class TrackControl: ObservableObject {
+    let hud = SpeedHUD()
     @Published var mode: TrackCam = .overview
     @Published var follow = 0
     /// Pilotes qu'on peut suivre (noms).
@@ -988,6 +1019,11 @@ struct TrackSceneView: UIViewRepresentable {
         private var smoothEye: V3?
         private var smoothTarget: V3?
         private var smoothHeading: Float?
+        /// Effets de vitesse : vitesse lissée, temps réel (tremblement), champ de vision.
+        private var kmh: Float = 0
+        private var wall: Float = 0
+        private var smoothFov: CGFloat = 40
+        private var hudSent: TimeInterval = 0
 
         init(map: TrackMap, ghost: Bool, control: TrackControl) {
             path = TrackPath(map)
@@ -1164,11 +1200,14 @@ struct TrackSceneView: UIViewRepresentable {
             let dt = Float(last == 0 ? 0 : min(time - last, 0.1))
             last = time
             clock += dt * control.speed
+            wall += dt
             var followed: (V3, Float)?
+            var followedSpeed: Float = 0
             if let ghostCar, !ghostCar.isHidden {
                 let (p, h) = path.at(time: clock)
                 place(ghostCar, p, h, path.slope(time: clock))
                 followed = (p, h)
+                followedSpeed = path.speed(time: clock)
             }
             lock.lock()
             let pick = min(control.follow, max(cars.count - 1, 0))
@@ -1187,9 +1226,24 @@ struct TrackSceneView: UIViewRepresentable {
                 let (p0, h) = path.at(time: tm)
                 let p = p0 + V3(sin(h), 0, cos(h)) * cars[i].lane
                 place(cars[i].node, p, h, path.slope(time: tm))
-                if i == pick { followed = (p, h) }
+                if i == pick {
+                    followed = (p, h)
+                    followedSpeed = path.speed(time: tm)
+                }
             }
+            kmh += (followedSpeed - kmh) * min(dt * 4, 1)
+            if !kmh.isFinite { kmh = 0 }
             updateCamera(followed: followed, dt: dt)
+            // Compteur et effets publiés ~12 fois par seconde.
+            if time - hudSent > 0.08 {
+                hudSent = time
+                let v = Int(kmh.rounded()), r = control.following ? rushLevel : 0
+                let hud = control.hud
+                DispatchQueue.main.async {
+                    if hud.kmh != v { hud.kmh = v }
+                    if abs(hud.rush - r) > 0.02 { hud.rush = r }
+                }
+            }
             // Étiquettes de taille constante à l'écran, quelle que soit la distance.
             let eye = camera.simdPosition
             let show = control.showLabels
@@ -1212,10 +1266,20 @@ struct TrackSceneView: UIViewRepresentable {
             target + V3(dist * cos(pitch) * cos(yaw), dist * sin(pitch), dist * cos(pitch) * sin(yaw))
         }
 
+        /// 0 sous 100 km/h, 1 vers 320 km/h.
+        private var rushLevel: Float { min(max((kmh - 100) / 220, 0), 1) }
+
         private func updateCamera(followed: (V3, Float)?, dt: Float) {
             let c = control
             var eye: V3, target: V3, snap = false
             var fov: CGFloat = 40
+            let rush = rushLevel
+            // Vibrations de la caméra, plus fortes à haute vitesse (plusieurs fréquences mêlées).
+            let shakeAmp = rush * rush
+            let sx: Float = sin(wall * 37) * 0.6 + sin(wall * 61) * 0.4
+            let sy: Float = sin(wall * 43) * 0.7 + sin(wall * 79) * 0.3
+            let sz: Float = sin(wall * 53) * 0.5
+            let shake = V3(sx, sy, sz) * shakeAmp
             if c.following, let (pos, carHeading) = followed {
                 // Cap lissé : la caméra tourne en douceur avec la voiture dans les virages,
                 // tout en restant collée à sa position (pas de retard).
@@ -1232,8 +1296,11 @@ struct TrackSceneView: UIViewRepresentable {
                     let dir = V3(cos(look), 0, -sin(look))
                     eye = pos + fwd * (-0.05 * TrackPath.carScale) + V3(0, 1.32 * TrackPath.carScale + 0.6, 0)
                     target = eye + dir * 80 + V3(0, -9 + (c.fpitch - 0.35) * 40, 0)
+                    eye += shake * 0.06 * TrackPath.carScale
+                    target += shake * 0.5
                     snap = true
-                    fov = 62
+                    // L'angle s'ouvre avec la vitesse : le décor défile plus vite sur les bords.
+                    fov = 60 + CGFloat(rush) * 16
                 case .heli:
                     target = pos + fwd * 20
                     eye = orbit(target, -h + .pi + c.fyaw, min(max(1.25 + (c.fpitch - 0.35), 0.6), 1.53), 230 * c.fzoom)
@@ -1242,9 +1309,12 @@ struct TrackSceneView: UIViewRepresentable {
                     eye = path.tvSpot(near: pos) + V3(0, c.flift, 0)
                     fov = CGFloat(min(max(36 / c.fzoom, 7), 70))
                 default:
+                    // Caméra de poursuite basse et plus proche à pleine vitesse.
                     target = pos + fwd * 12 + V3(0, 3, 0)
-                    eye = orbit(target, -h + .pi + c.fyaw, c.fpitch, 62 * c.fzoom) + V3(0, c.flift, 0)
-                    fov = 55
+                    let low: Float = c.fpitch * (1 - 0.3 * rush)
+                    let dist: Float = 62 * c.fzoom * (1 - 0.15 * rush)
+                    eye = orbit(target, -h + .pi + c.fyaw, low, dist) + V3(0, c.flift, 0) + shake * 0.35
+                    fov = 52 + CGFloat(rush) * 18
                 }
                 // Seule la caméra TV glisse d'un poste à l'autre ; les autres suivent sans retard.
                 let k: Float = snap || c.mode != .tv ? 1 : min(dt * 5, 1)
@@ -1264,7 +1334,12 @@ struct TrackSceneView: UIViewRepresentable {
             }
             camera.simdPosition = eye
             camera.simdLook(at: target, up: V3(0, 1, 0), localFront: V3(0, 0, -1))
-            if camera.camera?.fieldOfView != fov { camera.camera?.fieldOfView = fov }
+            // Champ de vision lissé (sauf changement de caméra : bascule immédiate).
+            if abs(smoothFov - fov) > 12 { smoothFov = fov } else { smoothFov += (fov - smoothFov) * CGFloat(min(dt * 3, 1)) }
+            if camera.camera?.fieldOfView != smoothFov { camera.camera?.fieldOfView = smoothFov }
+            // Flou de mouvement sur les caméras embarquées.
+            let blur: CGFloat = c.following && c.mode != .tv && c.mode != .heli ? 0.25 + CGFloat(rush) * 0.45 : 0
+            if camera.camera?.motionBlurIntensity != blur { camera.camera?.motionBlurIntensity = blur }
         }
     }
 }
@@ -1324,6 +1399,7 @@ struct Track3DView: View {
                     }
                 }
                     .frame(height: 340)
+                    .overlay { if !full { SpeedOverlay(hud: control.hud, active: control.following) } }
                     .background(Color(white: 0.06), in: RoundedRectangle(cornerRadius: 14))
                     .clipShape(RoundedRectangle(cornerRadius: 14))
                 controls.padding(8)
@@ -1336,6 +1412,7 @@ struct Track3DView: View {
             ZStack(alignment: .bottom) {
                 Color.black.ignoresSafeArea()
                 TrackSceneView(map: map, ghost: ghost, markers: markers, control: control).ignoresSafeArea()
+                SpeedOverlay(hud: control.hud, active: control.following).ignoresSafeArea()
                 VStack {
                     HStack {
                         Spacer()
@@ -1400,5 +1477,78 @@ struct Track3DView: View {
         .font(.footnote.bold())
         .foregroundStyle(.white)
         .onChange(of: control.mode) { _, _ in control.resetCamera() }
+    }
+}
+
+/// Sensation de vitesse par-dessus la vue 3D : traînées qui filent vers les bords,
+/// vignettage et compteur de la voiture suivie.
+struct SpeedOverlay: View {
+    @ObservedObject var hud: SpeedHUD
+    let active: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        if active {
+            ZStack(alignment: .topLeading) {
+                if !reduceMotion && hud.rush > 0.05 {
+                    TimelineView(.animation) { tl in
+                        Canvas { ctx, size in
+                            Self.streaks(ctx, size, Double(hud.rush), tl.date.timeIntervalSinceReferenceDate)
+                        }
+                    }
+                    .opacity(Double(hud.rush))
+                }
+                RadialGradient(colors: [.clear, .black.opacity(0.45 * Double(hud.rush))], center: .center,
+                               startRadius: 120, endRadius: 520)
+                gauge.padding(10)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+    }
+
+    private var gauge: some View {
+        HStack(alignment: .lastTextBaseline, spacing: 3) {
+            Text("\(hud.kmh)")
+                .font(.system(size: 26, weight: .black).italic().monospacedDigit())
+                .contentTransition(.numericText(value: Double(hud.kmh)))
+            Text("km/h").font(.caption2.weight(.bold)).foregroundStyle(.white.opacity(0.7))
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 10).padding(.vertical, 4)
+        .background(alignment: .bottomLeading) {
+            // Barre de régime : verte, jaune puis rouge près de la vitesse de pointe.
+            GeometryReader { g in
+                let r = min(max(Double(hud.kmh) / 340, 0), 1)
+                Capsule()
+                    .fill(LinearGradient(colors: [.green, .yellow, Color.f1Red], startPoint: .leading, endPoint: .trailing))
+                    .frame(width: g.size.width * r, height: 3)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+            }
+        }
+        .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// Traînées radiales : partent loin du centre et filent vers les bords, d'autant plus
+    /// longues et nombreuses que la voiture va vite.
+    static func streaks(_ ctx: GraphicsContext, _ size: CGSize, _ rush: Double, _ t: Double) {
+        let cx = Double(size.width) / 2, cy = Double(size.height) * 0.45
+        let reach: Double = hypot(Double(size.width), Double(size.height)) / 2
+        let count = 18 + Int(rush * 30)
+        for i in 0..<count {
+            // Angle pseudo-aléatoire stable par traînée, avance cyclique rapide.
+            let seed = Double(i) * 12.9898
+            let angle = (sin(seed) * 43758.5453).truncatingRemainder(dividingBy: 1) * 2 * .pi
+            let speed = 1.6 + rush * 2.4 + Double(i % 5) * 0.3
+            let phase = (t * speed + Double(i) * 0.137).truncatingRemainder(dividingBy: 1)
+            let r0 = reach * (0.35 + phase * 0.75)
+            let len = reach * (0.06 + rush * 0.22) * (0.5 + phase)
+            let dx: Double = cos(angle), dy: Double = sin(angle)
+            let r1: Double = r0 + len
+            var line = Path()
+            line.move(to: CGPoint(x: cx + dx * r0, y: cy + dy * r0))
+            line.addLine(to: CGPoint(x: cx + dx * r1, y: cy + dy * r1))
+            ctx.stroke(line, with: .color(.white.opacity(0.18 + 0.35 * phase)), lineWidth: 1 + phase * 1.5)
+        }
     }
 }
