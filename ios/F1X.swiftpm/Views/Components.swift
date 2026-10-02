@@ -203,10 +203,10 @@ struct Eyebrow: View {
 struct F1Destinations: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .navigationDestination(for: Race.self) { RaceDetailView(race: $0) }
-            .navigationDestination(for: Driver.self) { DriverDetailView(driver: $0) }
-            .navigationDestination(for: Constructor.self) { TeamDetailView(team: $0) }
-            .navigationDestination(for: Circuit.self) { CircuitDetailView(circuit: $0) }
+            .navigationDestination(for: Race.self) { RaceDetailView(race: $0).sectionLogo() }
+            .navigationDestination(for: Driver.self) { DriverDetailView(driver: $0).sectionLogo() }
+            .navigationDestination(for: Constructor.self) { TeamDetailView(team: $0).sectionLogo() }
+            .navigationDestination(for: Circuit.self) { CircuitDetailView(circuit: $0).sectionLogo() }
     }
 }
 

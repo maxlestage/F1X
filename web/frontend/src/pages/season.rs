@@ -72,6 +72,7 @@ pub fn SeasonPage(props: &SeasonProps) -> Html {
                                         }
                                     </span>
                                     if is_next { <span class="badge badge-live">{ t("Prochain", "Next") }</span> }
+                                    if done && season == crate::CURRENT { <span class="badge badge-done">{ t("Terminé", "Done") }</span> }
                                 </Link<Route>>
                             </li>
                         }

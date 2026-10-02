@@ -158,7 +158,11 @@ strong { font-weight: 800; }
   display: flex; align-items: center; gap: 12px;
   background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px;
 }
-.race-item.done { opacity: .6; }
+.race-item.done { background: #0a0a0f; border-color: #16161f; }
+.race-item.done .race-name { color: #8a8a9c; }
+.race-item.done .race-round { background: #111118; color: #55556a; }
+.race-item.done .race-meta { color: #6c6c80; }
+.badge.badge-done { flex: none; font-size: .68rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #6c6c80; background: #15151d; border: 1px solid #22222d; border-radius: 999px; padding: 3px 8px; }
 .race-item.next { border-color: var(--red); box-shadow: 0 0 0 1px var(--red) inset; opacity: 1; }
 .race-round {
   flex: none; width: 44px; height: 44px; border-radius: 10px; display: grid; place-items: center;
@@ -569,3 +573,87 @@ button.btn:disabled { opacity: .5; }
 .of1-link { display: flex; justify-content: center; margin: 4px 0 12px; }
 .of1-link .btn { max-width: 100%; white-space: normal; text-align: center; }
 .track-retry { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+
+/* ---------- Logos de rubrique (animés à chaque page) ---------- */
+.sec-home { --sec: #e10600; --sec2: #ff5a3c; }
+.sec-live { --sec: #16a34a; --sec2: #4ade80; }
+.sec-cal { --sec: #2563eb; --sec2: #60a5fa; }
+.sec-standings { --sec: #c99400; --sec2: #fcd34d; }
+.sec-explore { --sec: #7c3aed; --sec2: #c084fc; }
+.sec-logo { position: relative; display: inline-flex; align-items: center; flex: none; height: 26px; margin-left: 2px; }
+.sec-badge {
+  position: relative; display: grid; place-items: center; width: 34px; height: 24px; overflow: hidden;
+  background: linear-gradient(135deg, var(--sec2), var(--sec)); transform: skewX(-14deg); border-radius: 5px;
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--sec) 45%, transparent);
+  animation: sec-in .55s cubic-bezier(.2, .9, .25, 1.15) both;
+}
+.sec-badge svg { width: 16px; height: 16px; transform: skewX(14deg); fill: none; stroke: #fff; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; animation: sec-pop .5s .25s cubic-bezier(.3, 1.6, .5, 1) both; }
+.sec-badge::after {
+  content: ""; position: absolute; inset: -4px auto -4px -60%; width: 40%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.75), transparent);
+  animation: sec-shine .7s .45s ease-out both;
+}
+.sec-trail {
+  position: absolute; right: 100%; top: 50%; width: 22px; height: 3px; margin-right: 3px; border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--sec2)); transform: translateY(-50%) skewX(-14deg);
+  box-shadow: 0 -6px 0 -1px color-mix(in srgb, var(--sec2) 55%, transparent), 0 6px 0 -1px color-mix(in srgb, var(--sec2) 35%, transparent);
+  animation: sec-trail .7s ease-out both;
+}
+@keyframes sec-in { from { transform: translateX(-28px) skewX(-30deg); opacity: 0; } to { transform: skewX(-14deg); opacity: 1; } }
+@keyframes sec-pop { from { transform: skewX(14deg) scale(.2) rotate(-25deg); opacity: 0; } to { transform: skewX(14deg) scale(1); opacity: 1; } }
+@keyframes sec-shine { from { left: -60%; } to { left: 130%; } }
+@keyframes sec-trail { 0% { width: 0; opacity: 0; } 40% { width: 26px; opacity: 1; } 100% { width: 0; opacity: 0; } }
+
+/* Intro de rubrique : grand logo au centre, bref, ne bloque rien. */
+.sec-intro {
+  position: fixed; inset: 0; z-index: 60; pointer-events: none; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 14px;
+  background: radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--sec) 30%, transparent), transparent 62%), rgba(7, 7, 11, .62);
+  animation: sec-intro .85s ease-out forwards;
+}
+.sec-logo-big { height: 84px; margin: 0; }
+.sec-logo-big .sec-badge { width: 112px; height: 78px; border-radius: 14px; }
+.sec-logo-big .sec-badge svg { width: 46px; height: 46px; stroke-width: 2; }
+.sec-logo-big .sec-trail { width: 70px; height: 6px; margin-right: 8px; box-shadow: 0 -16px 0 -2px color-mix(in srgb, var(--sec2) 55%, transparent), 0 16px 0 -2px color-mix(in srgb, var(--sec2) 35%, transparent); }
+.sec-logo-big .sec-trail { animation-name: sec-trail-big; }
+@keyframes sec-trail-big { 0% { width: 0; opacity: 0; } 40% { width: 80px; opacity: 1; } 100% { width: 0; opacity: 0; } }
+.sec-intro-label { font-weight: 900; font-style: italic; font-size: 1.4rem; letter-spacing: .02em; text-transform: uppercase; color: #fff; text-shadow: 0 2px 12px rgba(0,0,0,.6); animation: sec-label .5s .2s ease-out both; }
+@keyframes sec-label { from { transform: translateY(10px); opacity: 0; letter-spacing: .4em; } to { transform: none; opacity: 1; } }
+@keyframes sec-intro { 0%, 70% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
+
+/* ---------- Écran de démarrage animé (une fois par session) ---------- */
+#splash {
+  position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: #07070b;
+  animation: splash-out .45s 2.05s ease-in forwards;
+}
+#splash .splash-inner { display: flex; flex-direction: column; align-items: center; gap: 22px; }
+#splash .lights { display: flex; gap: 10px; }
+#splash .light { width: 22px; height: 22px; border-radius: 50%; background: #2a0a0a; box-shadow: inset 0 0 0 2px #1a1a22; animation: light-on .12s both, light-off .08s .95s forwards; }
+#splash .light:nth-child(1) { animation-delay: .10s, .95s; }
+#splash .light:nth-child(2) { animation-delay: .25s, .95s; }
+#splash .light:nth-child(3) { animation-delay: .40s, .95s; }
+#splash .light:nth-child(4) { animation-delay: .55s, .95s; }
+#splash .light:nth-child(5) { animation-delay: .70s, .95s; }
+@keyframes light-on { to { background: #ff1e10; box-shadow: 0 0 18px #ff2a1a, inset 0 0 0 2px #ff6a5a; } }
+@keyframes light-off { to { background: #2a0a0a; box-shadow: inset 0 0 0 2px #1a1a22; } }
+#splash .splash-logo { position: relative; font-weight: 900; font-style: italic; font-size: 4.2rem; letter-spacing: -.03em; line-height: 1; animation: logo-in .5s 1s cubic-bezier(.2, .9, .2, 1.1) both; }
+#splash .splash-logo .f1 { color: #f4f4f8; }
+#splash .splash-logo .x { color: #e10600; display: inline-block; animation: x-spin .6s 1.25s cubic-bezier(.3, 1.5, .5, 1) both; }
+#splash .splash-logo::before, #splash .splash-logo::after {
+  content: ""; position: absolute; right: 104%; height: 5px; border-radius: 3px; background: linear-gradient(90deg, transparent, #e10600);
+  animation: streak .7s 1s ease-out both;
+}
+#splash .splash-logo::before { top: 32%; width: 90px; }
+#splash .splash-logo::after { top: 62%; width: 60px; animation-delay: 1.08s; }
+#splash .splash-line { width: 0; height: 4px; border-radius: 2px; background: #e10600; animation: line-grow .45s 1.45s ease-out forwards; }
+@keyframes logo-in { from { transform: translateX(-120px) skewX(-25deg); opacity: 0; filter: blur(6px); } to { transform: none; opacity: 1; filter: none; } }
+@keyframes x-spin { from { transform: rotate(-200deg) scale(.3); } to { transform: none; } }
+@keyframes streak { 0% { opacity: 0; transform: scaleX(.2); transform-origin: right; } 30% { opacity: 1; transform: scaleX(1); } 100% { opacity: 0; transform: translateX(-40px); } }
+@keyframes line-grow { to { width: 150px; } }
+@keyframes splash-out { to { opacity: 0; visibility: hidden; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .sec-intro, #splash { display: none; }
+  .sec-badge, .sec-badge svg, .sec-badge::after, .sec-trail { animation: none; }
+  .sec-trail { display: none; }
+}
