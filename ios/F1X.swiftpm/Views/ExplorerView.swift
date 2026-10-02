@@ -26,6 +26,10 @@ struct ExplorerView: View {
                 Link(destination: URL(string: "credits", relativeTo: Server.base)!) { Label(L("Crédits et sources", "Credits & sources"), systemImage: "info.circle") }
             }
             Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(L("Conçu et développé par", "Designed and built by")).font(.caption).foregroundStyle(.secondary)
+                    Text("Maxime Nathan Lestage").font(.headline)
+                }
                 Text(L("F1X est une application indépendante et non officielle, sans lien avec Formula One Group, la FIA ou les écuries. F1 et Formula 1 sont des marques de Formula One Licensing B.V.",
                        "F1X is an independent, unofficial app, not affiliated with Formula One Group, the FIA or the teams. F1 and Formula 1 are trademarks of Formula One Licensing B.V."))
                     .font(.caption).foregroundStyle(.secondary)

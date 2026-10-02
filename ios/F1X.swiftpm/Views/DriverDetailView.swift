@@ -249,6 +249,10 @@ struct CircuitDetailView: View {
 
             Section(L("Tracé", "Layout")) { TrackPanel(circuitId: circuit.circuitId, start3D: true) }
 
+            if let lat = circuit.location.lat.flatMap(Double.init), let lon = circuit.location.long.flatMap(Double.init) {
+                Section(L("Carte", "Map")) { CircuitMapView(name: circuit.circuitName, lat: lat, lon: lon) }
+            }
+
             let kings = Dictionary(grouping: winners.compactMap { $0.results?.first?.driver }, by: \.driverId)
                 .map { ($0.value[0], $0.value.count) }
                 .sorted { $0.1 > $1.1 }

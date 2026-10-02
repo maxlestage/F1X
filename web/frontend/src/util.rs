@@ -405,3 +405,12 @@ pub fn download_csv(filename: &str, rows: &[Vec<String>]) {
 pub fn random(n: usize) -> usize {
     ((js_sys::Math::random() * n as f64) as usize).min(n.saturating_sub(1))
 }
+
+/// iPhone, iPad (y compris iPadOS qui se présente comme un Mac) ou Mac : on propose Plans.
+pub fn is_apple_device() -> bool {
+    let Some(nav) = web_sys::window().map(|w| w.navigator()) else {
+        return false;
+    };
+    let ua = nav.user_agent().unwrap_or_default();
+    ua.contains("iPhone") || ua.contains("iPad") || ua.contains("iPod") || ua.contains("Macintosh")
+}

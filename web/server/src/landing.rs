@@ -293,7 +293,7 @@ fn footer(lang: Lang, app: &str) -> String {
     <nav aria-label="{h_legal}"><h3>{h_legal}</h3><ul>{legal_links}</ul></nav>
   </div>
   <div class="foot-bottom">
-    <p>© {year} F1X. {rights}</p>
+    <p>© {year} F1X — {by} Maxime Nathan Lestage. {rights}</p>
     <p class="foot-lang"><a href="?lang=fr" hreflang="fr" lang="fr">Français</a><span aria-hidden="true">·</span><a href="?lang=en" hreflang="en" lang="en">English</a></p>
   </div>
   <p class="foot-legal">{disclaimer}</p>
@@ -307,6 +307,7 @@ fn footer(lang: Lang, app: &str) -> String {
         h_discover = t("Découvrir", "Discover"),
         h_legal = t("Informations légales", "Legal"),
         rights = t("Tous droits réservés.", "All rights reserved."),
+        by = t("conçu et développé par", "designed and built by"),
         disclaimer = t(
             "F1X est un service indépendant et non officiel, sans lien avec Formula One Group, la FIA ou les écuries. F1, FORMULA ONE, FORMULA 1, GRAND PRIX et les marques associées appartiennent à Formula One Licensing B.V. Les noms d'écuries et de pilotes sont cités à titre informatif.",
             "F1X is an independent, unofficial service, not affiliated with Formula One Group, the FIA or the teams. F1, FORMULA ONE, FORMULA 1, GRAND PRIX and related marks are trademarks of Formula One Licensing B.V. Team and driver names are used for information purposes only.",
@@ -632,7 +633,7 @@ fn publisher() -> Publisher {
             .map(|v| esc(&v))
     };
     Publisher {
-        name: var("LEGAL_PUBLISHER").unwrap_or_else(|| "F1X".into()),
+        name: var("LEGAL_PUBLISHER").unwrap_or_else(|| "Maxime Nathan Lestage".into()),
         address: var("LEGAL_ADDRESS"),
         contact: var("LEGAL_CONTACT"),
         registration: var("LEGAL_REGISTRATION"),

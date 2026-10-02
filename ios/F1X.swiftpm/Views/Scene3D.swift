@@ -962,7 +962,9 @@ struct TrackSceneView: UIViewRepresentable {
                 // Plateau complet : pilotes de la saison aux couleurs de leur écurie.
                 Task { [weak self] in
                     guard let standings = try? await F1API.shared.driverStandings(), !standings.isEmpty else { return }
-                    let list = standings.map { (($0.driver.code ?? String($0.driver.familyName.prefix(3)).uppercased()), $0.constructors.first?.constructorId ?? "") }
+                    let list = standings.map { s -> (String, String, String) in
+                        (s.driver.code ?? String(s.driver.familyName.prefix(3)).uppercased(), s.constructors.first?.constructorId ?? "", s.driver.fullName)
+                    }
                     await MainActor.run { self?.setField(list) }
                 }
             }
@@ -988,7 +990,7 @@ struct TrackSceneView: UIViewRepresentable {
 
         /// Plateau simulé : chaque voiture suit le tour de référence avec son écart (0,7 à 2,5 s).
         @MainActor
-        func setField(_ drivers: [(String, String)]) {
+        func setField(_ drivers: [(String, String, String)]) {
             lock.lock()
             for c in cars { c.node.removeFromParentNode() }
             var gap: Float = 0
@@ -1003,7 +1005,8 @@ struct TrackSceneView: UIViewRepresentable {
             field = true
             lock.unlock()
             ghostCar?.isHidden = true
-            control.drivers = drivers.map(\.0)
+            // Noms complets dans le sélecteur (le code reste au-dessus des voitures).
+            control.drivers = drivers.map(\.2)
         }
 
         /// Voitures en direct / replay (Race Center).
@@ -1121,8 +1124,15 @@ struct TrackSceneView: UIViewRepresentable {
                 place(cars[i].node, p, h, path.slope(time: tm))
                 if i == pick { followed = (p, h) }
             }
-            lock.unlock()
             updateCamera(followed: followed, dt: dt)
+            // Étiquettes de taille constante à l'écran, quelle que soit la distance.
+            let eye = camera.simdPosition
+            for c in cars {
+                guard let tag = c.node.childNode(withName: "label", recursively: false) else { continue }
+                let k = min(max(simd_length(eye - c.node.simdPosition) / 70, 0.25), 30)
+                tag.simdScale = SIMD3<Float>(repeating: k)
+            }
+            lock.unlock()
         }
 
         /// Voiture posée sur la piste, orientée selon le cap et inclinée selon la pente.
