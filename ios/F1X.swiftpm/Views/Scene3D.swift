@@ -848,8 +848,10 @@ enum TrackCam: String, CaseIterable, Identifiable {
 final class TrackControl: ObservableObject {
     @Published var mode: TrackCam = .overview
     @Published var follow = 0
-    /// Pilotes qu'on peut suivre (codes).
+    /// Pilotes qu'on peut suivre (noms).
     @Published var drivers: [String] = []
+    /// Noms des pilotes au-dessus des voitures.
+    @Published var showLabels = true
     // Vue d'ensemble : orbite autour du circuit.
     var yaw: Float = 0.9
     var pitch: Float = 0.82
@@ -962,8 +964,11 @@ struct TrackSceneView: UIViewRepresentable {
                 // Plateau complet : pilotes de la saison aux couleurs de leur écurie.
                 Task { [weak self] in
                     guard let standings = try? await F1API.shared.driverStandings(), !standings.isEmpty else { return }
-                    let list = standings.map { s -> (String, String, String) in
-                        (s.driver.code ?? String(s.driver.familyName.prefix(3)).uppercased(), s.constructors.first?.constructorId ?? "", s.driver.fullName)
+                    let list = standings.map { s -> (String, String, String, String) in
+                        (s.driver.code ?? String(s.driver.familyName.prefix(3)).uppercased(),
+                         s.constructors.first?.constructorId ?? "",
+                         s.driver.fullName,
+                         "\(s.driver.givenName.prefix(1)). \(s.driver.familyName)")
                     }
                     await MainActor.run { self?.setField(list) }
                 }
@@ -975,13 +980,17 @@ struct TrackSceneView: UIViewRepresentable {
         private func makeCar(livery: Livery, label: String, colour: UIColor) -> SCNNode {
             let node = CarModel.node(livery: livery)
             node.scale = SCNVector3(TrackPath.carScale, TrackPath.carScale, TrackPath.carScale)
-            let plane = SCNPlane(width: 2.6, height: 2.6)
-            plane.firstMaterial?.diffuse.contents = Self.badge(label, colour)
+            // Étiquette discrète : pastille sombre translucide, liseré aux couleurs de l'écurie.
+            let image = Self.badge(label, colour)
+            let h: CGFloat = 0.5
+            let plane = SCNPlane(width: h * image.size.width / image.size.height, height: h)
+            plane.firstMaterial?.diffuse.contents = image
             plane.firstMaterial?.lightingModel = .constant
             plane.firstMaterial?.readsFromDepthBuffer = false
+            plane.firstMaterial?.isDoubleSided = true
             let tag = SCNNode(geometry: plane)
             tag.name = "label"
-            tag.position = SCNVector3(0, 3.2, 0)
+            tag.position = SCNVector3(0, 1.5, 0)
             tag.constraints = [SCNBillboardConstraint()]
             tag.renderingOrder = 10
             node.addChildNode(tag)
@@ -990,12 +999,12 @@ struct TrackSceneView: UIViewRepresentable {
 
         /// Plateau simulé : chaque voiture suit le tour de référence avec son écart (0,7 à 2,5 s).
         @MainActor
-        func setField(_ drivers: [(String, String, String)]) {
+        func setField(_ drivers: [(String, String, String, String)]) {
             lock.lock()
             for c in cars { c.node.removeFromParentNode() }
             var gap: Float = 0
             cars = drivers.enumerated().map { (i, d) -> Car in
-                let node = makeCar(livery: .team(d.1), label: d.0, colour: Livery.team(d.1).primary)
+                let node = makeCar(livery: .team(d.1), label: d.3, colour: Livery.team(d.1).primary)
                 scene.rootNode.addChildNode(node)
                 let offset = gap
                 gap += 0.7 + Float((i * 7 + 3) % 10) * 0.2
@@ -1038,17 +1047,18 @@ struct TrackSceneView: UIViewRepresentable {
         }
 
         static func badge(_ text: String, _ colour: UIColor) -> UIImage {
-            let size = CGSize(width: 96, height: 48)
+            let attrs: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 30, weight: .bold),
+                                                        .foregroundColor: UIColor.white]
+            let str = NSString(string: text)
+            let tw = str.size(withAttributes: attrs).width
+            let size = CGSize(width: ceil(tw) + 44, height: 52)
             return UIGraphicsImageRenderer(size: size).image { _ in
+                let pill = UIBezierPath(roundedRect: CGRect(origin: .zero, size: size).insetBy(dx: 2, dy: 2), cornerRadius: 12)
+                UIColor(white: 0.06, alpha: 0.72).setFill()
+                pill.fill()
                 colour.setFill()
-                UIBezierPath(roundedRect: CGRect(x: 2, y: 2, width: 92, height: 44), cornerRadius: 22).fill()
-                var white: CGFloat = 0
-                _ = colour.getWhite(&white, alpha: nil)
-                let attrs: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 26, weight: .heavy),
-                                                            .foregroundColor: white > 0.6 ? UIColor.black : UIColor.white]
-                let s = NSString(string: text)
-                let b = s.size(withAttributes: attrs)
-                s.draw(at: CGPoint(x: (size.width - b.width) / 2, y: (size.height - b.height) / 2), withAttributes: attrs)
+                UIBezierPath(roundedRect: CGRect(x: 8, y: 12, width: 6, height: size.height - 24), cornerRadius: 3).fill()
+                str.draw(at: CGPoint(x: 24, y: (size.height - 36) / 2), withAttributes: attrs)
             }
         }
 
@@ -1127,8 +1137,10 @@ struct TrackSceneView: UIViewRepresentable {
             updateCamera(followed: followed, dt: dt)
             // Étiquettes de taille constante à l'écran, quelle que soit la distance.
             let eye = camera.simdPosition
+            let show = control.showLabels
             for c in cars {
                 guard let tag = c.node.childNode(withName: "label", recursively: false) else { continue }
+                tag.isHidden = !show
                 let k = min(max(simd_length(eye - c.node.simdPosition) / 70, 0.25), 30)
                 tag.simdScale = SIMD3<Float>(repeating: k)
             }
@@ -1266,38 +1278,48 @@ struct Track3DView: View {
     }
 
     private var controls: some View {
-        HStack(spacing: 8) {
-            Menu {
-                Picker(L("Caméra", "Camera"), selection: $control.mode) {
-                    ForEach(TrackCam.allCases) { Label($0.label, systemImage: $0.symbol).tag($0) }
-                }
-            } label: {
-                Label(control.mode.label, systemImage: control.mode.symbol)
-                    .lineLimit(1)
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(.black.opacity(0.65), in: Capsule())
-            }
-            if control.mode != .overview && !control.drivers.isEmpty {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
                 Menu {
-                    Picker(L("Pilote", "Driver"), selection: $control.follow) {
-                        ForEach(Array(control.drivers.enumerated()), id: \.offset) { i, code in Text(code).tag(i) }
+                    Picker(L("Caméra", "Camera"), selection: $control.mode) {
+                        ForEach(TrackCam.allCases) { Label($0.label, systemImage: $0.symbol).tag($0) }
                     }
                 } label: {
-                    Text(control.drivers[min(control.follow, control.drivers.count - 1)])
+                    Label(control.mode.label, systemImage: control.mode.symbol)
+                        .lineLimit(1)
+                        .fixedSize()
                         .padding(.horizontal, 12).padding(.vertical, 8)
                         .background(.black.opacity(0.65), in: Capsule())
                 }
+                if control.mode != .overview && !control.drivers.isEmpty {
+                    Menu {
+                        Picker(L("Pilote", "Driver"), selection: $control.follow) {
+                            ForEach(Array(control.drivers.enumerated()), id: \.offset) { i, name in Text(name).tag(i) }
+                        }
+                    } label: {
+                        Label(control.drivers[min(control.follow, control.drivers.count - 1)], systemImage: "person.fill")
+                            .lineLimit(1)
+                            .padding(.horizontal, 12).padding(.vertical, 8)
+                            .background(.black.opacity(0.65), in: Capsule())
+                    }
+                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
-            Button { control.zoom(by: 0.8) } label: { Image(systemName: "plus") }
-                .frame(width: 34, height: 34).background(.black.opacity(0.65), in: Circle())
-            Button { control.zoom(by: 1.25) } label: { Image(systemName: "minus") }
-                .frame(width: 34, height: 34).background(.black.opacity(0.65), in: Circle())
-            Button { control.resetCamera() } label: { Image(systemName: "arrow.counterclockwise") }
-                .frame(width: 34, height: 34).background(.black.opacity(0.65), in: Circle())
-            if !full {
-                Button { full = true } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                Button { control.showLabels.toggle() } label: { Image(systemName: control.showLabels ? "tag.fill" : "tag.slash") }
                     .frame(width: 34, height: 34).background(.black.opacity(0.65), in: Circle())
+                    .accessibilityLabel(L("Afficher les noms", "Show names"))
+                Button { control.zoom(by: 0.8) } label: { Image(systemName: "plus") }
+                    .frame(width: 34, height: 34).background(.black.opacity(0.65), in: Circle())
+                Button { control.zoom(by: 1.25) } label: { Image(systemName: "minus") }
+                    .frame(width: 34, height: 34).background(.black.opacity(0.65), in: Circle())
+                Button { control.resetCamera() } label: { Image(systemName: "arrow.counterclockwise") }
+                    .frame(width: 34, height: 34).background(.black.opacity(0.65), in: Circle())
+                if !full {
+                    Button { full = true } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
+                        .frame(width: 34, height: 34).background(.black.opacity(0.65), in: Circle())
+                }
             }
         }
         .font(.footnote.bold())

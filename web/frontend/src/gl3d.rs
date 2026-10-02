@@ -1947,7 +1947,7 @@ impl State {
                         continue;
                     };
                     let style = el.style();
-                    match vp.project(add(*pos, [0.0, 14.0, 0.0])) {
+                    match vp.project(add(*pos, [0.0, 6.5, 0.0])) {
                         Some((x, y)) if x.abs() < 1.05 && y.abs() < 1.05 => {
                             let (px, py) = ((x + 1.0) / 2.0 * cw, (1.0 - y) / 2.0 * ch);
                             let _ = style.set_property(
@@ -2034,12 +2034,12 @@ impl State {
 
     /// Plateau complet (pilotes de la saison, livrées des écuries) qui tourne sur le tour de
     /// référence, chacun avec son écart et un léger décalage latéral.
-    fn set_field(&mut self, drivers: &[(String, String)]) {
+    fn set_field(&mut self, drivers: &[(String, String, String)]) {
         let markers: Vec<Marker> = drivers
             .iter()
-            .map(|(code, team)| Marker {
+            .map(|(code, team, label)| Marker {
                 key: code.clone(),
-                label: code.clone(),
+                label: label.clone(),
                 colour: livery(team).primary.to_string(),
                 fraction: 0.0,
             })
@@ -2055,7 +2055,7 @@ impl State {
             })
             .collect();
         for (i, car) in self.cars.iter_mut().enumerate() {
-            if let Some((_, team)) = drivers.get(i) {
+            if let Some((_, team, _)) = drivers.get(i) {
                 car.paint = livery(team).paint();
             }
             car.lane = [-3.5, 3.5, -1.5, 1.5][i % 4];
@@ -2318,8 +2318,9 @@ pub fn View3D(props: &ViewProps) -> Html {
     let mode = use_state(|| CamMode::Overview);
     let follow = use_state(|| 0usize);
     // Pilotes affichés (code, écurie) : plateau de la saison sur la fiche circuit.
-    let field = use_state(Vec::<(String, String, String)>::new);
+    let field = use_state(Vec::<(String, String, String, String)>::new);
     let full = use_state(|| false);
+    let show_labels = use_state(|| true);
     {
         let (canvas, labels, viewer, failed, field) = (
             canvas.clone(),
@@ -2372,7 +2373,7 @@ pub fn View3D(props: &ViewProps) -> Html {
                     let Ok(v) = resp.json::<serde_json::Value>().await else {
                         return;
                     };
-                    let list: Vec<(String, String, String)> = v
+                    let list: Vec<(String, String, String, String)> = v
                         .pointer("/MRData/StandingsTable/StandingsLists/0/DriverStandings")
                         .and_then(|l| l.as_array())
                         .map(|l| {
@@ -2392,14 +2393,19 @@ pub fn View3D(props: &ViewProps) -> Html {
                                         .pointer("/Constructors/0/constructorId")?
                                         .as_str()?
                                         .to_string();
-                                    let name = format!(
-                                        "{} {}",
-                                        drv.get("givenName").and_then(|n| n.as_str()).unwrap_or(""),
-                                        drv.get("familyName")
-                                            .and_then(|n| n.as_str())
-                                            .unwrap_or("")
-                                    );
-                                    Some((code, team, name))
+                                    let given =
+                                        drv.get("givenName").and_then(|n| n.as_str()).unwrap_or("");
+                                    let family = drv
+                                        .get("familyName")
+                                        .and_then(|n| n.as_str())
+                                        .unwrap_or("");
+                                    let name = format!("{given} {family}");
+                                    // Étiquette au-dessus de la voiture : « L. Hamilton ».
+                                    let short = match given.chars().next() {
+                                        Some(i) => format!("{i}. {family}"),
+                                        None => family.to_string(),
+                                    };
+                                    Some((code, team, name, short))
                                 })
                                 .collect()
                         })
@@ -2408,11 +2414,11 @@ pub fn View3D(props: &ViewProps) -> Html {
                         return;
                     }
                     if let Some(v) = viewer.borrow().as_ref() {
-                        let pairs: Vec<(String, String)> = list
+                        let labelled: Vec<(String, String, String)> = list
                             .iter()
-                            .map(|(c, t, _)| (c.clone(), t.clone()))
+                            .map(|(c, t, _, short)| (c.clone(), t.clone(), short.clone()))
                             .collect();
-                        v.state.borrow_mut().set_field(&pairs);
+                        v.state.borrow_mut().set_field(&labelled);
                     }
                     field.set(list);
                 });
@@ -2527,7 +2533,7 @@ pub fn View3D(props: &ViewProps) -> Html {
             .unwrap_or_default()
     } else {
         // Noms complets dans le sélecteur (le code reste au-dessus des voitures).
-        field.iter().map(|(_, _, n)| n.clone()).collect()
+        field.iter().map(|(_, _, n, _)| n.clone()).collect()
     };
     if *failed {
         return html! {
@@ -2535,7 +2541,7 @@ pub fn View3D(props: &ViewProps) -> Html {
         };
     }
     html! {
-        <div class={classes!("scene", is_track.then_some("scene-track"), full.then_some("scene-full"))}>
+        <div class={classes!("scene", is_track.then_some("scene-track"), full.then_some("scene-full"), (!*show_labels).then_some("scene-nolabels"))}>
             <canvas ref={canvas} class="scene-canvas" role="img"
                 aria-label={if is_track { t("Circuit en 3D", "3D circuit") } else { t("Monoplace en 3D", "3D car") }}
                 {onpointerdown} {onpointermove} onpointerup={onpointerup.clone()} onpointercancel={onpointerup} {onwheel} />
@@ -2578,6 +2584,10 @@ pub fn View3D(props: &ViewProps) -> Html {
                             }) }
                         </select>
                     }
+                }
+                if is_track {
+                    <button class={classes!("scene-btn", show_labels.then_some("on"))} aria-pressed={show_labels.to_string()}
+                        onclick={let s = show_labels.clone(); move |_| s.set(!*s)}>{ t("Noms", "Names") }</button>
                 }
                 if *full {
                     <button class="scene-btn" aria-label={t("Recentrer", "Recentre")} onclick={recentre}>{ "⟲" }</button>
