@@ -91,13 +91,24 @@ actor ServerAPI {
             return try JSONDecoder().decode(T.self, from: hit.1)
         }
         guard let url = URL(string: path, relativeTo: Server.base) else { throw URLError(.badURL) }
-        let (data, response) = try await URLSession.shared.data(from: url)
-        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
-        if http.statusCode == 404 { throw URLError(.fileDoesNotExist) }
-        guard (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }
-        let decoded = try JSONDecoder().decode(T.self, from: data)
-        cache[path] = (Date(), data)
-        return decoded
+        // Délai borné : jamais de chargement infini (le bouton « Réessayer » prend le relais).
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 30
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+            if http.statusCode == 404 { throw URLError(.fileDoesNotExist) }
+            guard (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }
+            let decoded = try JSONDecoder().decode(T.self, from: data)
+            cache[path] = (Date(), data)
+            return decoded
+        } catch let error as URLError where error.code != .fileDoesNotExist {
+            // Réseau ou serveur indisponible : dernière copie connue plutôt qu'une erreur.
+            if let stale = cache[path], let decoded = try? JSONDecoder().decode(T.self, from: stale.1) {
+                return decoded
+            }
+            throw error
+        }
     }
 
     func track(_ circuitId: String) async throws -> TrackMap {

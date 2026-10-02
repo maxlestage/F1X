@@ -777,17 +777,26 @@ struct MeetingLinkButton: View {
     let date: String
     @State private var meeting: JSONValue?
 
+    @State private var searched = false
+
     var body: some View {
-        Group {
+        // Toujours une vue concrète : un Group vide dans une List perd son .task.
+        VStack(alignment: .leading) {
             if let m = meeting, let key = m["meeting_key"].int {
                 NavigationLink {
                     DataMeetingView(key: key, title: m["meeting_name"].string)
                 } label: {
                     Label(L("Analyse détaillée (données OpenF1)", "Detailed analysis (OpenF1 data)"), systemImage: "chart.xyaxis.line")
                 }
+            } else if searched {
+                Text(L("Pas de données OpenF1 pour ce Grand Prix.", "No OpenF1 data for this Grand Prix."))
+                    .font(.footnote).foregroundStyle(.secondary)
+            } else {
+                ProgressView().frame(maxWidth: .infinity)
             }
         }
         .task {
+            defer { searched = true }
             guard year >= 2023, let race = of1Date("\(date)T12:00:00Z") else { return }
             let list = await of1("meetings", "year=\(year)", ttl: 3600)
             meeting = list.first { m in

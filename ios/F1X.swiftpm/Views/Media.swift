@@ -46,7 +46,7 @@ struct WikiPhotoView: View {
     @State private var photo: Photo?
 
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
             if let photo, let src = URL(string: photo.src) {
                 VStack(alignment: .leading, spacing: 4) {
                     AsyncImage(url: src) { phase in
@@ -179,7 +179,8 @@ struct TrackPanel: View {
     @State private var three = false
 
     var body: some View {
-        Group {
+        // Conteneur réel (pas un Group) : dans une List, le .task doit avoir une vue stable.
+        VStack(alignment: .leading, spacing: 0) {
             if let map {
                 VStack(alignment: .leading, spacing: 10) {
                     Picker("", selection: $three) {
