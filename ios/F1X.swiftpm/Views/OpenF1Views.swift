@@ -237,13 +237,33 @@ enum DataTab: String, CaseIterable, Identifiable {
         case .weather: return L("Météo", "Weather")
         }
     }
+    var symbol: String {
+        switch self {
+        case .results: return "list.number"
+        case .driver: return "person.text.rectangle"
+        case .laps: return "stopwatch"
+        case .positions: return "arrow.up.arrow.down"
+        case .tyres: return "circle.circle"
+        case .telemetry: return "gauge.with.dots.needle.67percent"
+        case .race: return "flag.checkered"
+        case .radio: return "headphones"
+        case .weather: return "cloud.sun"
+        }
+    }
 }
 
 struct DataSessionView: View {
     let key: Int
     let title: String
     let type: String
-    @State private var tab: DataTab = .results
+    @State private var tab: DataTab
+
+    init(key: Int, title: String, type: String, start: DataTab = .results) {
+        self.key = key
+        self.title = title
+        self.type = type
+        _tab = State(initialValue: start)
+    }
     @State private var drivers: [Int: OF1Driver] = [:]
 
     var body: some View {
@@ -810,6 +830,48 @@ struct MeetingLinkButton: View {
     }
 }
 
+
+/// Accès direct, depuis la page d'un Grand Prix terminé, à tout ce que les données OpenF1
+/// racontent de la course : fiche de chaque pilote, tours, positions, pneus, télémétrie,
+/// direction de course, radios, météo.
+struct RaceDataLinks: View {
+    let year: Int
+    let date: String
+    @State private var session: JSONValue?
+    @State private var searched = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let s = session, let key = s["session_key"].int {
+                let title = "\(s["location"].string) — \(s["session_name"].string)"
+                ForEach(DataTab.allCases) { tab in
+                    NavigationLink {
+                        DataSessionView(key: key, title: title, type: s["session_type"].string, start: tab)
+                    } label: {
+                        Label(tab.label, systemImage: tab.symbol)
+                            .padding(.vertical, 9)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    if tab != DataTab.allCases.last { Divider() }
+                }
+            } else if searched {
+                Text(L("Pas de données OpenF1 pour cette course.", "No OpenF1 data for this race."))
+                    .font(.footnote).foregroundStyle(.secondary)
+            } else {
+                ProgressView().frame(maxWidth: .infinity)
+            }
+        }
+        .task {
+            defer { searched = true }
+            guard year >= 2023, let race = of1Date("\(date)T12:00:00Z") else { return }
+            let list = await of1("sessions", "year=\(year)&session_name=Race", ttl: 3600)
+            session = list.first { s in
+                guard let start = of1Date(s["date_start"].string) else { return false }
+                return abs(race.timeIntervalSince(start)) <= 2 * 86_400
+            }
+        }
+    }
+}
 
 /// Fiche course d'un pilote : résumé, temps au tour, tour par tour (secteurs, vitesses,
 /// position, écarts, pneus, arrêts), télémétrie du tour choisi (vitesse, régime, gaz, frein,
