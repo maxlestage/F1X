@@ -182,6 +182,7 @@ course. Le nombre de personnes connectées est diffusé en temps réel.
 | `/api/live/sessions/{année}` | Sessions rejouables (OpenF1) |
 | `/api/of1/{endpoint}?{filtres}` | Relais mis en cache des 18 endpoints OpenF1 (requête validée ; 60 s si `latest`, 6 h sinon) |
 | `/api/of1/pitdetail?session_key=` ou `?year=&date=` | Détail de chaque arrêt : voie des stands, immobilisation, pneus retirés/montés, position avant/après |
+| `/api/of1/driverrace?session_key=&driver=` | Course d'un pilote tour par tour : temps, secteurs, vitesses I1/I2/piège, position, écarts (leader, voiture devant), pneus, arrêts ; résumé, messages de la direction de course, radios |
 | `/api/mapkit-token` | Jeton MapKit JS signé (404 si aucune clé configurée) |
 | `/api/of1/telemetry?session_key=&drivers=a,b` | Meilleurs tours de 2–3 pilotes rééchantillonnés sur la distance (vitesse, gaz, frein, rapport) |
 | `/api/track/{circuit}` | Tracé GPS + télémétrie du meilleur tour de la dernière course (depuis 2023), mis en cache |

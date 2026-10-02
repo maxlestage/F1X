@@ -222,11 +222,12 @@ struct DataMeetingView: View {
 // MARK: - Séance
 
 enum DataTab: String, CaseIterable, Identifiable {
-    case results, laps, positions, tyres, telemetry, race, radio, weather
+    case results, driver, laps, positions, tyres, telemetry, race, radio, weather
     var id: String { rawValue }
     var label: String {
         switch self {
         case .results: return L("Résultats", "Results")
+        case .driver: return L("Fiche pilote", "Driver file")
         case .laps: return L("Tours", "Laps")
         case .positions: return "Positions"
         case .tyres: return L("Pneus", "Tyres")
@@ -256,6 +257,7 @@ struct DataSessionView: View {
                 Group {
                     switch tab {
                     case .results: ResultsSection(key: key, drivers: drivers)
+                    case .driver: DriverRaceSection(key: key, drivers: drivers)
                     case .laps: LapsSection(key: key, drivers: drivers)
                     case .positions: PositionsSection(key: key, drivers: drivers)
                     case .tyres: TyresSection(key: key, drivers: drivers)
@@ -805,5 +807,220 @@ struct MeetingLinkButton: View {
                 return d >= -86_400 && d <= 5 * 86_400
             }
         }
+    }
+}
+
+
+/// Fiche course d'un pilote : résumé, temps au tour, tour par tour (secteurs, vitesses,
+/// position, écarts, pneus, arrêts), télémétrie du tour choisi (vitesse, régime, gaz, frein,
+/// rapport, DRS), messages de la direction de course et radios.
+struct DriverRaceSection: View {
+    let key: Int
+    let drivers: [Int: OF1Driver]
+    @State private var driver = 0
+    @State private var data: JSONValue = .null
+    @State private var lap = 0
+    @State private var tel: JSONValue = .null
+    @State private var loading = false
+    @StateObject private var player = RadioPlayer()
+
+    private var laps: [JSONValue] { data["laps"].array }
+    private var bestLap: Int {
+        laps.filter { !$0["pit_out"].bool }
+            .min { ($0["time"].double ?? 1e9) < ($1["time"].double ?? 1e9) }?["lap"].int ?? 1
+    }
+
+    var body: some View {
+        let list = drivers.values.sorted { $0.number < $1.number }
+        VStack(spacing: 16) {
+            Card(title: L("Fiche course du pilote", "Driver race file")) {
+                Picker(L("Pilote", "Driver"), selection: $driver) {
+                    ForEach(list, id: \.number) { Text($0.name).tag($0.number) }
+                }
+                .pickerStyle(.menu)
+                if loading { ProgressView().frame(maxWidth: .infinity) }
+                if data != .null {
+                    summary
+                }
+            }
+            if !laps.isEmpty {
+                Card(title: L("Temps au tour", "Lap times")) { lapChart }
+                Card(title: L("Tour par tour (\(laps.count))", "Lap by lap (\(laps.count))")) {
+                    ForEach(laps, id: \.self) { l in lapRow(l) }
+                }
+                Card(title: L("Télémétrie d'un tour", "Lap telemetry")) {
+                    Picker(L("Tour", "Lap"), selection: $lap) {
+                        ForEach(laps.compactMap { $0["lap"].int }, id: \.self) { n in
+                            Text(n == bestLap ? L("Tour \(n) (meilleur)", "Lap \(n) (fastest)") : L("Tour \(n)", "Lap \(n)")).tag(n)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    trace(L("Vitesse (km/h)", "Speed (km/h)"), "speed", 170, .stepEnd, false)
+                    trace(L("Régime moteur (tr/min)", "Engine speed (rpm)"), "rpm", 120, .linear, false)
+                    trace(L("Accélérateur (%)", "Throttle (%)"), "throttle", 100, .linear, false)
+                    trace(L("Freinage", "Braking"), "brake", 60, .stepEnd, true)
+                    trace(L("Rapport engagé", "Gear"), "gear", 100, .stepEnd, true)
+                    trace(L("DRS (100 ouvert · 50 autorisé)", "DRS (100 open · 50 armed)"), "drs", 60, .stepEnd, true)
+                }
+            }
+            let messages = data["messages"].array
+            if !messages.isEmpty {
+                Card(title: L("Direction de course (\(messages.count))", "Race control (\(messages.count))")) {
+                    ForEach(messages, id: \.self) { m in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(m["message"].string).font(.subheadline)
+                            Text([m["lap"].int.map { L("Tour \($0)", "Lap \($0)") }, Optional(shortTime(m["date"].string))].compactMap { $0 }.joined(separator: " · "))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+            let radios = data["radio"].array
+            if !radios.isEmpty {
+                Card(title: L("Radios (\(radios.count))", "Radio (\(radios.count))")) {
+                    ForEach(radios, id: \.self) { r in
+                        let url = r["url"].string
+                        Button { player.toggle(url) } label: {
+                            Label(shortTime(r["date"].string), systemImage: player.playing == url ? "stop.circle.fill" : "play.circle.fill")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .task(id: drivers.count) {
+            if driver == 0 {
+                let res = await of1("session_result", "session_key=\(key)").sorted { ($0["position"].int ?? 99) < ($1["position"].int ?? 99) }
+                driver = res.first?["driver_number"].int ?? list.first?.number ?? 0
+            }
+        }
+        .task(id: driver) {
+            guard driver != 0 else { return }
+            loading = true
+            data = (try? await ServerAPI.shared.get("api/of1/driverrace?session_key=\(key)&driver=\(driver)", as: JSONValue.self, ttl: 600)) ?? .null
+            loading = false
+            lap = bestLap
+        }
+        .task(id: "\(driver)-\(lap)") {
+            guard driver != 0, lap != 0 else { return }
+            let list = (try? await ServerAPI.shared.get("api/of1/telemetry?session_key=\(key)&drivers=\(driver)&lap=\(lap)", as: [JSONValue].self, ttl: 3600)) ?? []
+            tel = list.first ?? .null
+        }
+    }
+
+    private var summary: some View {
+        let pos = { (k: String) in data[k].int.map { "P\($0)" } ?? "–" }
+        let status = data["status"].string
+        let champ: String = {
+            guard let a = data["champ_before"].int, let b = data["champ_after"].int else { return "–" }
+            return "P\(a) → P\(b)"
+        }()
+        let champPts: String = {
+            guard let a = data["champ_points_before"].double, let b = data["champ_points_after"].double else { return "–" }
+            return "\(Int(a)) → \(Int(b))"
+        }()
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Rectangle().fill(Color(hexString: data["colour"].string)).frame(width: 4, height: 34)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(data["name"].string.capitalized).font(.headline)
+                    Text(data["team"].string).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 10) {
+                stat(L("Départ → arrivée", "Start → finish"), "\(pos("grid")) → \(status.isEmpty ? pos("finish") : status)")
+                stat("Points", data["points"].double.map { "\(Int($0))" } ?? "0")
+                stat(L("Championnat", "Championship"), champ)
+                stat(L("Points au championnat", "Championship points"), champPts)
+                stat(L("Dépassements faits / subis", "Overtakes made / lost"), "\(data["overtakes_made"].string) / \(data["overtakes_lost"].string)")
+                stat(L("Arrêts aux stands", "Pit stops"), data["pit_count"].string)
+            }
+        }
+    }
+
+    private func stat(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+            Text(value).font(.subheadline.weight(.bold).monospacedDigit())
+        }
+    }
+
+    private var lapChart: some View {
+        let fastest = laps.compactMap { $0["time"].double }.min() ?? 0
+        let pts: [Pt] = laps.compactMap { l in
+            guard let n = l["lap"].double, let t = l["time"].double, t < fastest * 1.1 else { return nil }
+            return Pt(series: data["code"].string, x: n, y: t)
+        }
+        return Chart(pts) {
+            LineMark(x: .value(L("Tour", "Lap"), $0.x), y: .value(L("Temps", "Time"), $0.y))
+                .foregroundStyle(Color(hexString: data["colour"].string))
+        }
+        .chartYScale(domain: .automatic(includesZero: false))
+        .chartYAxis {
+            AxisMarks { v in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let d = v.as(Double.self) { Text(formatLap(d)) }
+                }
+            }
+        }
+        .frame(height: 200)
+    }
+
+    private func gap(_ v: JSONValue) -> String {
+        switch v {
+        case .num(let g): return g == 0 ? "—" : String(format: "+%.1f s", g)
+        case .str(let s): return s
+        default: return "–"
+        }
+    }
+
+    private func lapRow(_ l: JSONValue) -> some View {
+        let sec = { (k: String) in l[k].double.map { String(format: "%.1f", $0) } ?? "–" }
+        let spd = { (k: String) in l[k].int.map(String.init) ?? "–" }
+        let badge: String? = l["pit_in"].bool
+            ? (l["stop"].double.map { L("Arrêt \(String(format: "%.1f", $0)) s", "Stop \(String(format: "%.1f", $0)) s") } ?? L("Arrêt", "Pit"))
+            : (l["pit_out"].bool ? L("Sortie des stands", "Pit exit") : nil)
+        let age = l["tyre_age"].int.map { L(" · \($0) tours", " · \($0) laps") } ?? ""
+        return VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(L("Tour \(l["lap"].string)", "Lap \(l["lap"].string)"))
+                    .font(.caption.weight(.heavy))
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Color(white: 0.2), in: Capsule())
+                    .fixedSize()
+                Text(l["time"].double.map(formatLap) ?? "–").font(.body.monospacedDigit().weight(.semibold))
+                Text("P\(l["position"].string)").font(.footnote.weight(.bold)).foregroundStyle(.secondary)
+                if let badge {
+                    Text(badge).font(.caption2.weight(.heavy)).foregroundStyle(.black)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Color.yellow, in: Capsule())
+                        .fixedSize()
+                }
+            }
+            Text("S1 \(sec("s1")) · S2 \(sec("s2")) · S3 \(sec("s3"))").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            Text(L("I1 \(spd("i1")) · I2 \(spd("i2")) · piège \(spd("st")) km/h", "I1 \(spd("i1")) · I2 \(spd("i2")) · trap \(spd("st")) km/h"))
+                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            (Text("● ").foregroundColor(tyreColor(l["compound"].string)) + Text("\(l["compound"].string.capitalized)\(age) · leader \(gap(l["gap"])) · \(L("devant", "ahead")) \(gap(l["interval"]))"))
+                .font(.caption.monospacedDigit()).foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private func trace(_ title: String, _ field: String, _ height: CGFloat, _ interp: InterpolationMethod, _ stepped: Bool) -> some View {
+        let dist = tel["distance"].doubles, vals = tel[field].doubles
+        let pts: [Pt] = zip(dist, vals).map { Pt(series: field, x: $0 / 1000, y: $1) }
+        Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        Chart(pts) {
+            LineMark(x: .value("km", $0.x), y: .value(title, $0.y))
+                .interpolationMethod(stepped ? .stepEnd : interp)
+                .foregroundStyle(Color(hexString: data["colour"].string))
+        }
+        .chartXAxisLabel("km")
+        .frame(height: height)
     }
 }

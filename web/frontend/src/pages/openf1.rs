@@ -347,6 +347,7 @@ fn driver_map(drivers: &[Value]) -> BTreeMap<i64, (String, String, String, Strin
 #[derive(Clone, Copy, PartialEq)]
 enum View {
     Results,
+    Driver,
     Laps,
     Positions,
     Tyres,
@@ -372,6 +373,7 @@ pub fn DataSessionPage(p: &KeyProps) -> Html {
     };
     let content = match *view {
         View::Results => html! { <ResultsView key_={key} names={names.clone()} /> },
+        View::Driver => html! { <DriverView key_={key} names={names.clone()} /> },
         View::Laps => html! { <LapsView key_={key} names={names.clone()} /> },
         View::Positions => html! { <PositionsView key_={key} names={names.clone()} /> },
         View::Tyres => html! { <TyresView key_={key} names={names.clone()} /> },
@@ -392,6 +394,7 @@ pub fn DataSessionPage(p: &KeyProps) -> Html {
             </section>
             <div class="segmented segmented-4 of1-tabs">
                 { tab(View::Results, t("Résultats", "Results")) }
+                { tab(View::Driver, t("Pilote", "Driver")) }
                 { tab(View::Laps, t("Tours", "Laps")) }
                 { tab(View::Positions, t("Positions", "Positions")) }
                 { tab(View::Tyres, t("Pneus", "Tyres")) }
@@ -781,6 +784,258 @@ fn TelemetryView(p: &ViewProps) -> Html {
             { body }
             <p class="muted">{ t("Données car_data OpenF1 (~4 mesures/s), alignées sur la distance parcourue.", "OpenF1 car_data (~4 samples/s), aligned on distance travelled.") }</p>
         </section>
+    }
+}
+
+/// Fiche course d'un pilote : résumé, tour par tour (temps, secteurs, vitesses, position,
+/// écarts, pneus, arrêts), télémétrie du tour choisi (vitesse, gaz, frein, rapport, régime,
+/// DRS), messages de la direction de course et radios.
+#[function_component]
+fn DriverView(p: &ViewProps) -> Html {
+    let res = use_json::<Value>(of1("session_result", &format!("session_key={}", p.key_)));
+    let top = top_drivers(&res, &p.names, 1);
+    let pick = use_state(|| None::<i64>);
+    let lap = use_state(|| None::<u32>);
+    let driver = (*pick).or(top.first().copied());
+    let data = use_json::<Value>(
+        driver.map(|d| format!("/api/of1/driverrace?session_key={}&driver={d}", p.key_)),
+    );
+    let laps = data
+        .as_ref()
+        .and_then(|r| r.as_ref().ok())
+        .and_then(|v| v.get("laps").and_then(Value::as_array).cloned())
+        .unwrap_or_default();
+    // Tour analysé : celui choisi, sinon le meilleur tour (hors sorties des stands).
+    let best_lap = laps
+        .iter()
+        .filter(|l| !l.get("pit_out").and_then(Value::as_bool).unwrap_or(false))
+        .filter_map(|l| Some((num(l, "time")?, int(l, "lap")? as u32)))
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|x| x.1);
+    let chosen = (*lap).or(best_lap);
+    let tel = use_json::<Value>(match (driver, chosen) {
+        (Some(d), Some(n)) => Some(format!(
+            "/api/of1/telemetry?session_key={}&drivers={d}&lap={n}",
+            p.key_
+        )),
+        _ => None,
+    });
+    let on_driver = {
+        let (pick, lap) = (pick.clone(), lap.clone());
+        Callback::from(move |e: Event| {
+            if let Some(sel) = e
+                .target()
+                .and_then(|t| t.dyn_into::<web_sys::HtmlSelectElement>().ok())
+            {
+                pick.set(sel.value().parse().ok());
+                lap.set(None);
+            }
+        })
+    };
+    let on_lap = {
+        let lap = lap.clone();
+        Callback::from(move |e: Event| {
+            if let Some(sel) = e
+                .target()
+                .and_then(|t| t.dyn_into::<web_sys::HtmlSelectElement>().ok())
+            {
+                lap.set(sel.value().parse().ok());
+            }
+        })
+    };
+    let picker = html! {
+        <label class="select">
+            <select onchange={on_driver}>
+                { for p.names.iter().map(|(n, d)| html! { <option value={n.to_string()} selected={Some(*n) == driver}>{ d.0.clone() }</option> }) }
+            </select>
+        </label>
+    };
+    let Some(Ok(v)) = &data else {
+        return html! {
+            <section class="card">
+                <h2>{ t("Fiche course du pilote", "Driver race file") }</h2>
+                { picker }
+                { state_view(&data).unwrap_or_else(loading) }
+            </section>
+        };
+    };
+    let v = v.as_ref();
+    let pos = |k: &str| {
+        int(v, k)
+            .map(|p| format!("P{p}"))
+            .unwrap_or_else(|| "–".into())
+    };
+    let champ = match (int(v, "champ_before"), int(v, "champ_after")) {
+        (Some(a), Some(b)) => format!("P{a} → P{b}"),
+        _ => "–".into(),
+    };
+    let champ_pts = match (num(v, "champ_points_before"), num(v, "champ_points_after")) {
+        (Some(a), Some(b)) => format!("{a:.0} → {b:.0} pts"),
+        _ => "–".into(),
+    };
+    let finish = if s(v, "status").is_empty() {
+        pos("finish")
+    } else {
+        s(v, "status")
+    };
+    // Graphique des temps au tour (tours lents écartés : arrêts, voiture de sécurité).
+    let fastest = laps
+        .iter()
+        .filter_map(|l| num(l, "time"))
+        .fold(f64::MAX, f64::min);
+    let times = Rc::new(vec![Series {
+        label: s(v, "code"),
+        color: format!("#{}", s(v, "colour")),
+        points: laps
+            .iter()
+            .filter_map(|l| {
+                Some((
+                    num(l, "lap")?,
+                    num(l, "time").filter(|t| *t < fastest * 1.1)?,
+                ))
+            })
+            .collect(),
+    }]);
+    let tyre_dot = |c: &str| html! { <i class="tyre-dot" style={format!("background:{}", tyre_colour(c))}></i> };
+    let gap_str = |x: &Value, k: &str| match x.get(k) {
+        Some(Value::Number(n)) => n
+            .as_f64()
+            .map(|g| {
+                if g == 0.0 {
+                    "—".to_string()
+                } else {
+                    format!("+{g:.1} s")
+                }
+            })
+            .unwrap_or_default(),
+        Some(Value::String(t0)) => t0.clone(),
+        _ => "–".into(),
+    };
+    let tel_body = state_view(&tel).unwrap_or_else(|| {
+        let first = list(&tel).into_iter().next().unwrap_or(Value::Null);
+        let series = |field: &str, color: &str| -> Rc<Vec<Series>> {
+            let dist: Vec<f64> = first.get("distance").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).collect()).unwrap_or_default();
+            let vals: Vec<f64> = first.get(field).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).collect()).unwrap_or_default();
+            Rc::new(vec![Series { label: field.into(), color: color.into(), points: dist.into_iter().zip(vals).map(|(x, y)| (x / 1000.0, y)).collect() }])
+        };
+        let km = Callback::from(|v: f64| format!("{v:.1} km"));
+        let n0 = |v: f64| format!("{v:.0}");
+        html! {
+            <>
+                <h3 class="wx-sub">{ t("Vitesse (km/h)", "Speed (km/h)") }</h3>
+                <LineChart series={series("speed", SERIES[0])} fmt_x={km.clone()} fmt_y={Callback::from(n0)} />
+                <h3 class="wx-sub">{ t("Régime moteur (tr/min)", "Engine speed (rpm)") }</h3>
+                <LineChart series={series("rpm", SERIES[1])} height={120.0} fmt_x={km.clone()} fmt_y={Callback::from(n0)} />
+                <h3 class="wx-sub">{ t("Accélérateur (%)", "Throttle (%)") }</h3>
+                <LineChart series={series("throttle", SERIES[2])} height={110.0} fmt_x={km.clone()} fmt_y={Callback::from(|v: f64| format!("{v:.0}%"))} />
+                <h3 class="wx-sub">{ t("Freinage", "Braking") }</h3>
+                <LineChart series={series("brake", SERIES[4])} height={80.0} step=true fmt_x={km.clone()} fmt_y={Callback::from(|v: f64| if v > 50.0 { t("oui", "on").to_string() } else { t("non", "off").to_string() })} />
+                <h3 class="wx-sub">{ t("Rapport engagé", "Gear") }</h3>
+                <LineChart series={series("gear", SERIES[3])} height={110.0} step=true fmt_x={km.clone()} fmt_y={Callback::from(n0)} />
+                <h3 class="wx-sub">{ t("DRS (aileron ouvert)", "DRS (flap open)") }</h3>
+                <LineChart series={series("drs", SERIES[0])} height={80.0} step=true fmt_x={km} fmt_y={Callback::from(|v: f64| if v > 75.0 { t("ouvert", "open").to_string() } else if v > 25.0 { t("autorisé", "armed").to_string() } else { t("fermé", "closed").to_string() })} />
+            </>
+        }
+    });
+    let messages = v
+        .get("messages")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let radios = v
+        .get("radio")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    html! {
+        <>
+            <section class="card" style={format!("--team:#{}", s(v, "colour"))}>
+                <h2>{ t("Fiche course du pilote", "Driver race file") }</h2>
+                { picker }
+                <p class="drv-title">{ s(v, "name") }<small class="muted">{ format!(" · {}", s(v, "team")) }</small></p>
+                { stat_grid(vec![
+                    (t("Départ → arrivée", "Start → finish"), format!("{} → {}", pos("grid"), finish)),
+                    (t("Points", "Points"), num(v, "points").map(|x| format!("{x:.0}")).unwrap_or_else(|| "0".into())),
+                    (t("Championnat", "Championship"), champ),
+                    (t("Points au championnat", "Championship points"), champ_pts),
+                    (t("Dépassements faits / subis", "Overtakes made / lost"), format!("{} / {}", s(v, "overtakes_made"), s(v, "overtakes_lost"))),
+                    (t("Arrêts aux stands", "Pit stops"), s(v, "pit_count")),
+                ]) }
+            </section>
+            <section class="card">
+                <h2>{ t("Temps au tour", "Lap times") }</h2>
+                <LineChart series={times} fmt_x={Callback::from(|v: f64| tr!("T{v:.0}", "L{v:.0}"))} fmt_y={Callback::from(lap_str)} />
+                <p class="muted">{ t("Tours lents (arrêts, voiture de sécurité) écartés du graphique.", "Slow laps (pit stops, safety car) left out of the chart.") }</p>
+            </section>
+            <section class="card">
+                <h2>{ tr!("Tour par tour ({})", "Lap by lap ({})", laps.len()) }</h2>
+                <ol class="rows lap-rows">
+                    { for laps.iter().map(|l| {
+                        let sec = |k: &str| num(l, k).map(|x| format!("{x:.1}")).unwrap_or_else(|| "–".into());
+                        let spd = |k: &str| int(l, k).map(|x| x.to_string()).unwrap_or_else(|| "–".into());
+                        let age = int(l, "tyre_age").map(|a| tr!(" · {a} t.", " · {a} laps")).unwrap_or_default();
+                        let badge = if l.get("pit_in").and_then(Value::as_bool).unwrap_or(false) {
+                            num(l, "stop").map(|x| tr!("Arrêt {x:.1} s", "Stop {x:.1} s")).unwrap_or_else(|| t("Arrêt", "Pit").into())
+                        } else if l.get("pit_out").and_then(Value::as_bool).unwrap_or(false) {
+                            t("Sortie des stands", "Pit exit").into()
+                        } else { String::new() };
+                        html! {
+                            <li class="row lap-row">
+                                <span class="pos">{ format!("T{}", s(l, "lap")) }</span>
+                                <div class="row-main">
+                                    <span class="row-title">
+                                        { num(l, "time").map(lap_str).unwrap_or_else(|| "–".into()) }
+                                        <small class="muted">{ format!("  ·  P{}", s(l, "position")) }</small>
+                                        if !badge.is_empty() { <span class="lap-badge">{ badge }</span> }
+                                    </span>
+                                    <span class="row-sub">{ format!("S1 {} · S2 {} · S3 {}", sec("s1"), sec("s2"), sec("s3")) }</span>
+                                    <span class="row-sub">{ tr!("I1 {} · I2 {} · piège {} km/h", "I1 {} · I2 {} · trap {} km/h", spd("i1"), spd("i2"), spd("st")) }</span>
+                                    <span class="row-sub">{ tyre_dot(&s(l, "compound")) }{ format!("{}{}", tyre_name(&s(l, "compound")), age) }{ tr!(" · leader {} · devant {}", " · leader {} · ahead {}", gap_str(l, "gap"), gap_str(l, "interval")) }</span>
+                                </div>
+                            </li>
+                        }
+                    }) }
+                </ol>
+            </section>
+            <section class="card">
+                <h2>{ t("Télémétrie d'un tour", "Lap telemetry") }</h2>
+                <label class="select">
+                    <select onchange={on_lap}>
+                        { for laps.iter().filter_map(|l| int(l, "lap")).map(|n| html! {
+                            <option value={n.to_string()} selected={Some(n as u32) == chosen}>{ if Some(n as u32) == best_lap { tr!("Tour {n} (meilleur)", "Lap {n} (fastest)") } else { tr!("Tour {n}", "Lap {n}") } }</option>
+                        }) }
+                    </select>
+                </label>
+                { tel_body }
+                <p class="muted">{ t("Données car_data OpenF1 (~4 mesures/s) sur la distance du tour. DRS « autorisé » : le pilote pourra l'ouvrir dans la prochaine zone.", "OpenF1 car_data (~4 samples/s) over the lap distance. DRS “armed”: the driver can open it in the next zone.") }</p>
+            </section>
+            if !messages.is_empty() {
+                <section class="card">
+                    <h2>{ tr!("Direction de course ({})", "Race control ({})", messages.len()) }</h2>
+                    <ol class="rows">
+                        { for messages.iter().map(|m| html! {
+                            <li class="row"><div class="row-main">
+                                <span class="row-title">{ s(m, "message") }</span>
+                                <span class="row-sub">{ int(m, "lap").map(|n| tr!("Tour {n}", "Lap {n}")).unwrap_or_default() }{ format!(" · {}", local_date(&s(m, "date"), true)) }</span>
+                            </div></li>
+                        }) }
+                    </ol>
+                </section>
+            }
+            if !radios.is_empty() {
+                <section class="card">
+                    <h2>{ tr!("Radios ({})", "Radio ({})", radios.len()) }</h2>
+                    <ol class="rows">
+                        { for radios.iter().map(|r| html! {
+                            <li class="row radio-row"><div class="row-main">
+                                <span class="row-sub">{ local_date(&s(r, "date"), true) }</span>
+                                <audio controls=true preload="none" src={s(r, "url")}></audio>
+                            </div></li>
+                        }) }
+                    </ol>
+                </section>
+            }
+        </>
     }
 }
 

@@ -476,7 +476,143 @@ impl OpenF1 {
     }
 
     /// Télémétrie comparée : meilleur tour de chaque pilote, rééchantillonné selon la distance.
-    pub async fn telemetry(&self, session_key: u32, drivers: &[u32]) -> Result<Value, String> {
+    /// Course d'un pilote, tour par tour : temps et secteurs, vitesses aux intermédiaires et au
+    /// piège à vitesse, position, écarts (leader et voiture devant), pneus, arrêts ; et le
+    /// résumé : départ/arrivée, championnat avant/après, dépassements, direction de course
+    /// et radios le concernant.
+    pub async fn driver_race(&self, session_key: u32, d: u32) -> Result<Value, String> {
+        let q = format!("session_key={session_key}&driver_number={d}");
+        let laps = self.relay("laps", &q).await?;
+        let intervals = self.relay("intervals", &q).await?;
+        let positions = self.relay("position", &q).await?;
+        let stints = self.relay("stints", &q).await?;
+        let pits = self.relay("pit", &q).await?;
+        let radio = self.relay("team_radio", &q).await?;
+        let result = self.relay("session_result", &q).await?;
+        let champ = self
+            .relay("championship_drivers", &q)
+            .await
+            .unwrap_or_default();
+        let info = self.relay("drivers", &q).await?;
+        let all = format!("session_key={session_key}");
+        let control = self.relay("race_control", &all).await?;
+        let overtakes = self.relay("overtakes", &all).await.unwrap_or_default();
+        let meeting = arr(&laps).first().and_then(|l| u(l, "meeting_key"));
+        let grid = match meeting {
+            Some(m) => self
+                .relay(
+                    "starting_grid",
+                    &format!("meeting_key={m}&driver_number={d}"),
+                )
+                .await
+                .unwrap_or_default(),
+            None => Arc::new(Value::Null),
+        };
+        // Dernière valeur connue avant un instant (positions et écarts ne sont publiés
+        // qu'aux changements / toutes les ~4 s).
+        let last_before = |list: &Value, ms: i64, key: &str| -> Value {
+            arr(list)
+                .iter()
+                .filter_map(|x| Some((t(x, "date")?, x.get(key)?.clone())))
+                .filter(|(dt, _)| *dt <= ms)
+                .max_by_key(|(dt, _)| *dt)
+                .map(|(_, v)| v)
+                .unwrap_or(Value::Null)
+        };
+        let mut rows = Vec::new();
+        for l in arr(&laps) {
+            let Some(n) = u(l, "lap_number") else {
+                continue;
+            };
+            let end = t(l, "date_start")
+                .map(|s0| s0 + (f(l, "lap_duration").unwrap_or(0.0) * 1000.0) as i64);
+            let stint = arr(&stints).iter().find(|x| {
+                u(x, "lap_start").is_some_and(|a| a <= n) && u(x, "lap_end").is_none_or(|b| n <= b)
+            });
+            let (compound, age) = match stint {
+                Some(x) => (
+                    s(x, "compound"),
+                    Some(
+                        u(x, "tyre_age_at_start").unwrap_or(0) + n - u(x, "lap_start").unwrap_or(n),
+                    ),
+                ),
+                None => (String::new(), None),
+            };
+            let pit = arr(&pits).iter().find(|p| u(p, "lap_number") == Some(n));
+            rows.push(serde_json::json!({
+                "lap": n,
+                "time": f(l, "lap_duration"),
+                "s1": f(l, "duration_sector_1"),
+                "s2": f(l, "duration_sector_2"),
+                "s3": f(l, "duration_sector_3"),
+                "i1": u(l, "i1_speed"),
+                "i2": u(l, "i2_speed"),
+                "st": u(l, "st_speed"),
+                "pit_out": l.get("is_pit_out_lap").and_then(Value::as_bool).unwrap_or(false),
+                "pit_in": pit.is_some(),
+                "stop": pit.and_then(|p| f(p, "stop_duration")),
+                "position": end.map(|e| last_before(&positions, e, "position")).unwrap_or(Value::Null),
+                "gap": end.map(|e| last_before(&intervals, e, "gap_to_leader")).unwrap_or(Value::Null),
+                "interval": end.map(|e| last_before(&intervals, e, "interval")).unwrap_or(Value::Null),
+                "compound": compound,
+                "tyre_age": age,
+            }));
+        }
+        let tag = format!("CAR {d} ");
+        let messages: Vec<Value> = arr(&control)
+            .iter()
+            .filter(|m| u(m, "driver_number") == Some(d) || s(m, "message").contains(&tag))
+            .map(|m| {
+                serde_json::json!({
+                    "date": s(m, "date"), "lap": u(m, "lap_number"), "flag": s(m, "flag"),
+                    "category": s(m, "category"), "message": s(m, "message"),
+                })
+            })
+            .collect();
+        let made = arr(&overtakes)
+            .iter()
+            .filter(|o| u(o, "overtaking_driver_number") == Some(d))
+            .count();
+        let lost = arr(&overtakes)
+            .iter()
+            .filter(|o| u(o, "overtaken_driver_number") == Some(d))
+            .count();
+        let r = arr(&result).first().cloned().unwrap_or(Value::Null);
+        let c = arr(&champ).first().cloned().unwrap_or(Value::Null);
+        let who = arr(&info).first().cloned().unwrap_or(Value::Null);
+        Ok(serde_json::json!({
+            "driver_number": d,
+            "name": s(&who, "full_name"),
+            "code": s(&who, "name_acronym"),
+            "team": s(&who, "team_name"),
+            "colour": s(&who, "team_colour"),
+            "grid": arr(&grid).first().and_then(|g| u(g, "position")),
+            "finish": u(&r, "position"),
+            "status": if r.get("dnf").and_then(Value::as_bool).unwrap_or(false) { "DNF" }
+                else if r.get("dns").and_then(Value::as_bool).unwrap_or(false) { "DNS" }
+                else if r.get("dsq").and_then(Value::as_bool).unwrap_or(false) { "DSQ" } else { "" },
+            "points": f(&r, "points"),
+            "champ_before": u(&c, "position_start"),
+            "champ_after": u(&c, "position_current"),
+            "champ_points_before": f(&c, "points_start"),
+            "champ_points_after": f(&c, "points_current"),
+            "overtakes_made": made,
+            "overtakes_lost": lost,
+            "pit_count": arr(&pits).len(),
+            "laps": rows,
+            "messages": messages,
+            "radio": arr(&radio).iter().map(|x| serde_json::json!({ "date": s(x, "date"), "url": s(x, "recording_url") })).collect::<Vec<_>>(),
+        }))
+    }
+
+    /// Télémétrie d'un tour (le meilleur, ou le tour `lap` choisi) de 1 à 3 pilotes,
+    /// rééchantillonnée sur la distance : vitesse, gaz, frein, rapport, régime moteur, DRS.
+    pub async fn telemetry(
+        &self,
+        session_key: u32,
+        drivers: &[u32],
+        lap_pick: Option<u32>,
+    ) -> Result<Value, String> {
         let mut out = Vec::new();
         for &d in drivers.iter().take(3) {
             let laps = self
@@ -487,10 +623,12 @@ impl OpenF1 {
                 .await?;
             let best = arr(&laps)
                 .iter()
-                .filter(|l| {
-                    !l.get("is_pit_out_lap")
+                .filter(|l| match lap_pick {
+                    Some(n) => u(l, "lap_number") == Some(n),
+                    None => !l
+                        .get("is_pit_out_lap")
                         .and_then(Value::as_bool)
-                        .unwrap_or(false)
+                        .unwrap_or(false),
                 })
                 .filter_map(|l| {
                     Some((
@@ -510,7 +648,13 @@ impl OpenF1 {
                 query_date(end)
             );
             let car = self.relay("car_data", &q).await?;
-            let mut samples: Vec<(Ms, f64, f64, f64, f64)> = arr(&car)
+            // DRS (codes FastF1) : 10, 12, 14 = ouvert ; 8 = autorisé dans la prochaine zone.
+            let drs = |c: &Value| match u(c, "drs").unwrap_or(0) {
+                10 | 12 | 14 => 100.0,
+                8 => 50.0,
+                _ => 0.0,
+            };
+            let mut samples: Vec<(Ms, f64, f64, f64, f64, f64, f64)> = arr(&car)
                 .iter()
                 .filter_map(|c| {
                     Some((
@@ -523,6 +667,8 @@ impl OpenF1 {
                             0.0
                         },
                         f(c, "n_gear").unwrap_or(0.0),
+                        f(c, "rpm").unwrap_or(0.0),
+                        drs(c),
                     ))
                 })
                 .collect();
@@ -539,6 +685,7 @@ impl OpenF1 {
             let total = *dist.last().unwrap();
             let n = 240;
             let (mut ds, mut sp, mut th, mut br, mut gr) = (vec![], vec![], vec![], vec![], vec![]);
+            let (mut rp, mut dr) = (vec![], vec![]);
             let mut j = 0;
             for k in 0..n {
                 let target = total * k as f64 / (n - 1) as f64;
@@ -554,10 +701,13 @@ impl OpenF1 {
                 th.push(lerp(p.2, q.2).round());
                 br.push(if a < 0.5 { p.3 } else { q.3 });
                 gr.push(if a < 0.5 { p.4 } else { q.4 });
+                rp.push(lerp(p.5, q.5).round());
+                dr.push(if a < 0.5 { p.6 } else { q.6 });
             }
             out.push(serde_json::json!({
                 "driver_number": d, "lap_number": lap, "lap_duration": duration,
                 "distance": ds, "speed": sp, "throttle": th, "brake": br, "gear": gr,
+                "rpm": rp, "drs": dr,
             }));
         }
         Ok(Value::Array(out))
