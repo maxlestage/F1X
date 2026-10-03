@@ -19,7 +19,7 @@ struct PitStopsSection: View {
         let byDriver = Dictionary(grouping: pits, by: \.driverId)
         let fastest = pits.compactMap { p in p.duration.flatMap(Double.init).map { (p, $0) } }.min { $0.1 < $1.1 }
         let order = results.map(\.driver.driverId) + byDriver.keys.filter { id in !results.contains { $0.driver.driverId == id } }.sorted()
-        Section(L("Arrêts aux stands (\(pits.count))", "Pit stops (\(pits.count))")) {
+        FoldSection(L("Arrêts aux stands (\(pits.count))", "Pit stops (\(pits.count))")) {
             if let f = fastest {
                 Label(L("Le plus rapide : \(name(f.0.driverId)) — \(stopDuration(f.0.duration)) (tour \(f.0.lap))",
                         "Fastest: \(name(f.0.driverId)) — \(stopDuration(f.0.duration)) (lap \(f.0.lap))"),
@@ -74,7 +74,7 @@ struct FastestLapsSection: View {
         let laps = results.filter { $0.fastestLap?.time != nil }
             .sorted { (Int($0.fastestLap?.rank ?? "") ?? 99) < (Int($1.fastestLap?.rank ?? "") ?? 99) }
         if !laps.isEmpty {
-            Section(L("Meilleurs tours", "Fastest laps")) {
+            FoldSection(L("Meilleurs tours", "Fastest laps")) {
                 ForEach(Array(laps.prefix(10).enumerated()), id: \.offset) { _, r in
                     let f = r.fastestLap!
                     let detail = [f.lap.map { L("tour \($0)", "lap \($0)") },
@@ -104,7 +104,7 @@ struct RaceSummarySection: View {
         .map { ($0.key, $0.value) }
         .sorted { $0.1.count > $1.1.count }
         if !groups.isEmpty {
-            Section(L("Bilan de la course", "Race summary")) {
+            FoldSection(L("Bilan de la course", "Race summary")) {
                 ForEach(groups, id: \.0) { g in
                     VStack(alignment: .leading, spacing: 2) {
                         HStack {
@@ -141,7 +141,7 @@ struct LapByLapSection: View {
     }
 
     var body: some View {
-        Section(L("Tour par tour", "Lap by lap")) {
+        FoldSection(L("Tour par tour", "Lap by lap")) {
             switch state {
             case 0:
                 Text(L("Position de chaque pilote à chaque tour, tours en tête et passages aux stands.",
@@ -299,7 +299,7 @@ struct PitDetailSection: View {
     var body: some View {
         // Une seule Section, et le chargement attaché à une vraie ligne (un Group dans une
         // List perd ses modificateurs).
-        Section(state == 1 ? L("Détail de chaque arrêt (\(stops.count))", "Every pit stop in detail (\(stops.count))")
+        FoldSection(state == 1 ? L("Détail de chaque arrêt (\(stops.count))", "Every pit stop in detail (\(stops.count))")
                            : L("Détail de chaque arrêt", "Every pit stop in detail")) {
             switch state {
             case 0:

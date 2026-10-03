@@ -4,8 +4,11 @@ struct CalendarView: View {
     @State private var season = "current"
     @State private var state: Loadable<[Race]> = .loading
     @State private var winners: [String: RaceResult] = [:]
+    /// Course sur laquelle ouvrir la liste (la dernière disputée).
+    @State private var scrollTarget: String?
 
     var body: some View {
+        ScrollViewReader { proxy in
         List {
             Section { SeasonPicker(season: $season) }
             switch state {
@@ -35,12 +38,19 @@ struct CalendarView: View {
                         NavigationLink(value: race) {
                             CalendarRow(race: race, isNext: race.id == nextId, isPast: past, winner: winners[race.round])
                         }
+                        .id(race.id)
                         .listRowBackground(race.id == nextId ? Color.f1Red.opacity(0.18) : past ? Color(hex: 0x0A0A0F) : nil)
                     }
                 }
             }
         }
         .listStyle(.insetGrouped)
+        // Ouvre directement sur la dernière course disputée (la prochaine juste en dessous).
+        .onChange(of: scrollTarget) { _, target in
+            guard let target else { return }
+            DispatchQueue.main.async { proxy.scrollTo(target, anchor: .top) }
+        }
+        }
         .navigationTitle(L("Calendrier", "Calendar"))
         .f1Destinations()
         .refreshable {
@@ -55,6 +65,7 @@ struct CalendarView: View {
             async let w = try? F1API.shared.winners(season)
             let races = try await F1API.shared.schedule(season: season)
             state = .loaded(races)
+            scrollTarget = (races.last { $0.isOver() } ?? races.first { !$0.isOver() })?.id
             var map: [String: RaceResult] = [:]
             for r in await w ?? [] { if let first = r.results?.first { map[r.round] = first } }
             winners = map
@@ -113,7 +124,9 @@ private struct CalendarRow: View {
             Text("R\(race.round)")
                 .font(.caption.weight(.heavy).monospacedDigit())
                 .foregroundStyle(.secondary)
-                .frame(width: 34, height: 34)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .frame(width: 38, height: 34)
                 .background(Color(uiColor: .tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(Flag.country(race.circuit.location.country)) \(race.raceName)")

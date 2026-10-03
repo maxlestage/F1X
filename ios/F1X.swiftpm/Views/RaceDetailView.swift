@@ -31,30 +31,24 @@ struct RaceDetailView: View {
 
             // Tout savoir sur la course, juste sous le titre (pas caché au fond de la page).
             if race.isOver(), let year = Int(race.season), year >= 2023 {
-                Section {
+                FoldSection(L("Tout savoir sur la course", "Everything about the race"),
+                            footer: L("Fiche de chaque pilote tour par tour, secteurs, écarts, pneus, arrêts, télémétrie, direction de course et radios.",
+                                      "Each driver's lap-by-lap file, sectors, gaps, tyres, stops, telemetry, race control and radio.")) {
                     RaceDataLinks(year: year, date: race.date)
                         .listRowInsets(EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12))
-                } header: {
-                    Text(L("Tout savoir sur la course", "Everything about the race"))
-                } footer: {
-                    Text(L("Fiche de chaque pilote tour par tour, secteurs, écarts, pneus, arrêts, télémétrie, direction de course et radios.",
-                           "Each driver's lap-by-lap file, sectors, gaps, tyres, stops, telemetry, race control and radio."))
                 }
             }
 
             // Replay automatique de la course (vraies positions des pilotes).
             if race.isOver(), let year = Int(race.season), year >= 2023 {
-                Section {
+                FoldSection(L("Replay : course, qualifs, sprint", "Replay: race, quali, sprint"),
+                            footer: L("Démarre tout seul à ×30. Positions de chaque pilote d'après son avancement dans le tour (données OpenF1).",
+                                      "Starts on its own at ×30. Each driver's position from their progress through the lap (OpenF1 data).")) {
                     RaceReplayCard(year: year, date: race.date)
-                } header: {
-                    Text(L("Replay : course, qualifs, sprint", "Replay: race, quali, sprint"))
-                } footer: {
-                    Text(L("Démarre tout seul à ×30. Positions de chaque pilote d'après son avancement dans le tour (données OpenF1).",
-                           "Starts on its own at ×30. Each driver's position from their progress through the lap (OpenF1 data)."))
                 }
             }
 
-            Section(L("Programme", "Schedule")) {
+            FoldSection(L("Programme", "Schedule")) {
                 SessionsList(race: race)
             }
 
@@ -66,7 +60,7 @@ struct RaceDetailView: View {
                 }
             }
 
-            Section(L("Le circuit", "The circuit")) {
+            FoldSection(L("Le circuit", "The circuit")) {
                 TrackPanel(circuitId: race.circuit.circuitId)
                 if let lat = race.circuit.location.lat.flatMap(Double.init), let lon = race.circuit.location.long.flatMap(Double.init) {
                     CircuitMapView(name: race.circuit.circuitName, lat: lat, lon: lon)
@@ -75,25 +69,25 @@ struct RaceDetailView: View {
             }
 
             if race.isOver(), let year = Int(race.season), year >= 2023 {
-                Section(L("Données OpenF1", "OpenF1 data")) {
+                FoldSection(L("Données OpenF1", "OpenF1 data")) {
                     MeetingLinkButton(year: year, date: race.date)
                 }
             }
 
             if !results.isEmpty {
-                Section(L("Course", "Race")) {
+                FoldSection(L("Course", "Race")) {
                     ForEach(Array(results.enumerated()), id: \.offset) { ResultRow(result: $0.element) }
                 }
             }
 
             if !sprint.isEmpty {
-                Section("Sprint") {
+                FoldSection("Sprint") {
                     ForEach(Array(sprint.enumerated()), id: \.offset) { ResultRow(result: $0.element) }
                 }
             }
 
             if !qualifying.isEmpty {
-                Section(L("Qualifications", "Qualifying")) {
+                FoldSection(L("Qualifications", "Qualifying")) {
                     ForEach(Array(qualifying.enumerated()), id: \.offset) { _, q in
                         NavigationLink(value: q.driver) {
                             StandingRow(
