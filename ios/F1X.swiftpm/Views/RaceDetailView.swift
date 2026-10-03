@@ -47,7 +47,7 @@ struct RaceDetailView: View {
                 Section {
                     RaceReplayCard(year: year, date: race.date)
                 } header: {
-                    Text(L("Replay de la course", "Race replay"))
+                    Text(L("Replay : course, qualifs, sprint", "Replay: race, quali, sprint"))
                 } footer: {
                     Text(L("Démarre tout seul à ×30. Positions de chaque pilote d'après son avancement dans le tour (données OpenF1).",
                            "Starts on its own at ×30. Each driver's position from their progress through the lap (OpenF1 data)."))

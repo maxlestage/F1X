@@ -36,18 +36,17 @@ pub struct Hub {
     live: broadcast::Sender<Arc<str>>,
     status: RwLock<Arc<str>>,
     latest_live: RwLock<Option<Arc<str>>>,
+    /// Tracé du circuit de la session en direct (envoyé à chaque nouveau spectateur).
+    latest_track: RwLock<Option<Arc<str>>>,
     viewers: AtomicUsize,
 }
 
 impl Hub {
     pub fn new(openf1: Arc<OpenF1>) -> Arc<Self> {
-        let message = if openf1.has_live_access() {
-            "Aucune session en cours pour le moment."
-        } else {
-            "Le direct nécessite un accès OpenF1 (abonnement). En attendant, rejoue n'importe quelle session depuis 2023."
-        };
+        // Sans accès OpenF1 « direct », le flux de chronométrage public F1 prend le relais.
+        let message = "Aucune session en cours pour le moment.";
         let status = encode(&ServerMsg::Status {
-            live_available: openf1.has_live_access(),
+            live_available: true,
             live_active: false,
             message: message.into(),
         });
@@ -57,10 +56,13 @@ impl Hub {
             live: broadcast::channel(16).0,
             status: RwLock::new(status),
             latest_live: RwLock::new(None),
+            latest_track: RwLock::new(None),
             viewers: AtomicUsize::new(0),
         });
         if hub.openf1.has_live_access() {
             tokio::spawn(live_loop(hub.clone()));
+        } else {
+            tokio::spawn(feed_loop(hub.clone()));
         }
         hub
     }
@@ -206,6 +208,77 @@ async fn live_loop(hub: Arc<Hub>) {
     }
 }
 
+/// Direct par le flux de chronométrage public F1 : une image par seconde pendant les séances
+/// (essais, qualifications, sprint, course).
+async fn feed_loop(hub: Arc<Hub>) {
+    let (tx, mut rx) = mpsc::channel::<crate::livetiming::FeedMsg>(1024);
+    tokio::spawn(async move {
+        loop {
+            match crate::livetiming::stream(&tx).await {
+                Ok(()) => return,
+                Err(err) => tracing::warn!(%err, "flux F1 : reconnexion dans 20 s"),
+            }
+            tokio::time::sleep(Duration::from_secs(20)).await;
+        }
+    });
+    let mut feed = crate::livetiming::Feed::default();
+    let mut tick = tokio::time::interval(TICK);
+    let mut shown: Option<(u32, bool)> = None;
+    let mut track_for = None;
+    loop {
+        tokio::select! {
+            msg = rx.recv() => {
+                let Some((topic, data, at)) = msg else { return };
+                feed.apply(&topic, &data, at);
+            }
+            _ = tick.tick() => {
+                let active = feed.active();
+                let session = feed.session();
+                if shown != Some((session.session_key, active)) {
+                    shown = Some((session.session_key, active));
+                    if active {
+                        tracing::info!(key = session.session_key, "flux F1 : séance en direct");
+                        hub.set_status(true, format!("En direct : {} — {}", session.location, session.session_name)).await;
+                    } else {
+                        hub.set_status(false, "Aucune session en cours pour le moment.".into()).await;
+                        *hub.latest_live.write().await = None;
+                    }
+                }
+                if !active {
+                    continue;
+                }
+                // Tracé du circuit (même que le décor 3D), une fois par séance.
+                if track_for != Some(session.session_key) {
+                    track_for = Some(session.session_key);
+                    let id = crate::openf1::ergast_circuit(&session.circuit)
+                        .or_else(|| crate::openf1::ergast_circuit(&session.location));
+                    let track = match id {
+                        Some(id) => match hub.openf1.cached_track(id).await {
+                            Some(t) => Some(t),
+                            None => match crate::bundled_track(id)
+                                .and_then(|j| serde_json::from_str::<f1x_protocol::TrackMap>(j).ok())
+                            {
+                                Some(t) => Some(hub.openf1.remember_track(id, t).await),
+                                None => None,
+                            },
+                        },
+                        None => None,
+                    };
+                    let msg = track.map(|t| encode(&ServerMsg::Track(Box::new((*t).clone()))));
+                    if let Some(m) = &msg {
+                        let _ = hub.live.send(m.clone());
+                    }
+                    *hub.latest_track.write().await = msg;
+                }
+                let at = Utc::now().timestamp_millis();
+                let msg = encode(&ServerMsg::Snapshot(Box::new(feed.snapshot(at))));
+                *hub.latest_live.write().await = Some(msg.clone());
+                let _ = hub.live.send(msg);
+            }
+        }
+    }
+}
+
 enum Control {
     Speed(u32),
     Pause(bool),
@@ -311,6 +384,9 @@ pub async fn client(socket: WebSocket, hub: Arc<Hub>) {
                     ClientMsg::Live => {
                         if let Some(t) = task.take() { t.abort(); }
                         control = None;
+                        if let Some(track) = hub.latest_track.read().await.clone() {
+                            let _ = out.send(track).await;
+                        }
                         if let Some(latest) = hub.latest_live.read().await.clone() {
                             let _ = out.send(latest).await;
                         }
