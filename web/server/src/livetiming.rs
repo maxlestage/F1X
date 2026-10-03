@@ -615,6 +615,6 @@ mod tests {
         assert_eq!(s["Lines"]["1"]["Sectors"][1]["Value"], "9");
         assert_eq!(s["Lines"]["1"]["InPit"], true);
         assert_eq!(lap_secs("1:36.075"), Some(96.075));
-        assert_eq!(parse_ms("2026-10-03T08:00:00").is_some(), true);
+        assert!(parse_ms("2026-10-03T08:00:00").is_some());
     }
 }
