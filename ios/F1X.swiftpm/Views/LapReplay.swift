@@ -123,8 +123,9 @@ struct LapReplayView: View {
                     Text("\(kmh)").font(.system(size: 34, weight: .black).italic().monospacedDigit())
                     Text("km/h").font(.caption.bold()).foregroundStyle(.secondary)
                 }
+                .fixedSize()
                 VStack(spacing: 0) {
-                    Text(gear == 0 ? "N" : "\(gear)").font(.system(size: 30, weight: .black).monospacedDigit())
+                    Text(gear == 0 ? "N" : "\(gear)").font(.system(size: 30, weight: .black).monospacedDigit()).fixedSize()
                     Text(L("rapport", "gear")).font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -132,6 +133,7 @@ struct LapReplayView: View {
                     Text(formatLap(e)).font(.headline.monospacedDigit())
                     Text("/ \(formatLap(duration))").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }
+                .minimumScaleFactor(0.6)
             }
             .lineLimit(1)
             bar(L("Régime", "RPM"), "\(Int(rpm)) tr/min", min(rpm / 13_000, 1), LinearGradient(colors: [.green, .yellow, .red], startPoint: .leading, endPoint: .trailing))

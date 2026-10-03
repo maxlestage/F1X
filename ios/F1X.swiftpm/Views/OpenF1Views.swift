@@ -417,7 +417,8 @@ struct ResultsSection: View {
 
 /// Point d'une courbe.
 private struct Pt: Identifiable {
-    let id = UUID()
+    // Identifiant stable (un UUID neuf à chaque affichage faisait tout redessiner à Charts).
+    var id: String { "\(series)-\(x)" }
     let series: String
     let x: Double
     let y: Double
@@ -1151,19 +1152,7 @@ struct DriverRaceSection: View {
                 .foregroundStyle(Color(hexString: data["colour"].string))
         }
         .chartXAxisLabel("km")
-        // Peu de graduations sur les petits graphiques (plus de chiffres qui se chevauchent).
-        .chartYAxis {
-            AxisMarks(values: .automatic(desiredCount: height < 90 ? 2 : 3)) { _ in
-                AxisGridLine()
-                AxisValueLabel().font(.caption2)
-            }
-        }
-        .chartXAxis {
-            AxisMarks(values: .automatic(desiredCount: 4)) { _ in
-                AxisGridLine()
-                AxisValueLabel().font(.caption2)
-            }
-        }
-        .frame(height: max(height, 90))
+        // Assez haut pour que les graduations ne se chevauchent pas.
+        .frame(height: max(height, 120))
     }
 }
