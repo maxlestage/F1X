@@ -4,6 +4,7 @@ import SwiftUI
 /// reçus en temps réel par WebSocket depuis le serveur F1X.
 struct LiveView: View {
     @StateObject private var client = LiveClient()
+    @ObservedObject private var activity = LiveActivityManager.shared
     @State private var year = Calendar.current.component(.year, from: .now)
     @State private var sessions: [SessionSummary] = []
     @State private var speed = 10
@@ -28,7 +29,11 @@ struct LiveView: View {
         }
         .navigationTitle(L("Direct", "Live"))
         .onAppear { client.connect() }
-        .onDisappear { client.disconnect() }
+        // Live Activity en cours : la connexion reste ouverte pour continuer à la mettre à jour.
+        .onDisappear { if !activity.running { client.disconnect() } }
+        .onChange(of: client.snapshot?.clock) { _, _ in
+            if let snap = client.snapshot { activity.update(snap) }
+        }
         .task(id: year) { sessions = Array(((try? await ServerAPI.shared.sessions(year: year)) ?? []).filter { isPast($0) }.reversed()) }
     }
 
@@ -102,6 +107,17 @@ struct LiveView: View {
                             .foregroundStyle(trackStatusColor(snap.track_status))
                     }
                     ProgressView(value: snap.progress).tint(.f1Red)
+                    // Live Activity : classement sur l'écran verrouillé et dans la Dynamic Island.
+                    if activity.available {
+                        Button { activity.toggle(snap) } label: {
+                            Label(activity.running ? L("Retirer de l'écran verrouillé", "Remove from Lock Screen")
+                                                   : L("Suivre sur l'écran verrouillé", "Follow on Lock Screen"),
+                                  systemImage: activity.running ? "lock.slash" : "lock.iphone")
+                                .font(.footnote.bold())
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
                     if snap.mode == "replay" {
                         HStack {
                             Button { client.send(["type": "seek", "seconds": -120]) } label: { Image(systemName: "gobackward.120") }
