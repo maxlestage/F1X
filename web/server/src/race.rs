@@ -82,6 +82,8 @@ pub fn snapshot(d: &Dataset, at: Ms, frame: Frame) -> Snapshot {
 
     // Tours : tour en cours, dernier tour bouclé, meilleur tour.
     let mut current_lap: HashMap<u32, (u32, Ms)> = HashMap::new();
+    // Fin du tour en cours (None : durée inconnue), pour savoir si la voiture est en piste.
+    let mut current_end: HashMap<u32, Option<Ms>> = HashMap::new();
     let mut last_lap: HashMap<u32, (Ms, f64, [Option<f64>; 3])> = HashMap::new();
     let mut best_lap: HashMap<u32, f64> = HashMap::new();
     let mut best_sector: HashMap<u32, [f64; 3]> = HashMap::new();
@@ -91,6 +93,7 @@ pub fn snapshot(d: &Dataset, at: Ms, frame: Frame) -> Snapshot {
         let e = current_lap.entry(l.driver).or_insert((0, l.start));
         if l.lap >= e.0 {
             *e = (l.lap, l.start);
+            current_end.insert(l.driver, l.end());
         }
         let act = last_activity.entry(l.driver).or_insert(l.start);
         *act = (*act).max(l.start);
@@ -191,7 +194,14 @@ pub fn snapshot(d: &Dataset, at: Ms, frame: Frame) -> Snapshot {
                         .map(|l| l.1)
                         .unwrap_or(median_lap)
                         .max(1.0);
-                    (lap > 0).then(|| {
+                    // Essais / qualifications : la voiture n'est sur la carte que pendant un tour
+                    // en cours (sinon elle est au stand), au lieu d'attendre sur la ligne.
+                    let on_track = has_intervals
+                        || match current_end.get(&drv.number).copied().flatten() {
+                            Some(end) => at < end,
+                            None => ((at - lap_start) as f64 / 1000.0) < reference * 1.5,
+                        };
+                    (lap > 0 && on_track).then(|| {
                         (((at - lap_start) as f64 / 1000.0) / reference).clamp(0.0, 0.999) as f32
                     })
                 },

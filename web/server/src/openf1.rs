@@ -1200,7 +1200,7 @@ pub fn ergast_circuit(short: &str) -> Option<&'static str> {
         "lusail" | "losail" => "losail",
         "yas marina circuit" | "yas marina" | "abu dhabi" => "yas_marina",
         "madring" | "madrid" => "madring",
-        "sepang" => "sepang",
+        "sepang" | "kuala lumpur" => "sepang",
         _ => return None,
     })
 }

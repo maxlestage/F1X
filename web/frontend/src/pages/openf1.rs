@@ -1288,15 +1288,39 @@ pub fn RaceDataLinks(p: &MeetingLinkProps) -> Html {
 #[function_component]
 pub fn RaceReplay(p: &MeetingLinkProps) -> Html {
     use f1x_protocol::ClientMsg;
-    let sessions = use_json::<Value>(
-        (p.year >= 2023).then(|| format!("/api/of1/sessions?year={}&session_name=Race", p.year)),
-    );
+    let sessions =
+        use_json::<Value>((p.year >= 2023).then(|| format!("/api/of1/sessions?year={}", p.year)));
     let race = ms(&format!("{}T12:00:00Z", p.date));
-    let key = list(&sessions)
+    // Séances du week-end qu'on peut rejouer : course, qualifications, sprint, qualifs sprint.
+    let order = [
+        "Race",
+        "Qualifying",
+        "Sprint",
+        "Sprint Qualifying",
+        "Sprint Shootout",
+    ];
+    let mut weekend: Vec<(String, u32)> = list(&sessions)
         .into_iter()
-        .find(|x| (ms(&s(x, "date_start")) - race).abs() <= 2.0 * 86_400_000.0)
-        .and_then(|x| int(&x, "session_key"))
-        .map(|k| k as u32);
+        .filter(|x| {
+            let d = race - ms(&s(x, "date_start"));
+            d < 4.0 * 86_400_000.0 && d > -2.0 * 86_400_000.0
+        })
+        .filter(|x| order.contains(&s(x, "session_name").as_str()))
+        .filter_map(|x| Some((s(&x, "session_name"), int(&x, "session_key")? as u32)))
+        .collect();
+    weekend.sort_by_key(|w| order.iter().position(|o| *o == w.0).unwrap_or(9));
+    let chosen = use_state(|| None::<u32>);
+    let key = (*chosen).or(weekend.first().map(|w| w.1));
+    let label = |name: &str| match name {
+        "Race" => t("Course", "Race"),
+        "Qualifying" => t("Qualifs", "Quali"),
+        "Sprint" => "Sprint",
+        _ => t("Qualifs sprint", "Sprint quali"),
+    };
+    let racing = weekend
+        .iter()
+        .find(|w| Some(w.1) == key)
+        .is_none_or(|w| w.0 == "Race" || w.0 == "Sprint");
     let live = crate::live::use_live();
     {
         let send = live.send.clone();
@@ -1334,6 +1358,15 @@ pub fn RaceReplay(p: &MeetingLinkProps) -> Html {
                 })
                 .collect();
             let lap = match snap.total_laps {
+                _ if !racing => {
+                    // Qualifications : heure de la séance plutôt qu'un compteur de tours.
+                    let name = weekend
+                        .iter()
+                        .find(|w| Some(w.1) == key)
+                        .map(|w| label(&w.0))
+                        .unwrap_or_default();
+                    format!("{name} · {}", local_date(&snap.clock, true))
+                }
                 Some(total) => tr!("Tour {}/{total}", "Lap {}/{total}", snap.lap.min(total)),
                 None => tr!("Tour {}", "Lap {}", snap.lap),
             };
@@ -1375,7 +1408,18 @@ pub fn RaceReplay(p: &MeetingLinkProps) -> Html {
     };
     html! {
         <section class="card">
-            <h2>{ t("Replay de la course", "Race replay") }</h2>
+            <h2>{ t("Replay : course, qualifs, sprint", "Replay: race, quali, sprint") }</h2>
+            if weekend.len() > 1 {
+                <div class="segmented">
+                    { for weekend.iter().map(|(name, k)| {
+                        let (chosen, k) = (chosen.clone(), *k);
+                        html! {
+                            <button class={classes!("seg", (Some(k) == key).then_some("seg-active"))}
+                                onclick={move |_| chosen.set(Some(k))}>{ label(name) }</button>
+                        }
+                    }) }
+                </div>
+            }
             { body }
             <p class="muted">{ t(
                 "Démarre tout seul à ×30. Positions de chaque pilote d'après son avancement dans le tour (données OpenF1).",

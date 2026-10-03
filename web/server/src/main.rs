@@ -2,6 +2,7 @@ mod api;
 mod assets;
 mod landing;
 mod live;
+mod livetiming;
 mod mapkit;
 mod news;
 mod openf1;

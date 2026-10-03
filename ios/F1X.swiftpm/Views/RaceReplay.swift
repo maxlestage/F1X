@@ -10,9 +10,17 @@ struct RaceReplayCard: View {
     @State private var key: Int?
     @State private var searched = false
     @State private var started = false
+    /// Séances du week-end qu'on peut rejouer (course, qualifs, sprint…) : (nom, clé).
+    @State private var sessions: [(String, Int)] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if sessions.count > 1 {
+                Picker(L("Séance", "Session"), selection: Binding(get: { key ?? 0 }, set: { pick($0) })) {
+                    ForEach(sessions, id: \.1) { Text(Self.label($0.0)).tag($0.1) }
+                }
+                .pickerStyle(.segmented)
+            }
             if let snap = client.snapshot {
                 header(snap)
                 if let track = client.track {
@@ -35,11 +43,17 @@ struct RaceReplayCard: View {
         .task {
             defer { searched = true }
             if key == nil, year >= 2023, let race = of1Date("\(date)T12:00:00Z") {
-                let list = await of1("sessions", "year=\(year)&session_name=Race", ttl: 3600)
-                key = list.first { s in
-                    guard let start = of1Date(s["date_start"].string) else { return false }
-                    return abs(race.timeIntervalSince(start)) <= 2 * 86_400
-                }?["session_key"].int
+                // Séances du week-end : course, qualifications, sprint et qualifs sprint.
+                let order = ["Race", "Qualifying", "Sprint", "Sprint Qualifying", "Sprint Shootout"]
+                let list = await of1("sessions", "year=\(year)", ttl: 3600)
+                sessions = list.compactMap { s -> (String, Int)? in
+                    guard let start = of1Date(s["date_start"].string), let k = s["session_key"].int,
+                          order.contains(s["session_name"].string),
+                          race.timeIntervalSince(start) < 4 * 86_400, start.timeIntervalSince(race) < 2 * 86_400 else { return nil }
+                    return (s["session_name"].string, k)
+                }
+                .sorted { (order.firstIndex(of: $0.0) ?? 9) < (order.firstIndex(of: $1.0) ?? 9) }
+                key = sessions.first?.1
             }
             // (Re)démarre à chaque affichage : la ligne de liste qui sort de l'écran coupe le replay.
             if let key, !started {
@@ -55,10 +69,34 @@ struct RaceReplayCard: View {
         }
     }
 
+    private func pick(_ k: Int) {
+        guard k != key else { return }
+        key = k
+        client.replay(key: k, speed: 30)
+    }
+
+    /// « 2025-03-15T05:12:34Z » → heure locale « 06:12:34 ».
+    static func clock(_ iso: String) -> String {
+        guard let d = of1Date(iso) else { return "" }
+        return d.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).second(.twoDigits))
+    }
+
+    static func label(_ name: String) -> String {
+        switch name {
+        case "Race": return L("Course", "Race")
+        case "Qualifying": return L("Qualifs", "Quali")
+        case "Sprint": return "Sprint"
+        default: return L("Qualifs sprint", "Sprint quali")
+        }
+    }
+
     private func header(_ snap: Snapshot) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(snap.total_laps.map { L("Tour \(snap.lap)/\($0)", "Lap \(snap.lap)/\($0)") } ?? L("Tour \(snap.lap)", "Lap \(snap.lap)"))
+                // Qualifications : l'heure de la séance plutôt qu'un compteur de tours.
+                let racing = ["Race", "Sprint"].contains(sessions.first { $0.1 == key }?.0 ?? "Race")
+                Text(racing ? (snap.total_laps.map { L("Tour \(snap.lap)/\($0)", "Lap \(snap.lap)/\($0)") } ?? L("Tour \(snap.lap)", "Lap \(snap.lap)"))
+                            : "\(Self.label(sessions.first { $0.1 == key }?.0 ?? "")) · \(Self.clock(snap.clock))")
                     .font(.headline.monospacedDigit())
                 Spacer()
                 Text(trackStatusLabel(snap.track_status))
