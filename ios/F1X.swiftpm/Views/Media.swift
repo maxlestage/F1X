@@ -251,17 +251,20 @@ struct CircuitMapView: View {
             .mapStyle(.hybrid(elevation: .realistic))
             .frame(height: 280)
             .clipShape(RoundedRectangle(cornerRadius: 14))
-            HStack {
+            // Petits boutons sur une seule ligne.
+            HStack(spacing: 8) {
                 if let url = URL(string: "https://maps.apple.com/?ll=\(lat),\(lon)&q=\(query)&z=15&t=k") {
-                    Link(destination: url) { Label(L("Ouvrir dans Plans", "Open in Maps"), systemImage: "map") }
-                        .buttonStyle(.bordered)
+                    Link(destination: url) { Label(L("Plans", "Maps"), systemImage: "map") }
                 }
                 if let url = URL(string: "https://maps.apple.com/?daddr=\(lat),\(lon)") {
-                    Link(destination: url) { Label(L("Itinéraire", "Directions"), systemImage: "car") }
-                        .buttonStyle(.bordered)
+                    Link(destination: url) { Label(L("Itinéraire", "Directions"), systemImage: "car.fill") }
                 }
             }
-            .font(.footnote.bold())
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .buttonBorderShape(.capsule)
+            .font(.caption.bold())
+            .lineLimit(1)
         }
     }
 }
