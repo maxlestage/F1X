@@ -296,14 +296,36 @@ struct DataSessionView: View {
     }
 }
 
-/// Carte de section.
+/// Carte de section, repliable d'un toucher sur le titre (état retenu).
 private struct Card<Content: View>: View {
     let title: String
     @ViewBuilder var content: Content
+    @AppStorage("foldedCards") private var folded = ""
+
+    private var key: String {
+        title.filter { !$0.isNumber && $0 != "(" && $0 != ")" }.trimmingCharacters(in: .whitespaces)
+    }
+    private var isFolded: Bool { folded.components(separatedBy: "|").contains(key) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.headline)
-            content
+            Button {
+                var set = Set(folded.components(separatedBy: "|").filter { !$0.isEmpty })
+                if set.contains(key) { set.remove(key) } else { set.insert(key) }
+                withAnimation(.easeInOut(duration: 0.2)) { folded = set.sorted().joined(separator: "|") }
+            } label: {
+                HStack {
+                    Text(title).font(.headline)
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isFolded ? -90 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if !isFolded { content }
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
