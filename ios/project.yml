@@ -25,6 +25,8 @@ targets:
         buildPhase: resources
       - path: Resources/start_engine.wav
         buildPhase: resources
+    dependencies:
+      - target: F1XWidgets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.maxlestage.f1x
@@ -41,4 +43,27 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
         ENABLE_PREVIEWS: YES
+  # Widget « Prochain Grand Prix » et Live Activity (écran verrouillé, Dynamic Island).
+  F1XWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Widgets
+      - path: F1X.swiftpm/Views/RaceActivityAttributes.swift
+    info:
+      path: Widgets/Info.plist
+      properties:
+        CFBundleDisplayName: F1X
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.maxlestage.f1x.widgets
+        PRODUCT_NAME: F1XWidgets
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
