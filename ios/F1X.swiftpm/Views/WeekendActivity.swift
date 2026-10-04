@@ -20,10 +20,10 @@ enum WeekendActivity {
         case "Essais libres 1": return isFrench ? "EL1" : "FP1"
         case "Essais libres 2": return isFrench ? "EL2" : "FP2"
         case "Essais libres 3": return isFrench ? "EL3" : "FP3"
-        case "Qualifs sprint": return "SQ"
-        case "Sprint": return "S"
-        case "Qualifications": return "Q"
-        default: return "GP"
+        case "Qualifs sprint": return isFrench ? "Q. sprint" : "Sprint Q"
+        case "Sprint": return "Sprint"
+        case "Qualifications": return isFrench ? "Qualifs" : "Quali"
+        default: return isFrench ? "Course" : "Race"
         }
     }
 
