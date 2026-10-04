@@ -30,6 +30,9 @@ struct StandingsView: View {
                     Text(L("Écuries", "Teams")).tag(true)
                 }
                 .pickerStyle(.segmented)
+                NavigationLink { SeasonStatsView(season: season) } label: {
+                    Label(L("Statistiques et duels de la saison", "Season stats and battles"), systemImage: "chart.line.uptrend.xyaxis")
+                }
             }
             switch drivers {
             case .loading:
@@ -81,7 +84,7 @@ struct StandingsView: View {
             await F1API.shared.clearCache()
             await load()
         }
-        .task(id: season) { await load() }
+        .task(id: season) { await F1API.instant { await load() } }
         .autoRefresh { await load() }
     }
 

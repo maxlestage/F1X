@@ -5,6 +5,11 @@ import WidgetKit
 struct F1XApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
+    init() {
+        // Photos et réponses gardées en cache plus longtemps : défilement fluide, moins de réseau.
+        URLCache.shared = URLCache(memoryCapacity: 64 << 20, diskCapacity: 400 << 20)
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -47,6 +52,7 @@ struct RootView: View {
                     .zIndex(10)
             }
         }
+        .task { await F1API.shared.warmUp() }
         .onChange(of: tab) { _, new in
             guard !reduceMotion else { return }
             withAnimation(.easeOut(duration: 0.15)) { intro = new }

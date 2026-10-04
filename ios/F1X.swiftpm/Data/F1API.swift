@@ -14,6 +14,25 @@ actor F1API {
     private let ttl: TimeInterval = 300
     private var cache: [String: (date: Date, data: Data)] = [:]
 
+    /// Vrai pendant un premier affichage : la dernière copie connue (même ancienne) est servie
+    /// tout de suite, sans attendre le réseau.
+    @TaskLocal static var preferCached = false
+
+    /// Affiche immédiatement les données gardées sur l'appareil, puis recharge depuis le réseau.
+    static func instant(_ load: () async -> Void) async {
+        await $preferCached.withValue(true) { await load() }
+        await load()
+    }
+
+    /// Précharge les données de base au lancement de l'app.
+    func warmUp() async {
+        async let a = try? schedule()
+        async let b = try? driverStandings()
+        async let c = try? constructorStandings()
+        async let d = try? lastResults()
+        _ = await (a, b, c, d)
+    }
+
     // MARK: - Calendrier et résultats
 
     func schedule(season: String = "current") async throws -> [Race] {
@@ -55,6 +74,22 @@ actor F1API {
     /// Vainqueurs de chaque saison ou d'un circuit (`results/1`).
     func winners(_ prefix: String) async throws -> [Race] {
         try await races("\(prefix)/results/1.json?limit=100", all: true)
+    }
+
+    /// Toute une saison, course par course (résultats, sprints, qualifications), pages fusionnées.
+    func seasonRaces(_ season: String, kind: String = "results") async throws -> [Race] {
+        let pages = try await races("\(season)/\(kind).json", all: true)
+        var order: [String] = []
+        var byRound: [String: Race] = [:]
+        for race in pages {
+            if let prev = byRound[race.round] {
+                byRound[race.round] = prev.merging(race)
+            } else {
+                order.append(race.round)
+                byRound[race.round] = race
+            }
+        }
+        return order.compactMap { byRound[$0] }.sorted { $0.roundNumber < $1.roundNumber }
     }
 
     // MARK: - Classements
@@ -118,7 +153,8 @@ actor F1API {
 
     private func fetch<T: Decodable>(_ path: String, as type: T.Type, all: Bool = false) async throws -> T {
         let key = (all ? "all/" : "f1/") + path
-        if let hit = cache[key], Date().timeIntervalSince(hit.date) < ttl {
+        if cache[key] == nil, let disk = DiskCache.read(key) { cache[key] = disk }
+        if let hit = cache[key], F1API.preferCached || Date().timeIntervalSince(hit.date) < ttl {
             return try JSONDecoder().decode(T.self, from: hit.data)
         }
         guard let url = URL(string: "api/\(key)", relativeTo: Server.base) else { throw URLError(.badURL) }
@@ -129,6 +165,7 @@ actor F1API {
             }
             let decoded = try JSONDecoder().decode(T.self, from: data)
             cache[key] = (Date(), data)
+            DiskCache.write(key, data)
             return decoded
         } catch {
             // Hors ligne : on sert la dernière copie connue plutôt qu'une erreur.
@@ -215,5 +252,34 @@ struct StandingsResponse: Decodable, Sendable {
 
     init(from decoder: Decoder) throws {
         lists = try MRData<Inner>(from: decoder).table.StandingsLists
+    }
+}
+
+/// Copie des réponses sur l'appareil : l'app s'ouvre instantanément, même hors ligne.
+enum DiskCache {
+    private static let dir: URL = {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let dir = base.appendingPathComponent("f1x-api", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    private static func file(_ key: String) -> URL {
+        let name = Data(key.utf8).base64EncodedString()
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "+", with: "-")
+        return dir.appendingPathComponent(String(name.suffix(200)))
+    }
+
+    static func read(_ key: String) -> (date: Date, data: Data)? {
+        let url = file(key)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        let date = attributes?[.modificationDate] as? Date ?? .distantPast
+        return (date, data)
+    }
+
+    static func write(_ key: String, _ data: Data) {
+        try? data.write(to: file(key), options: .atomic)
     }
 }

@@ -131,7 +131,7 @@ struct RaceDetailView: View {
         .navigationTitle(race.raceName)
         .navigationBarTitleDisplayMode(.inline)
         .overlay { if isLoading { ProgressView() } }
-        .task { await load() }
+        .task { await F1API.instant { await load() } }
         .autoRefresh { await load() }
         .refreshable {
             await F1API.shared.clearCache()
