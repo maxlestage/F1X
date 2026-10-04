@@ -19,7 +19,7 @@ struct HomeView: View {
                     if let race = data.next {
                         NextRaceCard(race: race)
                         ReminderToggle(races: data.races)
-                        WeekendActivityToggle(races: data.races)
+                        WeekendActivityToggle(races: data.races, last: data.last)
                         WeatherCard(race: race, full: false)
                     } else {
                         HeroCard {
@@ -94,16 +94,17 @@ struct HomeView: View {
             async let drivers = try? F1API.shared.driverStandings()
             async let teams = try? F1API.shared.constructorStandings()
             let races = try await schedule
-            state = .loaded(Content(
+            let content = Content(
                 next: races.first { !$0.isOver() },
                 last: await last,
                 drivers: await drivers ?? [],
                 teams: await teams ?? [],
                 season: races.first?.season ?? "",
                 races: races
-            ))
+            )
+            state = .loaded(content)
             await SessionReminders.schedule(races: races)
-            await WeekendActivity.sync(races: races)
+            await WeekendActivity.sync(races: races, last: content.last)
         } catch {
             state = .failed(loadErrorMessage(error))
         }

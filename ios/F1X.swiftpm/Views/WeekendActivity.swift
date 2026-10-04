@@ -28,29 +28,56 @@ enum WeekendActivity {
     }
 
     /// Appelée à chaque chargement du calendrier. `force` : démarrage demandé par l'utilisateur,
-    /// même si le week-end n'a pas encore commencé.
-    static func sync(races: [Race], force: Bool = false) async {
+    /// même si le week-end n'a pas encore commencé. `last` : dernière course (pour le vainqueur).
+    static func sync(races: [Race], last: Race? = nil, force: Bool = false) async {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         guard enabled || force else { await endAll(); return }
         let now = Date()
-        guard let race = races.first(where: { !$0.isOver(now: now) }) else { await endAll(); return }
-        let sessions = race.sessions
-        guard let index = sessions.firstIndex(where: { $0.date.addingTimeInterval(duration($0.name)) > now }) else {
+        let first = last?.results?.first
+        let winner = first.map { "\($0.driver.givenName.prefix(1)). \($0.driver.familyName)" }
+        let code = first.map { $0.driver.code ?? String($0.driver.familyName.prefix(3)).uppercased() }
+        let winnerRace = last?.raceName.replacingOccurrences(of: " Grand Prix", with: "")
+
+        let upcoming = races.first(where: { !$0.isOver(now: now) })
+        let nextSession = upcoming.flatMap { race in
+            race.sessions.first(where: { $0.date.addingTimeInterval(duration($0.name)) > now }).map { (race, $0) }
+        }
+
+        let race: Race
+        let state: WeekendActivityAttributes.ContentState
+        let stale: Date
+        let soon: Bool
+        if let last, let start = last.start, winner != nil, last.isOver(now: now), now < start.addingTimeInterval(14 * 3600) {
+            // Course tout juste terminée : le vainqueur pendant une douzaine d'heures.
+            race = last
+            state = .init(session: L("Vainqueur", "Winner"), short: "🏆", start: start,
+                          next: nextSession.map { pair in
+                              let name = pair.0.raceName.replacingOccurrences(of: " Grand Prix", with: "")
+                              let when = pair.1.date.formatted(.dateTime.weekday(.abbreviated).day().hour().minute())
+                              return "\(name) · \(sessionLabel(pair.1.name)) \(when)"
+                          },
+                          winner: winner, winnerCode: code, winnerRace: winnerRace, podium: true)
+            stale = start.addingTimeInterval(14 * 3600)
+            soon = true
+        } else if let pair = nextSession {
+            let r = pair.0, current = pair.1
+            let sessions = r.sessions
+            let index = sessions.firstIndex(where: { $0.date == current.date }) ?? 0
+            let following = sessions.indices.contains(index + 1) ? sessions[index + 1] : nil
+            race = r
+            state = .init(session: sessionLabel(current.name), short: short(current.name), start: current.date,
+                          next: following.map {
+                              "\(sessionLabel($0.name)) · \($0.date.formatted(.dateTime.weekday(.abbreviated).hour().minute()))"
+                          },
+                          winner: winner, winnerCode: code, winnerRace: winnerRace, podium: false)
+            stale = current.date.addingTimeInterval(duration(current.name))
+            // Démarrage automatique dans les 24 h qui précèdent la séance (week-end en cours).
+            soon = current.date.timeIntervalSince(now) < 24 * 3600
+        } else {
             await endAll()
             return
         }
-        let current = sessions[index]
-        // Démarrage automatique dans les 24 h qui précèdent la séance (week-end en cours).
-        let soon = current.date.timeIntervalSince(now) < 24 * 3600
-        let following = sessions.indices.contains(index + 1) ? sessions[index + 1] : nil
-        let state = WeekendActivityAttributes.ContentState(
-            session: sessionLabel(current.name),
-            short: short(current.name),
-            start: current.date,
-            next: following.map {
-                "\(sessionLabel($0.name)) · \($0.date.formatted(.dateTime.weekday(.abbreviated).hour().minute()))"
-            })
-        let content = ActivityContent(state: state, staleDate: current.date.addingTimeInterval(duration(current.name)))
+        let content = ActivityContent(state: state, staleDate: stale)
 
         let existing = Activity<WeekendActivityAttributes>.activities
         if let activity = existing.first(where: { $0.attributes.round == race.round && $0.attributes.raceName == race.raceName }) {
@@ -78,6 +105,7 @@ enum WeekendActivity {
 /// Bouton « Suivre le week-end » (écran verrouillé + Dynamic Island).
 struct WeekendActivityToggle: View {
     let races: [Race]
+    var last: Race?
     @AppStorage(WeekendActivity.key) private var enabled = true
     @State private var running = false
 
@@ -90,7 +118,7 @@ struct WeekendActivityToggle: View {
                         await WeekendActivity.endAll()
                     } else {
                         enabled = true
-                        await WeekendActivity.sync(races: races, force: true)
+                        await WeekendActivity.sync(races: races, last: last, force: true)
                     }
                     running = WeekendActivity.running
                 }
