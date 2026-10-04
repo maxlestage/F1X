@@ -528,40 +528,49 @@ struct LastRaceWidget: Widget {
 
 // MARK: - Live Activity du week-end
 
-private struct Countdown: View {
+/// « ven. 18:30 » (ou « 18:30 » si c'est aujourd'hui) : toujours juste, sans mise à jour.
+private func sessionTime(_ date: Date) -> String {
+    Calendar.current.isDateInToday(date)
+        ? date.formatted(.dateTime.hour().minute())
+        : date.formatted(.dateTime.weekday(.abbreviated).hour().minute())
+}
+
+/// « dans 2 jours, 3 heures » puis, une fois commencée, « En cours ».
+private struct Until: View {
     let start: Date
     var body: some View {
-        // Compte à rebours jusqu'au départ, puis temps écoulé depuis le départ (s'actualise seul).
-        Text(start, style: .timer)
-            .monospacedDigit()
-            .multilineTextAlignment(.trailing)
+        if start > Date() {
+            Text(L("dans ", "in ")) + Text(start, style: .relative)
+        } else {
+            Text(L("En cours", "Live now")).foregroundColor(red)
+        }
     }
 }
 
 struct WeekendLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: WeekendActivityAttributes.self) { context in
-            VStack(alignment: .leading, spacing: 8) {
+            // Écran verrouillé.
+            VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Logo()
                     Text("\(context.attributes.flag) \(context.attributes.raceName)").font(.caption.bold()).lineLimit(1)
                     Spacer()
-                    Text("R\(context.attributes.round)").font(.caption2.bold()).foregroundStyle(.secondary)
+                    Text(L("Manche \(context.attributes.round)", "Round \(context.attributes.round)")).font(.caption2.bold()).foregroundStyle(.secondary)
                 }
+                Text(L("PROCHAINE SÉANCE", "NEXT SESSION")).font(.caption2.weight(.heavy)).foregroundStyle(.secondary)
                 HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(context.state.session).font(.title3.weight(.heavy)).lineLimit(1)
-                        Text(context.state.start.formatted(.dateTime.weekday(.wide).hour().minute()))
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
+                    Text(context.state.session).font(.title3.weight(.heavy)).lineLimit(1)
                     Spacer()
-                    Countdown(start: context.state.start)
-                        .font(.title.weight(.heavy))
-                        .foregroundStyle(red)
-                        .frame(maxWidth: 140, alignment: .trailing)
+                    Text(context.state.start.formatted(.dateTime.weekday(.wide).hour().minute()))
+                        .font(.subheadline.weight(.bold)).foregroundStyle(red)
                 }
-                if let next = context.state.next {
-                    Text(L("Ensuite : \(next)", "Next: \(next)")).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                HStack {
+                    Until(start: context.state.start).font(.caption.weight(.semibold))
+                    Spacer()
+                    if let next = context.state.next {
+                        Text(L("Puis : \(next)", "Then: \(next)")).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
                 }
             }
             .padding(14)
@@ -569,9 +578,12 @@ struct WeekendLiveActivity: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(context.attributes.flag).font(.title2)
-                        Text("R\(context.attributes.round)").font(.caption2.bold()).foregroundStyle(.secondary)
+                    Text(context.attributes.flag).font(.largeTitle)
+                }
+                DynamicIslandExpandedRegion(.trailing) {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(L("Manche", "Round")).font(.caption2).foregroundStyle(.secondary)
+                        Text(context.attributes.round).font(.title3.weight(.heavy))
                     }
                 }
                 DynamicIslandExpandedRegion(.center) {
@@ -580,29 +592,36 @@ struct WeekendLiveActivity: Widget {
                         Text(context.state.session).font(.headline.weight(.heavy)).lineLimit(1)
                     }
                 }
-                DynamicIslandExpandedRegion(.trailing) {
-                    Countdown(start: context.state.start)
-                        .font(.headline.weight(.heavy))
-                        .foregroundStyle(red)
-                        .frame(maxWidth: 90, alignment: .trailing)
-                }
                 DynamicIslandExpandedRegion(.bottom) {
-                    if let next = context.state.next {
-                        Text(L("Ensuite : \(next)", "Next: \(next)")).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    VStack(spacing: 4) {
+                        HStack {
+                            Text(context.state.start.formatted(.dateTime.weekday(.wide).hour().minute()))
+                                .font(.subheadline.weight(.bold)).foregroundStyle(red)
+                            Spacer()
+                            Until(start: context.state.start).font(.caption.weight(.semibold))
+                        }
+                        if let next = context.state.next {
+                            Text(L("Puis : \(next)", "Then: \(next)")).font(.caption2).foregroundStyle(.secondary)
+                                .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
                 }
             } compactLeading: {
-                HStack(spacing: 3) {
-                    Text(context.attributes.flag).font(.caption2)
-                    Text(context.state.short).font(.caption2.weight(.heavy))
+                // Pastille gauche : drapeau + séance (EL1, Q, Course…).
+                HStack(spacing: 4) {
+                    Text(context.attributes.flag)
+                    Text(context.state.short).fontWeight(.heavy).foregroundStyle(.white)
                 }
+                .font(.caption)
             } compactTrailing: {
-                Countdown(start: context.state.start)
-                    .font(.caption2.weight(.bold))
+                // Pastille droite : jour et heure de la séance (« ven. 18:30 »).
+                Text(sessionTime(context.state.start))
+                    .font(.caption.weight(.bold))
                     .foregroundStyle(red)
-                    .frame(maxWidth: 56)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             } minimal: {
-                Text(context.state.short).font(.caption2.weight(.heavy)).foregroundStyle(red)
+                Text(context.attributes.flag).font(.caption)
             }
             .keylineTint(red)
         }
