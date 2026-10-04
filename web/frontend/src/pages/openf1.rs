@@ -1037,14 +1037,65 @@ fn DriverView(p: &ViewProps) -> Html {
                     <ol class="rows">
                         { for radios.iter().map(|r| html! {
                             <li class="row radio-row"><div class="row-main">
-                                <span class="row-sub">{ local_date(&s(r, "date"), true) }</span>
-                                <audio controls=true preload="none" src={s(r, "url")}></audio>
+                                <strong>{ radio_label(r) }</strong>
+                                <span class="row-sub">{ radio_detail(r) }</span>
+                                <audio controls=true preload="metadata" src={s(r, "url")}></audio>
                             </div></li>
                         }) }
                     </ol>
                 </section>
             }
         </>
+    }
+}
+
+/// « 1:23:05 » ou « 4:07 ».
+fn race_clock(seconds: f64) -> String {
+    let t = seconds.round().max(0.0) as u64;
+    let (h, m, sec) = (t / 3600, t / 60 % 60, t % 60);
+    if h > 0 {
+        format!("{h}:{m:02}:{sec:02}")
+    } else {
+        format!("{m}:{sec:02}")
+    }
+}
+
+/// « Tour 12 · 1:05 dans le tour », « Avant le départ », « Après l'arrivée ».
+fn radio_label(r: &Value) -> String {
+    if r.get("after_finish")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return t("Après l'arrivée", "After the finish").to_string();
+    }
+    match num(r, "lap") {
+        Some(lap) => {
+            let base = tr!("Tour {}", "Lap {}", lap as u64);
+            match num(r, "in_lap") {
+                Some(x) => tr!(
+                    "{} · {} dans le tour",
+                    "{} · {} into the lap",
+                    base,
+                    race_clock(x)
+                ),
+                None => base,
+            }
+        }
+        None => t("Avant le départ", "Before the start").to_string(),
+    }
+}
+
+/// « Début 1:23:05 · 14:05 » (temps depuis le départ, puis heure locale).
+fn radio_detail(r: &Value) -> String {
+    let at = local_date(&s(r, "date"), true);
+    match num(r, "elapsed").filter(|x| *x >= 0.0) {
+        Some(x) => tr!(
+            "Début {} après le départ · {}",
+            "Starts {} after the start · {}",
+            race_clock(x),
+            at
+        ),
+        None => at,
     }
 }
 

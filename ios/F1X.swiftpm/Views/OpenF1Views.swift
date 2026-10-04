@@ -713,6 +713,13 @@ final class RadioPlayer: ObservableObject {
     @Published var playing: String?
     private var player: AVPlayer?
 
+    /// Durée d'un enregistrement (lue dans l'en-tête du fichier audio).
+    static func duration(of url: String) async -> Double? {
+        guard let u = URL(string: url), let d = try? await AVURLAsset(url: u).load(.duration) else { return nil }
+        let seconds = CMTimeGetSeconds(d)
+        return seconds.isFinite && seconds > 0 ? seconds : nil
+    }
+
     func toggle(_ url: String) {
         if playing == url {
             player?.pause()
@@ -724,6 +731,58 @@ final class RadioPlayer: ObservableObject {
         player = AVPlayer(url: u)
         player?.play()
         playing = url
+    }
+}
+
+/// « 1:23:05 » ou « 4:07 ».
+private func raceClock(_ seconds: Double) -> String {
+    let t = Int(seconds.rounded())
+    let h = t / 3600, m = t / 60 % 60, sec = t % 60
+    return h > 0 ? String(format: "%d:%02d:%02d", h, m, sec) : String(format: "%d:%02d", m, sec)
+}
+
+/// Radio d'un pilote : tour, moment dans le tour, début et fin par rapport au départ, durée.
+struct RadioRow: View {
+    let radio: JSONValue
+    @ObservedObject var player: RadioPlayer
+    @State private var duration: Double?
+
+    private var url: String { radio["url"].string }
+
+    private var title: String {
+        if radio["after_finish"].bool { return L("Après l'arrivée", "After the finish") }
+        guard let lap = radio["lap"].int else { return L("Avant le départ", "Before the start") }
+        let inLap = radio["in_lap"].double.map { L(" · \(raceClock($0)) dans le tour", " · \(raceClock($0)) into the lap") } ?? ""
+        return L("Tour \(lap)", "Lap \(lap)") + inLap
+    }
+
+    private var detail: String {
+        var parts: [String] = []
+        if let start = radio["elapsed"].double, start >= 0 {
+            parts.append(L("Début \(raceClock(start))", "Start \(raceClock(start))"))
+            if let duration { parts.append(L("fin \(raceClock(start + duration))", "end \(raceClock(start + duration))")) }
+        }
+        if let duration { parts.append(L("durée \(raceClock(duration))", "length \(raceClock(duration))")) }
+        parts.append(shortTime(radio["date"].string))
+        return parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        Button { player.toggle(url) } label: {
+            HStack(spacing: 12) {
+                Image(systemName: player.playing == url ? "stop.circle.fill" : "play.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(Color.f1Red)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.subheadline.weight(.semibold))
+                    Text(detail).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .task(id: url) { duration = await RadioPlayer.duration(of: url) }
     }
 }
 
@@ -1005,12 +1064,7 @@ struct DriverRaceSection: View {
             if !radios.isEmpty {
                 Card(title: L("Radios (\(radios.count))", "Radio (\(radios.count))")) {
                     ForEach(radios, id: \.self) { r in
-                        let url = r["url"].string
-                        Button { player.toggle(url) } label: {
-                            Label(shortTime(r["date"].string), systemImage: player.playing == url ? "stop.circle.fill" : "play.circle.fill")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .buttonStyle(.plain)
+                        RadioRow(radio: r, player: player)
                     }
                 }
             }
