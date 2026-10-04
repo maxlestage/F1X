@@ -50,15 +50,19 @@ struct WikiPhotoView: View {
         VStack(spacing: 0) {
             if let photo, let src = URL(string: photo.src) {
                 VStack(alignment: .leading, spacing: 4) {
-                    AsyncImage(url: src) { phase in
-                        if let image = phase.image {
-                            image.resizable().aspectRatio(contentMode: wide ? .fit : .fill)
-                        } else {
-                            Color(uiColor: .tertiarySystemBackground)
+                    // Portraits cadrés par le haut : le visage n'est jamais coupé.
+                    Color(uiColor: .tertiarySystemBackground)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: wide ? 190 : 300)
+                        .overlay(alignment: wide ? .center : .top) {
+                            AsyncImage(url: src, transaction: Transaction(animation: .easeOut(duration: 0.25))) { phase in
+                                if let image = phase.image {
+                                    image.resizable().aspectRatio(contentMode: wide ? .fit : .fill)
+                                } else {
+                                    ProgressView()
+                                }
+                            }
                         }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: wide ? 190 : 280)
                     .background(wide ? Color.white : Color.clear)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
                     if let credit = URL(string: photo.credit) {

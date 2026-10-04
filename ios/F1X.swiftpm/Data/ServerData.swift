@@ -131,7 +131,7 @@ actor ServerAPI {
     func photo(wikipedia url: String?) async -> Photo? {
         guard let url, let title = url.components(separatedBy: "/wiki/").last, !title.isEmpty else { return nil }
         if let hit = photos[title] { return hit }
-        let key = "f1x-photo-\(title)"
+        let key = "f1x-photo960-\(title)"
         if let data = UserDefaults.standard.data(forKey: key), let stored = try? JSONDecoder().decode(Photo.self, from: data) {
             photos[title] = stored
             return stored
