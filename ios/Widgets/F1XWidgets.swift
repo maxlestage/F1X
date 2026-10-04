@@ -107,8 +107,8 @@ struct NextRaceProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<NextRaceEntry>) -> Void) {
         Task {
             let entry = await load()
-            // Rafraîchi toutes les 3 h, et juste après le départ de la course.
-            var next = Date().addingTimeInterval(3 * 3600)
+            // Rafraîchi toutes les heures, et 2 h après le départ (résultats).
+            var next = Date().addingTimeInterval(3600)
             if let start = entry.race?.start, start > Date(), start < next { next = start.addingTimeInterval(2 * 3600) }
             completion(Timeline(entries: [entry], policy: .after(next)))
         }

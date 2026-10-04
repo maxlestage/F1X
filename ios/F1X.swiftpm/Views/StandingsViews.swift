@@ -82,6 +82,7 @@ struct StandingsView: View {
             await load()
         }
         .task(id: season) { await load() }
+        .autoRefresh { await load() }
     }
 
     private func load() async {

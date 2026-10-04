@@ -106,6 +106,12 @@ actor F1API {
 
     func clearCache() { cache.removeAll() }
 
+    /// Périme le cache sans l'effacer : la prochaine lecture repart au réseau,
+    /// mais la dernière copie reste disponible hors ligne.
+    func expireCache() {
+        for (key, hit) in cache { cache[key] = (.distantPast, hit.data) }
+    }
+
     private func races(_ path: String, all: Bool = false) async throws -> [Race] {
         try await fetch(path, as: RaceResponse.self, all: all).races
     }

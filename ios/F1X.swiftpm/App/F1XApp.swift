@@ -1,12 +1,19 @@
 import SwiftUI
+import WidgetKit
 
 @main
 struct F1XApp: App {
+    @Environment(\.scenePhase) private var scenePhase
+
     var body: some Scene {
         WindowGroup {
             RootView()
                 .preferredColorScheme(.dark)
                 .tint(.f1Red)
+        }
+        // En quittant l'app, le widget se recharge avec les derniers résultats.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { WidgetCenter.shared.reloadAllTimelines() }
         }
     }
 }
