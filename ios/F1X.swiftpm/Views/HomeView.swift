@@ -19,6 +19,7 @@ struct HomeView: View {
                     if let race = data.next {
                         NextRaceCard(race: race)
                         ReminderToggle(races: data.races)
+                        WeekendActivityToggle(races: data.races)
                         WeatherCard(race: race, full: false)
                     } else {
                         HeroCard {
@@ -100,6 +101,7 @@ struct HomeView: View {
                 races: races
             ))
             await SessionReminders.schedule(races: races)
+            await WeekendActivity.sync(races: races)
         } catch {
             state = .failed(loadErrorMessage(error))
         }
