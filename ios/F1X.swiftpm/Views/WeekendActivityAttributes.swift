@@ -13,6 +13,12 @@ struct WeekendActivityAttributes: ActivityAttributes {
         var start: Date
         /// Séance suivante (texte prêt à afficher), s'il y en a une.
         var next: String?
+        /// Vainqueur du dernier Grand Prix (« M. Verstappen »), son code (« VER ») et la course.
+        var winner: String?
+        var winnerCode: String?
+        var winnerRace: String?
+        /// Vrai juste après l'arrivée : l'activité met le vainqueur à l'honneur 🏆.
+        var podium: Bool?
     }
 
     var raceName: String
