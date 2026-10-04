@@ -10,7 +10,15 @@ struct CalendarView: View {
     var body: some View {
         ScrollViewReader { proxy in
         List {
-            Section { SeasonPicker(season: $season) }
+            Section {
+                SeasonPicker(season: $season)
+                // Abonnement : toutes les séances dans l'app Calendrier, mises à jour toutes seules.
+                if let url = URL(string: "webcal://\(Server.base.host ?? "")/calendar.ics") {
+                    Link(destination: url) {
+                        Label(L("Ajouter les séances à mon calendrier", "Add sessions to my calendar"), systemImage: "calendar.badge.plus")
+                    }
+                }
+            }
             switch state {
             case .loading:
                 Section { ProgressView().frame(maxWidth: .infinity) }

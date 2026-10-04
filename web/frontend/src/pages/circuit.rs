@@ -178,6 +178,10 @@ pub fn CircuitPage(props: &IdProps) -> Html {
             </section>
 
             if let Some(url) = &circuit.url {
+                <crate::components::WikiBio url={url.clone()} title={t("Histoire du circuit", "About the circuit")} />
+            }
+
+            if let Some(url) = &circuit.url {
                 <crate::photo::WikiPhoto url={url.clone()} alt={circuit.circuit_name.clone()} wide={true} />
             }
 

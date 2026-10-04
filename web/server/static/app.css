@@ -506,6 +506,10 @@ button.btn:disabled { opacity: .5; }
 .gain-up { color: #22c55e; font-weight: 800; font-size: .8rem; }
 .gain-down { color: #ef4444; font-weight: 800; font-size: .8rem; }
 .radio-audio { height: 32px; max-width: 55%; }
+.cal-sub { display: inline-block; margin: 4px 0 10px; font-weight: 700; }
+.wiki-bio summary { cursor: pointer; list-style: none; }
+.wiki-bio summary h2 { display: inline; }
+.wiki-bio p { line-height: 1.5; }
 .race-data-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 10px; }
 .race-data-btn { width: 100%; justify-content: flex-start; text-align: left; }
 .lap-replay { display: flex; flex-direction: column; gap: 10px; }

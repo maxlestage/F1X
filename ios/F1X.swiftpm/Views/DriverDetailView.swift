@@ -115,8 +115,8 @@ struct DriverDetailView: View {
                 }
             }
 
-            if let url = d.url.flatMap(URL.init(string:)) {
-                Section { Link(L("Wikipédia ↗", "Wikipedia ↗"), destination: url) }
+            if d.url != nil {
+                FoldSection(L("À propos", "About")) { WikiSummaryView(url: d.url) }
             }
         }
         .listStyle(.insetGrouped)
@@ -190,8 +190,8 @@ struct TeamDetailView: View {
                 }
             }
 
-            if let url = c.url.flatMap(URL.init(string:)) {
-                Section { Link(L("Wikipédia ↗", "Wikipedia ↗"), destination: url) }
+            if c.url != nil {
+                FoldSection(L("À propos", "About")) { WikiSummaryView(url: c.url) }
             }
         }
         .listStyle(.insetGrouped)
@@ -246,6 +246,9 @@ struct CircuitDetailView: View {
             }
 
             Section { WikiPhotoView(wikipedia: circuit.url, wide: true) }
+            if circuit.url != nil {
+                FoldSection(L("Histoire du circuit", "About the circuit")) { WikiSummaryView(url: circuit.url) }
+            }
 
             Section(L("Tracé", "Layout")) { TrackPanel(circuitId: circuit.circuitId, start3D: true) }
 

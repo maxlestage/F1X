@@ -414,3 +414,11 @@ pub fn is_apple_device() -> bool {
     let ua = nav.user_agent().unwrap_or_default();
     ua.contains("iPhone") || ua.contains("iPad") || ua.contains("iPod") || ua.contains("Macintosh")
 }
+
+/// Lien d'abonnement au calendrier des séances (`webcal://…/calendar.ics`).
+pub fn webcal_url() -> String {
+    let host = web_sys::window()
+        .and_then(|w| w.location().host().ok())
+        .unwrap_or_default();
+    format!("webcal://{host}/calendar.ics")
+}

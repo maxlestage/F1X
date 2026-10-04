@@ -9,6 +9,7 @@ mod openf1;
 mod photos;
 mod race;
 mod track3d;
+mod wiki;
 
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -33,6 +34,7 @@ struct AppState {
     hub: std::sync::Arc<live::Hub>,
     news: news::News,
     photos: photos::Photos,
+    wiki: std::sync::Arc<wiki::Wiki>,
     /// Décors 3D déjà calculés, par circuit.
     scenery: std::sync::Arc<
         tokio::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<Vec<u8>>>>,
@@ -66,6 +68,7 @@ async fn main() {
         hub: live::Hub::new(openf1),
         news: news::News::new(),
         photos: photos::Photos::new(),
+        wiki: std::sync::Arc::new(wiki::Wiki::new()),
         scenery: Default::default(),
     };
     // Cache persistant optionnel (utile en local pour ne pas épuiser le quota Jolpica).
@@ -103,6 +106,7 @@ fn app(state: AppState) -> Router {
         .route("/track/{circuit_id}", get(track))
         .route("/track3d/{circuit_id}", get(track3d))
         .route("/of1/telemetry", get(of1_telemetry))
+        .route("/wiki/{lang}/{title}", get(wiki_summary))
         .route("/of1/pitdetail", get(of1_pit_detail))
         .route("/of1/driverrace", get(of1_driver_race))
         .route("/mapkit-token", get(mapkit_token))
@@ -156,6 +160,7 @@ fn app(state: AppState) -> Router {
     Router::new()
         .nest("/api", api)
         .route("/healthz", get(|| async { "ok" }))
+        .route("/calendar.ics", get(calendar_ics))
         .route("/ws", get(ws))
         .route(
             &format!("/pkg/{app_hash}/f1x_frontend.js"),
@@ -578,4 +583,113 @@ async fn shutdown_signal() {
     #[cfg(not(unix))]
     let term = std::future::pending::<()>();
     tokio::select! { _ = ctrl_c => {}, _ = term => {} }
+}
+
+/// `/api/wiki/{fr|en}/{titre anglais}` : résumé Wikipédia (biographie, histoire du circuit).
+async fn wiki_summary(
+    State(s): State<AppState>,
+    Path((lang, title)): Path<(String, String)>,
+) -> Response {
+    match s.wiki.get(&lang, &title).await {
+        Some(summary) => (
+            [(header::CACHE_CONTROL, "public, max-age=86400")],
+            axum::Json(summary),
+        )
+            .into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            [(header::CACHE_CONTROL, "public, max-age=3600")],
+        )
+            .into_response(),
+    }
+}
+
+/// `/calendar.ics` : abonnement au calendrier de la saison (essais, qualifications, sprint,
+/// course) pour l'app Calendrier de l'iPhone, Google Agenda, Outlook…
+async fn calendar_ics(State(s): State<AppState>) -> Response {
+    let Some(v) = s.api.page("current.json", 100, 0).await else {
+        return StatusCode::BAD_GATEWAY.into_response();
+    };
+    let races = v
+        .pointer("/MRData/RaceTable/Races")
+        .and_then(|r| r.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let esc = |t: &str| {
+        t.replace('\\', "\\\\")
+            .replace(',', "\\,")
+            .replace(';', "\\;")
+    };
+    let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    let mut out = String::from(
+        "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//F1X//Calendrier F1//FR\r\nCALSCALE:GREGORIAN\r\nX-WR-CALNAME:F1X · Formule 1\r\nREFRESH-INTERVAL;VALUE=DURATION:PT12H\r\n",
+    );
+    for r in &races {
+        let name = r
+            .get("raceName")
+            .and_then(|x| x.as_str())
+            .unwrap_or("Grand Prix");
+        let season = r.get("season").and_then(|x| x.as_str()).unwrap_or("");
+        let round = r.get("round").and_then(|x| x.as_str()).unwrap_or("");
+        let circuit = r
+            .pointer("/Circuit/circuitName")
+            .and_then(|x| x.as_str())
+            .unwrap_or("");
+        let place = r
+            .pointer("/Circuit/Location/country")
+            .and_then(|x| x.as_str())
+            .unwrap_or("");
+        let mut sessions: Vec<(&str, &serde_json::Value)> = vec![("Course", r)];
+        for (key, label) in [
+            ("FirstPractice", "Essais libres 1"),
+            ("SecondPractice", "Essais libres 2"),
+            ("ThirdPractice", "Essais libres 3"),
+            ("SprintQualifying", "Qualifications sprint"),
+            ("Sprint", "Sprint"),
+            ("Qualifying", "Qualifications"),
+        ] {
+            if let Some(x) = r.get(key) {
+                sessions.push((label, x));
+            }
+        }
+        for (label, x) in sessions {
+            let date = x.get("date").and_then(|d| d.as_str()).unwrap_or("");
+            let time = x
+                .get("time")
+                .and_then(|d| d.as_str())
+                .unwrap_or("12:00:00Z");
+            let Ok(start) = chrono::DateTime::parse_from_rfc3339(&format!("{date}T{time}")) else {
+                continue;
+            };
+            let minutes = match label {
+                "Course" => 120,
+                "Sprint" => 60,
+                _ => 60,
+            };
+            let end = start + chrono::Duration::minutes(minutes);
+            let fmt = |d: chrono::DateTime<chrono::FixedOffset>| {
+                d.with_timezone(&chrono::Utc)
+                    .format("%Y%m%dT%H%M%SZ")
+                    .to_string()
+            };
+            out.push_str(&format!(
+                "BEGIN:VEVENT\r\nUID:f1x-{season}-{round}-{}@f1x\r\nDTSTAMP:{stamp}\r\nDTSTART:{}\r\nDTEND:{}\r\nSUMMARY:{}\r\nLOCATION:{}\r\nDESCRIPTION:{}\r\nEND:VEVENT\r\n",
+                label.replace(' ', "-").to_lowercase(),
+                fmt(start),
+                fmt(end),
+                esc(&format!("🏁 {name} — {label}")),
+                esc(&format!("{circuit}, {place}")),
+                esc(&format!("Manche {round} de la saison {season}. Suivez-la en direct sur F1X.")),
+            ));
+        }
+    }
+    out.push_str("END:VCALENDAR\r\n");
+    (
+        [
+            (header::CONTENT_TYPE, "text/calendar; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        out,
+    )
+        .into_response()
 }
