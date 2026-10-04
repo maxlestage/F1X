@@ -16,15 +16,15 @@ struct LoadableView<Value, Content: View>: View {
     var body: some View {
         switch state {
         case .loading:
-            ProgressView("Chargement…")
+            ProgressView(L("Chargement…", "Loading…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .failed(let message):
             ContentUnavailableView {
-                Label("Drapeau rouge", systemImage: "flag.fill")
+                Label(L("Drapeau rouge", "Red flag"), systemImage: "flag.fill")
             } description: {
                 Text(message)
             } actions: {
-                Button("Réessayer") { Task { await retry() } }
+                Button(L("Réessayer", "Retry")) { Task { await retry() } }
                     .buttonStyle(.borderedProminent)
             }
         case .loaded(let value):
@@ -34,7 +34,7 @@ struct LoadableView<Value, Content: View>: View {
 }
 
 func loadErrorMessage(_ error: Error) -> String {
-    "Les données F1 sont momentanément indisponibles.\n\(error.localizedDescription)"
+    L("Les données F1 sont momentanément indisponibles.", "F1 data is temporarily unavailable.") + "\n\(error.localizedDescription)"
 }
 
 /// Compte à rebours jusqu'à `target`, 4 cases de largeur égale (jamais plus large que l'écran).
@@ -224,5 +224,5 @@ func age(_ dob: String?) -> Int? {
 /// « 7 janvier 1985 ».
 func longDate(_ iso: String?) -> String {
     guard let iso, let date = ISO8601DateFormatter().date(from: iso + "T12:00:00Z") else { return iso ?? "" }
-    return date.formatted(.dateTime.day().month(.wide).year().locale(Locale(identifier: isFrench ? "fr_FR" : "en_GB")))
+    return date.formatted(.dateTime.day().month(.wide).year().locale(appLocale))
 }

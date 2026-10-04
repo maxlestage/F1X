@@ -23,8 +23,8 @@ struct HomeView: View {
                         WeatherCard(race: race, full: false)
                     } else {
                         HeroCard {
-                            Text("Saison \(data.season) terminée").font(.title2.bold())
-                            Text("Rendez-vous la saison prochaine !").foregroundStyle(.secondary)
+                            Text(L("Saison \(data.season) terminée", "\(data.season) season over")).font(.title2.bold())
+                            Text(L("Rendez-vous la saison prochaine !", "See you next season!")).foregroundStyle(.secondary)
                         }
                     }
                     if let last = data.last, let results = last.results, !results.isEmpty {
@@ -44,7 +44,7 @@ struct HomeView: View {
                     }
                     .buttonStyle(.plain)
                     if !data.drivers.isEmpty {
-                        SectionCard(title: "Pilotes") {
+                        SectionCard(title: L("Pilotes", "Drivers")) {
                             ForEach(data.drivers.prefix(5)) { s in
                                 NavigationLink(value: s.driver) {
                                     StandingRow(
@@ -60,7 +60,7 @@ struct HomeView: View {
                         }
                     }
                     if !data.teams.isEmpty {
-                        SectionCard(title: "Écuries") {
+                        SectionCard(title: L("Écuries", "Teams")) {
                             ForEach(data.teams.prefix(3)) { s in
                                 NavigationLink(value: s.constructor) {
                                     StandingRow(
@@ -140,7 +140,7 @@ private struct NextRaceCard: View {
 
     var body: some View {
         HeroCard {
-            Eyebrow(text: "Prochain Grand Prix · Manche \(race.round)")
+            Eyebrow(text: L("Prochain Grand Prix · Manche \(race.round)", "Next Grand Prix · Round \(race.round)"))
             Text("\(Flag.country(race.circuit.location.country)) \(race.raceName)")
                 .font(.title.weight(.heavy))
                 .fixedSize(horizontal: false, vertical: true)
@@ -150,7 +150,7 @@ private struct NextRaceCard: View {
             if let start = race.start { CountdownView(target: start) }
             SessionsList(race: race)
             NavigationLink(value: race) {
-                Text("Voir le Grand Prix")
+                Text(L("Voir le Grand Prix", "Open the Grand Prix"))
                     .fontWeight(.bold)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
@@ -166,7 +166,7 @@ private struct LastRaceCard: View {
     let results: [RaceResult]
 
     var body: some View {
-        SectionCard(title: "Dernier résultat") {
+        SectionCard(title: L("Dernier résultat", "Latest result")) {
             Text("\(Flag.country(race.circuit.location.country)) \(race.raceName)")
                 .foregroundStyle(.secondary)
             // Podium : 3 colonnes de largeur égale, 2 – 1 – 3.
@@ -177,7 +177,7 @@ private struct LastRaceCard: View {
                 }
             }
             NavigationLink(value: race) {
-                Text("Détails de la course").fontWeight(.semibold)
+                Text(L("Détails de la course", "Race details")).fontWeight(.semibold)
             }
         }
     }

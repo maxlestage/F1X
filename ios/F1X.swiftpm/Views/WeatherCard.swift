@@ -309,7 +309,7 @@ struct WeatherCard: View {
                         Spacer()
                         Text("\(WeatherText.deg(g(d.temperature_2m_min))) / \(WeatherText.deg(g(d.temperature_2m_max)))").bold().monospacedDigit()
                     }
-                    Text("💧 \(WeatherText.pct(g(d.precipitation_probability_max))) · \(String(format: "%.1f", g(d.precipitation_sum) ?? 0)) mm · \(L("rafales", "gusts")) \(WeatherText.kmh(g(d.wind_gusts_10m_max))) · UV \(g(d.uv_index_max).map { String(format: "%.0f", $0) } ?? "–") · 🌅 \(sunrise?.formatted(date: .omitted, time: .shortened) ?? "–") · 🌇 \(sunset?.formatted(date: .omitted, time: .shortened) ?? "–")")
+                    Text("💧 \(WeatherText.pct(g(d.precipitation_probability_max))) · \(String(format: "%.1f", g(d.precipitation_sum) ?? 0)) mm · \(L("rafales", "gusts")) \(WeatherText.kmh(g(d.wind_gusts_10m_max))) · UV \(g(d.uv_index_max).map { String(format: "%.0f", $0) } ?? "–") · 🌅 \(sunrise?.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(appLocale)) ?? "–") · 🌇 \(sunset?.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(appLocale)) ?? "–")")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -345,7 +345,7 @@ struct WeatherCard: View {
             if window.count >= 3 {
                 Eyebrow(text: L("Autour du départ", "Around the start"))
                 if let p = picked, let h = window.min(by: { abs($0.date.timeIntervalSince(p)) < abs($1.date.timeIntervalSince(p)) }) {
-                    Text("\(h.date.formatted(date: .omitted, time: .shortened)) · \(WeatherText.deg(h.temp)) · \(L("pluie", "rain")) \(WeatherText.pct(h.rainProb))")
+                    Text("\(h.date.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(appLocale))) · \(WeatherText.deg(h.temp)) · \(L("pluie", "rain")) \(WeatherText.pct(h.rainProb))")
                         .font(.subheadline.bold())
                 } else {
                     Text(L("Touche un graphique pour lire les valeurs.", "Touch a chart to read the values.")).font(.caption).foregroundStyle(.secondary)

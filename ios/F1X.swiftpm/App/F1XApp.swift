@@ -6,6 +6,9 @@ struct F1XApp: App {
     @Environment(\.scenePhase) private var scenePhase
     /// « auto » (suit l'iPhone), « light » ou « dark ».
     @AppStorage("theme") private var theme = "auto"
+    @AppStorage(AppLanguage.key) private var language = "auto"
+    /// Incrémenté après la mise à jour de `isFrench` : l'interface est alors reconstruite.
+    @State private var languageVersion = 0
 
     init() {
         // Photos et réponses gardées en cache plus longtemps : défilement fluide, moins de réseau.
@@ -15,6 +18,14 @@ struct F1XApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                // Changer de langue reconstruit l'interface dans la nouvelle langue.
+                .id(languageVersion)
+                .environment(\.locale, appLocale)
+                .onChange(of: language) { _, _ in
+                    isFrench = AppLanguage.resolve()
+                    languageVersion += 1
+                    WidgetCenter.shared.reloadAllTimelines()
+                }
                 .preferredColorScheme(theme == "dark" ? .dark : theme == "light" ? .light : nil)
                 .tint(.f1Red)
         }
