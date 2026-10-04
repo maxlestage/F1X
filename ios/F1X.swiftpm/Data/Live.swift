@@ -31,6 +31,10 @@ struct LiveCar: Decodable, Identifiable, Sendable {
     let lap_progress: Double?
     let stints: [StintInfo]
     let retired: Bool
+    /// Vitesse de pointe (km/h), meilleurs secteurs, places gagnées depuis le départ (direct).
+    let top_speed: Int?
+    let best_sectors: [Double?]?
+    let gained: Int?
     var id: Int { number }
     var color: Color { Color(hexString: colour) }
 }
@@ -110,6 +114,23 @@ struct Snapshot: Decodable, Sendable {
     let events: [RaceEvent]
     let pit_loss: Double?
     let finished: Bool
+    let radios: [LiveRadio]?
+    let pit_times: [LivePit]?
+}
+
+struct LiveRadio: Decodable, Sendable, Hashable {
+    let date: String
+    let code: String
+    let colour: String
+    let url: String
+}
+
+struct LivePit: Decodable, Sendable, Hashable {
+    let date: String
+    let code: String
+    let colour: String
+    let lap: Int?
+    let duration: Double?
 }
 
 func trackStatusLabel(_ s: String) -> String {

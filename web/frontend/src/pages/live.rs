@@ -565,7 +565,7 @@ fn Board(props: &BoardProps) -> Html {
                 },
                 View::Map => html! { <LiveMap snapshot={Rc::clone(snap)} track={props.track.clone()} /> },
                 View::Strategy => html! { <Strategy snapshot={Rc::clone(snap)} /> },
-                View::Timeline => timeline(snap),
+                View::Timeline => html! { <>{ live_extras(snap) }{ timeline(snap) }</> },
             } }
         </>
     }
@@ -627,6 +627,10 @@ fn car_row(c: &Car) -> Html {
                     if c.fastest { { " " }<span class="tag tag-purple" title={t("Meilleur tour de la session", "Session fastest lap")}>{ "⏱" }</span> }
                     if c.in_pit { { " " }<span class="tag">{ t("Stand", "Pit") }</span> }
                     if c.retired { { " " }<span class="tag">{ t("Abandon", "Out") }</span> }
+                    // Places gagnées ou perdues depuis le départ.
+                    if let Some(g) = c.gained.filter(|g| *g != 0) {
+                        { " " }<span class={if g > 0 { "gain-up" } else { "gain-down" }}>{ if g > 0 { format!("▲{g}") } else { format!("▼{}", -g) } }</span>
+                    }
                 </span>
                 if !gaps.is_empty() { <span class="row-sub">{ gaps }</span> }
                 <span class="row-sub lap-line">
@@ -1008,6 +1012,56 @@ fn Strategy(props: &StrategyProps) -> Html {
                     loss
                 ) }</p>
             </section>
+        </>
+    }
+}
+
+/// Radios d'équipe, passages aux stands et vitesses de pointe (flux de chronométrage F1).
+fn live_extras(snap: &Snapshot) -> Html {
+    let mut fast: Vec<&Car> = snap.cars.iter().filter(|c| c.top_speed.is_some()).collect();
+    fast.sort_by_key(|c| std::cmp::Reverse(c.top_speed));
+    html! {
+        <>
+            if !snap.radios.is_empty() {
+                <section class="card">
+                    <h2>{ t("Radios d'équipe", "Team radio") }</h2>
+                    <ol class="rows">
+                        { for snap.radios.iter().map(|r| html! {
+                            <li class="row" style={format!("--team:#{}", r.colour)}>
+                                <span class="row-main"><span class="row-title"><strong>{ &r.code }</strong>{ " " }<span class="muted">{ crate::util::local_date(&r.date, true) }</span></span></span>
+                                <audio controls=true preload="none" src={r.url.clone()} class="radio-audio"></audio>
+                            </li>
+                        }) }
+                    </ol>
+                </section>
+            }
+            if !snap.pit_times.is_empty() {
+                <section class="card">
+                    <h2>{ t("Passages aux stands", "Pit stops") }</h2>
+                    <ol class="rows">
+                        { for snap.pit_times.iter().map(|p| html! {
+                            <li class="row" style={format!("--team:#{}", p.colour)}>
+                                <span class="row-main"><span class="row-title"><strong>{ &p.code }</strong>
+                                    { p.lap.map(|l| tr!(" · tour {l}", " · lap {l}")).unwrap_or_default() }</span></span>
+                                <strong>{ p.duration.map(|d| format!("{d:.1} s")).unwrap_or_else(|| "–".into()) }</strong>
+                            </li>
+                        }) }
+                    </ol>
+                </section>
+            }
+            if !fast.is_empty() {
+                <section class="card">
+                    <h2>{ t("Vitesses de pointe", "Top speeds") }</h2>
+                    <ol class="rows">
+                        { for fast.iter().take(10).map(|c| html! {
+                            <li class="row" style={format!("--team:#{}", c.colour)}>
+                                <span class="row-main"><span class="row-title"><strong>{ &c.code }</strong></span></span>
+                                <strong>{ format!("{} km/h", c.top_speed.unwrap_or(0)) }</strong>
+                            </li>
+                        }) }
+                    </ol>
+                </section>
+            }
         </>
     }
 }

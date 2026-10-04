@@ -222,6 +222,12 @@ pub fn snapshot(d: &Dataset, at: Ms, frame: Frame) -> Snapshot {
                     && last_activity
                         .get(&drv.number)
                         .is_some_and(|t| at - t > (median_lap * 3000.0) as Ms),
+                top_speed: None,
+                best_sectors: best_sector
+                    .get(&drv.number)
+                    .map(|b| b.map(|v| v.is_finite().then_some(v)))
+                    .unwrap_or([None; 3]),
+                gained: None,
                 best_lap: best,
                 fastest: best.is_some_and(|b| b == session_best),
                 lap,
@@ -291,6 +297,28 @@ pub fn snapshot(d: &Dataset, at: Ms, frame: Frame) -> Snapshot {
         events,
         pit_loss,
         finished: frame.finished,
+        radios: Vec::new(),
+        // Arrêts jusqu'ici : temps passé dans la voie des stands.
+        pit_times: pits
+            .iter()
+            .rev()
+            .take(20)
+            .map(|p| {
+                let drv = d.drivers.iter().find(|x| x.number == p.driver);
+                f1x_protocol::LivePit {
+                    date: iso(p.time),
+                    code: drv.map(|x| x.code.clone()).unwrap_or_default(),
+                    colour: drv.map(|x| x.colour.clone()).unwrap_or_default(),
+                    lap: d
+                        .laps
+                        .iter()
+                        .filter(|l| l.driver == p.driver && l.start <= p.time)
+                        .map(|l| l.lap)
+                        .max(),
+                    duration: p.lane,
+                }
+            })
+            .collect(),
     }
 }
 

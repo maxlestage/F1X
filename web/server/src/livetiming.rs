@@ -10,7 +10,8 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use f1x_protocol::{
-    Car, Mode, RaceControl, SessionSummary, Snapshot, StintInfo, TrackStatus, Weather,
+    Car, LivePit, LiveRadio, Mode, RaceControl, SessionSummary, Snapshot, StintInfo, TrackStatus,
+    Weather,
 };
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Map, Value, json};
@@ -23,7 +24,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 type Ms = i64;
 
 const HOST: &str = "livetiming.formula1.com";
-const TOPICS: [&str; 11] = [
+const TOPICS: [&str; 14] = [
     "Heartbeat",
     "TimingData",
     "TimingAppData",
@@ -35,6 +36,9 @@ const TOPICS: [&str; 11] = [
     "RaceControlMessages",
     "WeatherData",
     "ExtrapolatedClock",
+    "TeamRadio",
+    "PitLaneTimeCollection",
+    "LapSeries",
 ];
 
 /// Message du flux : sujet, données (état complet ou modification), horodatage.
@@ -256,6 +260,8 @@ pub struct Feed {
     lap_start: HashMap<String, Ms>,
     /// Dernier signe de vie du flux.
     pub heartbeat: Ms,
+    /// Passages aux stands vus pendant la séance : (date, voiture, tour, durée dans la voie).
+    pits: Vec<(Ms, String, Option<u32>, Option<f64>)>,
 }
 
 impl Feed {
@@ -271,6 +277,21 @@ impl Feed {
             self.heartbeat = self.heartbeat.max(at.min(now_ms()));
         }
         // Repère les débuts de tour : tour bouclé ou sortie des stands.
+        // Temps passés dans la voie des stands (le flux ne garde que le dernier par voiture).
+        if topic == "PitLaneTimeCollection" {
+            if let Some(times) = data.get("PitTimes").and_then(Value::as_object) {
+                for (n, p) in times {
+                    if n == "_deleted" {
+                        continue;
+                    }
+                    let lap = st(p, "Lap").parse().ok();
+                    let duration = st(p, "Duration").parse().ok();
+                    if duration.is_some() && !self.pits.iter().any(|x| &x.1 == n && x.2 == lap) {
+                        self.pits.push((at, n.clone(), lap, duration));
+                    }
+                }
+            }
+        }
         if topic == "TimingData" {
             if let Some(lines) = data.get("Lines").and_then(Value::as_object) {
                 for (n, l) in lines {
@@ -390,6 +411,10 @@ impl Feed {
             .iter()
             .map(|(n, l)| {
                 let d = drivers.get(n).unwrap_or(&Value::Null);
+                let stats = self
+                    .topic("TimingStats")
+                    .get("Lines")
+                    .and_then(|x| x.get(n));
                 let number = n.parse().unwrap_or(0);
                 let flag = |k: &str| l.get(k).and_then(Value::as_bool).unwrap_or(false);
                 let (in_pit, retired) = (flag("InPit"), flag("Retired") || flag("Stopped"));
@@ -451,7 +476,7 @@ impl Feed {
                     .max(30.0);
                 let lap_progress = (!in_pit && !retired && (racing || l.get("Sectors").is_some()))
                     .then(|| {
-                        let lo = done as f64 / 3.0;
+                        let lo = (done as f64 / 3.0).min(0.98);
                         let hi = ((done + 1) as f64 / 3.0 - 0.01).min(0.999);
                         let by_time = self
                             .lap_start
@@ -522,6 +547,31 @@ impl Feed {
                     lap_progress,
                     stints,
                     retired,
+                    top_speed: stats
+                        .and_then(|x| x.get("BestSpeeds"))
+                        .and_then(|b| b.get("ST"))
+                        .and_then(|v| st(v, "Value").parse().ok()),
+                    best_sectors: std::array::from_fn(|i| {
+                        stats
+                            .and_then(|x| x.get("BestSectors"))
+                            .and_then(Value::as_array)
+                            .and_then(|a| a.get(i))
+                            .and_then(|v| lap_secs(st(v, "Value")))
+                    }),
+                    // Places gagnées depuis la grille (position au tour 0 de l'historique).
+                    gained: racing
+                        .then(|| {
+                            let series = self.topic("LapSeries").get(n)?.get("LapPosition")?;
+                            let first = match series {
+                                Value::Array(a) => a.first().cloned(),
+                                Value::Object(o) => o.get("0").cloned(),
+                                _ => None,
+                            }?;
+                            let start: i32 = first.as_str()?.parse().ok()?;
+                            let now: i32 = st(l, "Position").parse().ok()?;
+                            Some(start - now)
+                        })
+                        .flatten(),
                 }
             })
             .collect();
@@ -597,6 +647,46 @@ impl Feed {
             events: Vec::new(),
             pit_loss: None,
             finished: chequered,
+            radios: {
+                let base = st(self.topic("SessionInfo"), "Path");
+                let caps = match self.topic("TeamRadio").get("Captures") {
+                    Some(Value::Array(a)) => a.clone(),
+                    Some(Value::Object(o)) => o.values().cloned().collect(),
+                    _ => Vec::new(),
+                };
+                let mut list: Vec<LiveRadio> = caps
+                    .iter()
+                    .filter(|c| !st(c, "Path").is_empty())
+                    .map(|c| {
+                        let d = drivers.get(st(c, "RacingNumber")).unwrap_or(&Value::Null);
+                        LiveRadio {
+                            date: parse_ms(st(c, "Utc")).map(iso).unwrap_or_default(),
+                            code: st(d, "Tla").to_string(),
+                            colour: st(d, "TeamColour").to_string(),
+                            url: format!("https://{HOST}/static/{base}{}", st(c, "Path")),
+                        }
+                    })
+                    .collect();
+                list.sort_by(|a, b| b.date.cmp(&a.date));
+                list.truncate(15);
+                list
+            },
+            pit_times: self
+                .pits
+                .iter()
+                .rev()
+                .take(20)
+                .map(|(at, n, lap, dur)| {
+                    let d = drivers.get(n).unwrap_or(&Value::Null);
+                    LivePit {
+                        date: iso(*at),
+                        code: st(d, "Tla").to_string(),
+                        colour: st(d, "TeamColour").to_string(),
+                        lap: *lap,
+                        duration: *dur,
+                    }
+                })
+                .collect(),
         }
     }
 }
@@ -616,5 +706,32 @@ mod tests {
         assert_eq!(s["Lines"]["1"]["InPit"], true);
         assert_eq!(lap_secs("1:36.075"), Some(96.075));
         assert!(parse_ms("2026-10-03T08:00:00").is_some());
+    }
+}
+
+#[cfg(test)]
+mod fixture {
+    #[test]
+    fn snapshot_from_saved_state() {
+        let Ok(path) = std::env::var("F1X_FEED_FIXTURE") else {
+            return;
+        };
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let mut feed = super::Feed::default();
+        for (k, d) in v.as_object().unwrap() {
+            feed.apply(k, d, super::now_ms());
+        }
+        let snap = feed.snapshot(super::now_ms());
+        for c in snap.cars.iter().take(6) {
+            println!(
+                "{} {} gap={} top={:?} best={:?} gained={:?}",
+                c.position, c.code, c.gap, c.top_speed, c.best_sectors, c.gained
+            );
+        }
+        for r in snap.radios.iter().take(3) {
+            println!("radio {} {} {}", r.date, r.code, r.url);
+        }
+        println!("pits {}", snap.pit_times.len());
     }
 }
