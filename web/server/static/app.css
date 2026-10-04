@@ -503,6 +503,9 @@ button.btn:disabled { opacity: .5; }
   white-space: nowrap; color: #fff; background: rgba(8, 8, 12, .62); border-left: 3px solid var(--team, #fff);
   box-shadow: 0 1px 2px rgba(0,0,0,.4); visibility: hidden; }
 .scene-nolabels .scene-labels { display: none; }
+.gain-up { color: #22c55e; font-weight: 800; font-size: .8rem; }
+.gain-down { color: #ef4444; font-weight: 800; font-size: .8rem; }
+.radio-audio { height: 32px; max-width: 55%; }
 .race-data-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 10px; }
 .race-data-btn { width: 100%; justify-content: flex-start; text-align: left; }
 .lap-replay { display: flex; flex-direction: column; gap: 10px; }

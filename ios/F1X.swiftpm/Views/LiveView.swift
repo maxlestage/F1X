@@ -5,6 +5,7 @@ import SwiftUI
 struct LiveView: View {
     @StateObject private var client = LiveClient()
     @ObservedObject private var activity = LiveActivityManager.shared
+    @StateObject private var radioPlayer = RadioPlayer()
     @State private var year = Calendar.current.component(.year, from: .now)
     @State private var sessions: [SessionSummary] = []
     @State private var speed = 10
@@ -184,6 +185,12 @@ struct LiveView: View {
                             if car.fastest { Text("⏱").foregroundStyle(Color.f1Purple) }
                             if car.in_pit { Text("PIT").font(.caption2.bold()).foregroundStyle(.yellow) }
                             if car.retired { Text(L("ABANDON", "OUT")).font(.caption2.bold()).foregroundStyle(.red) }
+                            // Places gagnées ou perdues depuis le départ.
+                            if let g = car.gained, g != 0 {
+                                Text(g > 0 ? "▲\(g)" : "▼\(-g)")
+                                    .font(.caption2.bold().monospacedDigit())
+                                    .foregroundStyle(g > 0 ? .green : .red)
+                            }
                         }
                         HStack(spacing: 3) {
                             ForEach(0..<3, id: \.self) { i in
@@ -280,6 +287,52 @@ struct LiveView: View {
 
     @ViewBuilder
     private func feedSection(_ snap: Snapshot) -> some View {
+        // Radios d'équipe en direct (fichiers audio publics du chronométrage F1).
+        if let radios = snap.radios, !radios.isEmpty {
+            Section(L("Radios d'équipe", "Team radio")) {
+                ForEach(radios, id: \.self) { r in
+                    Button { radioPlayer.toggle(r.url) } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: radioPlayer.playing == r.url ? "stop.circle.fill" : "play.circle.fill")
+                                .font(.title3).foregroundStyle(Color.f1Red)
+                            RoundedRectangle(cornerRadius: 2).fill(Color(hexString: r.colour)).frame(width: 4, height: 20)
+                            Text(r.code).bold()
+                            Spacer()
+                            Text(RaceReplayCard.clock(r.date)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        // Passages aux stands : temps dans la voie.
+        if let pits = snap.pit_times, !pits.isEmpty {
+            Section(L("Passages aux stands", "Pit stops")) {
+                ForEach(pits, id: \.self) { p in
+                    HStack(spacing: 8) {
+                        RoundedRectangle(cornerRadius: 2).fill(Color(hexString: p.colour)).frame(width: 4, height: 20)
+                        Text(p.code).bold()
+                        if let lap = p.lap { Text(L("tour \(lap)", "lap \(lap)")).font(.caption).foregroundStyle(.secondary) }
+                        Spacer()
+                        Text(p.duration.map { String(format: "%.1f s", $0) } ?? "–").font(.callout.monospacedDigit().bold())
+                    }
+                }
+            }
+        }
+        // Vitesses de pointe au piège à radar.
+        let fast = snap.cars.filter { $0.top_speed != nil }.sorted { ($0.top_speed ?? 0) > ($1.top_speed ?? 0) }
+        if !fast.isEmpty {
+            Section(L("Vitesses de pointe", "Top speeds")) {
+                ForEach(fast.prefix(10)) { c in
+                    HStack(spacing: 8) {
+                        RoundedRectangle(cornerRadius: 2).fill(c.color).frame(width: 4, height: 20)
+                        Text(c.code).bold()
+                        Spacer()
+                        Text("\(c.top_speed ?? 0) km/h").font(.callout.monospacedDigit().bold())
+                    }
+                }
+            }
+        }
         Section(L("Chronologie", "Timeline")) {
             if snap.events.isEmpty { Text(L("Rien pour l'instant.", "Nothing yet.")).foregroundStyle(.secondary) }
             ForEach(Array(snap.events.prefix(40).enumerated()), id: \.offset) { _, e in

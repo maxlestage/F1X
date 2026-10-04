@@ -111,6 +111,12 @@ pub struct Snapshot {
     /// Temps perdu estimé pour un arrêt aux stands (médiane de la course), en secondes.
     pub pit_loss: Option<f64>,
     pub finished: bool,
+    /// Dernières radios d'équipe, de la plus récente à la plus ancienne.
+    #[serde(default)]
+    pub radios: Vec<LiveRadio>,
+    /// Passages aux stands, du plus récent au plus ancien.
+    #[serde(default)]
+    pub pit_times: Vec<LivePit>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -187,6 +193,35 @@ pub struct Car {
     /// Relais de pneus jusqu'ici.
     pub stints: Vec<StintInfo>,
     pub retired: bool,
+    /// Vitesse de pointe au piège à radar (km/h), direct uniquement.
+    #[serde(default)]
+    pub top_speed: Option<u32>,
+    /// Meilleurs temps personnels de chaque secteur.
+    #[serde(default)]
+    pub best_sectors: [Option<f64>; 3],
+    /// Places gagnées (positif) ou perdues depuis le départ.
+    #[serde(default)]
+    pub gained: Option<i32>,
+}
+
+/// Message radio d'équipe (fichier audio public).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LiveRadio {
+    pub date: String,
+    pub code: String,
+    pub colour: String,
+    pub url: String,
+}
+
+/// Passage par la voie des stands : temps passé dans la voie.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LivePit {
+    pub date: String,
+    pub code: String,
+    pub colour: String,
+    pub lap: Option<u32>,
+    /// Secondes dans la voie des stands.
+    pub duration: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
