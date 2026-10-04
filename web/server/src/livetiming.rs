@@ -647,6 +647,7 @@ impl Feed {
             events: Vec::new(),
             pit_loss: None,
             finished: chequered,
+            championship: Vec::new(),
             radios: {
                 let base = st(self.topic("SessionInfo"), "Path");
                 let caps = match self.topic("TeamRadio").get("Captures") {

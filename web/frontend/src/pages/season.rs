@@ -102,6 +102,8 @@ pub fn SeasonPage(props: &SeasonProps) -> Html {
     html! {
         <Layout title={tr!("Calendrier · {}", "Calendar · {}", season_label(&season))} tab={Tab::Calendar}>
             <SeasonSelect season={props.season.clone()} target={SeasonTarget::Calendar} />
+            // Abonnement au calendrier de la saison (iPhone, Mac, Google Agenda, Outlook…).
+            <a class="link cal-sub" href={crate::util::webcal_url()}>{ t("📅 Ajouter les séances à mon calendrier", "📅 Add sessions to my calendar") }</a>
             <div class="segmented">
                 <Link<Route> to={Route::DriverStandings { season: season.clone() }} classes="seg">{ t("Classement pilotes", "Driver standings") }</Link<Route>>
                 <Link<Route> to={Route::TeamStandings { season: season.clone() }} classes="seg">{ t("Classement écuries", "Team standings") }</Link<Route>>

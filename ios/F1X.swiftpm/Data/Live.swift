@@ -116,6 +116,17 @@ struct Snapshot: Decodable, Sendable {
     let finished: Bool
     let radios: [LiveRadio]?
     let pit_times: [LivePit]?
+    let championship: [ChampRow]?
+}
+
+struct ChampRow: Decodable, Sendable, Hashable {
+    let code: String
+    let name: String
+    let colour: String
+    let points_before: Double
+    let points_now: Double
+    let position_before: Int
+    let position_now: Int
 }
 
 struct LiveRadio: Decodable, Sendable, Hashable {

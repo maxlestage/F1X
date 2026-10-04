@@ -117,6 +117,21 @@ pub struct Snapshot {
     /// Passages aux stands, du plus récent au plus ancien.
     #[serde(default)]
     pub pit_times: Vec<LivePit>,
+    /// Championnat pilotes si la course s'arrêtait maintenant (course et sprint en direct).
+    #[serde(default)]
+    pub championship: Vec<ChampRow>,
+}
+
+/// Ligne du championnat en direct : points et place avant la séance, puis avec les positions actuelles.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChampRow {
+    pub code: String,
+    pub name: String,
+    pub colour: String,
+    pub points_before: f64,
+    pub points_now: f64,
+    pub position_before: u32,
+    pub position_now: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

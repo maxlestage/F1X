@@ -298,6 +298,7 @@ pub fn snapshot(d: &Dataset, at: Ms, frame: Frame) -> Snapshot {
         pit_loss,
         finished: frame.finished,
         radios: Vec::new(),
+        championship: Vec::new(),
         // Arrêts jusqu'ici : temps passé dans la voie des stands.
         pit_times: pits
             .iter()

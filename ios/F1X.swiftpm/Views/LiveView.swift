@@ -287,6 +287,34 @@ struct LiveView: View {
 
     @ViewBuilder
     private func feedSection(_ snap: Snapshot) -> some View {
+        // Championnat si la course s'arrêtait maintenant.
+        if let champ = snap.championship, !champ.isEmpty {
+            Section {
+                ForEach(champ.prefix(10), id: \.self) { r in
+                    HStack(spacing: 8) {
+                        Text("\(r.position_now)").font(.headline.monospacedDigit()).frame(width: 26)
+                        RoundedRectangle(cornerRadius: 2).fill(Color(hexString: r.colour)).frame(width: 4, height: 22)
+                        Text(r.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                        let move = r.position_before - r.position_now
+                        if move != 0 {
+                            Text(move > 0 ? "▲\(move)" : "▼\(-move)")
+                                .font(.caption2.bold()).foregroundStyle(move > 0 ? .green : .red)
+                        }
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 0) {
+                            Text("\(Int(r.points_now)) pts").font(.callout.monospacedDigit().bold())
+                            let earned = Int(r.points_now - r.points_before)
+                            if earned > 0 { Text("+\(earned)").font(.caption2.monospacedDigit()).foregroundStyle(.green) }
+                        }
+                    }
+                }
+            } header: {
+                Text(L("Championnat en direct", "Live championship"))
+            } footer: {
+                Text(L("Classement pilotes si la course s'arrêtait maintenant (sans le point du meilleur tour).",
+                       "Drivers' standings if the race ended now (fastest-lap point not included)."))
+            }
+        }
         // Radios d'équipe en direct (fichiers audio publics du chronométrage F1).
         if let radios = snap.radios, !radios.isEmpty {
             Section(L("Radios d'équipe", "Team radio")) {

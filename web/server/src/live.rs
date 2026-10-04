@@ -224,6 +224,8 @@ async fn feed_loop(hub: Arc<Hub>) {
     let mut feed = crate::livetiming::Feed::default();
     let mut tick = tokio::time::interval(TICK);
     let mut shown: Option<(u32, bool)> = None;
+    let mut standings: Vec<(String, String, f64)> = Vec::new();
+    let mut standings_for = None;
     let mut track_for = None;
     loop {
         tokio::select! {
@@ -270,13 +272,97 @@ async fn feed_loop(hub: Arc<Hub>) {
                     }
                     *hub.latest_track.write().await = msg;
                 }
+                // Classement du championnat avant la séance (Jolpica), une fois par séance.
+                if standings_for != Some(session.session_key) {
+                    standings_for = Some(session.session_key);
+                    standings = fetch_standings().await;
+                }
                 let at = Utc::now().timestamp_millis();
-                let msg = encode(&ServerMsg::Snapshot(Box::new(feed.snapshot(at))));
+                let mut snap = feed.snapshot(at);
+                snap.championship = live_championship(&snap, &standings);
+                let msg = encode(&ServerMsg::Snapshot(Box::new(snap)));
                 *hub.latest_live.write().await = Some(msg.clone());
                 let _ = hub.live.send(msg);
             }
         }
     }
+}
+
+/// Classement pilotes actuel (Jolpica) : (code, nom, points).
+async fn fetch_standings() -> Vec<(String, String, f64)> {
+    let url = "https://api.jolpi.ca/ergast/f1/current/driverStandings.json?limit=100";
+    let Ok(resp) = reqwest::get(url).await else {
+        return Vec::new();
+    };
+    let Ok(v) = resp.json::<serde_json::Value>().await else {
+        return Vec::new();
+    };
+    v.pointer("/MRData/StandingsTable/StandingsLists/0/DriverStandings")
+        .and_then(|x| x.as_array())
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|r| {
+                    let d = r.get("Driver")?;
+                    let code = d.get("code")?.as_str()?.to_string();
+                    let name = format!(
+                        "{} {}",
+                        d.get("givenName")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or_default(),
+                        d.get("familyName")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or_default()
+                    );
+                    let pts = r.get("points")?.as_str()?.parse().ok()?;
+                    Some((code, name, pts))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Championnat « si la course s'arrêtait maintenant » : points d'avant + barème des positions actuelles.
+fn live_championship(
+    snap: &f1x_protocol::Snapshot,
+    standings: &[(String, String, f64)],
+) -> Vec<f1x_protocol::ChampRow> {
+    let scale: &[f64] = match snap.session.session_name.as_str() {
+        "Race" => &[25.0, 18.0, 15.0, 12.0, 10.0, 8.0, 6.0, 4.0, 2.0, 1.0],
+        "Sprint" => &[8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0],
+        _ => return Vec::new(),
+    };
+    if standings.is_empty() {
+        return Vec::new();
+    }
+    let mut rows: Vec<f1x_protocol::ChampRow> = standings
+        .iter()
+        .enumerate()
+        .map(|(i, (code, name, pts))| {
+            let car = snap.cars.iter().find(|c| &c.code == code);
+            let earned = car
+                .filter(|c| !c.retired)
+                .and_then(|c| scale.get(c.position.saturating_sub(1) as usize).copied())
+                .unwrap_or(0.0);
+            f1x_protocol::ChampRow {
+                code: code.clone(),
+                name: name.clone(),
+                colour: car.map(|c| c.colour.clone()).unwrap_or_default(),
+                points_before: *pts,
+                points_now: pts + earned,
+                position_before: i as u32 + 1,
+                position_now: 0,
+            }
+        })
+        .collect();
+    rows.sort_by(|a, b| {
+        b.points_now
+            .total_cmp(&a.points_now)
+            .then(a.position_before.cmp(&b.position_before))
+    });
+    for (i, r) in rows.iter_mut().enumerate() {
+        r.position_now = i as u32 + 1;
+    }
+    rows
 }
 
 enum Control {

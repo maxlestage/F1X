@@ -109,6 +109,10 @@ pub fn TeamPage(props: &IdProps) -> Html {
                 }
             </section>
 
+            if let Some(url) = &team.url {
+                <crate::components::WikiBio url={url.clone()} title={t("À propos", "About")} />
+            }
+
             { crate::gl3d::car_card(&team.constructor_id, &team.name) }
 
             if let Some(season) = &season {

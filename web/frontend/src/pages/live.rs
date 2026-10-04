@@ -1022,6 +1022,28 @@ fn live_extras(snap: &Snapshot) -> Html {
     fast.sort_by_key(|c| std::cmp::Reverse(c.top_speed));
     html! {
         <>
+            if !snap.championship.is_empty() {
+                <section class="card">
+                    <h2>{ t("Championnat en direct", "Live championship") }</h2>
+                    <ol class="rows">
+                        { for snap.championship.iter().take(10).map(|r| {
+                            let moved = r.position_before as i32 - r.position_now as i32;
+                            let earned = r.points_now - r.points_before;
+                            html! {
+                                <li class="row" style={format!("--team:#{}", r.colour)}>
+                                    <span class="pos">{ r.position_now }</span>
+                                    <span class="row-main"><span class="row-title"><strong>{ &r.name }</strong>
+                                        if moved != 0 { { " " }<span class={if moved > 0 { "gain-up" } else { "gain-down" }}>{ if moved > 0 { format!("▲{moved}") } else { format!("▼{}", -moved) } }</span> }
+                                    </span></span>
+                                    <strong>{ format!("{:.0} pts", r.points_now) }</strong>
+                                    if earned > 0.0 { <small class="gain-up">{ format!(" +{earned:.0}") }</small> }
+                                </li>
+                            }
+                        }) }
+                    </ol>
+                    <p class="muted">{ t("Classement pilotes si la course s'arrêtait maintenant.", "Drivers' standings if the race ended now.") }</p>
+                </section>
+            }
             if !snap.radios.is_empty() {
                 <section class="card">
                     <h2>{ t("Radios d'équipe", "Team radio") }</h2>

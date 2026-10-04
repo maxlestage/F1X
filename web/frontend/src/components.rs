@@ -510,3 +510,43 @@ pub fn FavButton(props: &FavProps) -> Html {
         </button>
     }
 }
+
+#[derive(Properties, PartialEq)]
+pub struct WikiBioProps {
+    /// Lien de l'article Wikipédia anglais (fourni par Jolpica).
+    pub url: AttrValue,
+    pub title: AttrValue,
+}
+
+/// Résumé Wikipédia (en français quand l'article existe), repliable.
+#[function_component]
+pub fn WikiBio(p: &WikiBioProps) -> Html {
+    let title = p.url.rsplit('/').next().unwrap_or_default().to_string();
+    let lang = if crate::i18n::is_fr() { "fr" } else { "en" };
+    let data = crate::api::use_json::<serde_json::Value>(
+        (!title.is_empty()).then(|| format!("/api/wiki/{lang}/{title}")),
+    );
+    let Some(Ok(v)) = &data else { return html! {} };
+    let text = v
+        .get("extract")
+        .and_then(|x| x.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let link = v
+        .get("url")
+        .and_then(|x| x.as_str())
+        .unwrap_or_default()
+        .to_string();
+    if text.is_empty() {
+        return html! {};
+    }
+    html! {
+        <details class="card wiki-bio" open=true>
+            <summary><h2>{ p.title.clone() }</h2></summary>
+            <p>{ text }</p>
+            if !link.is_empty() {
+                <a class="link" href={link} target="_blank" rel="noopener">{ crate::i18n::t("Lire sur Wikipédia ↗", "Read on Wikipedia ↗") }</a>
+            }
+        </details>
+    }
+}
