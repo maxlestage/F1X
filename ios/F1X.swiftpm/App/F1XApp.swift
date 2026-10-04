@@ -4,6 +4,8 @@ import WidgetKit
 @main
 struct F1XApp: App {
     @Environment(\.scenePhase) private var scenePhase
+    /// « auto » (suit l'iPhone), « light » ou « dark ».
+    @AppStorage("theme") private var theme = "auto"
 
     init() {
         // Photos et réponses gardées en cache plus longtemps : défilement fluide, moins de réseau.
@@ -13,7 +15,7 @@ struct F1XApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(theme == "dark" ? .dark : theme == "light" ? .light : nil)
                 .tint(.f1Red)
         }
         // En quittant l'app, le widget se recharge avec les derniers résultats.
@@ -48,6 +50,7 @@ struct RootView: View {
             }
             if splash && !reduceMotion {
                 SplashView { withAnimation(.easeIn(duration: 0.15)) { splash = false } }
+                    .environment(\.colorScheme, .dark)
                     .transition(.opacity)
                     .zIndex(10)
             }
