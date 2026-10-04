@@ -1,5 +1,6 @@
 mod api;
 mod assets;
+mod fallback;
 mod landing;
 mod live;
 mod livetiming;
@@ -287,7 +288,10 @@ async fn f1_page(
         return StatusCode::NOT_FOUND.into_response();
     }
     let limit = q.limit.unwrap_or(30).clamp(1, api::PAGE);
-    let value = s.api.page(&path, limit, q.offset.unwrap_or(0)).await;
+    let mut value = s.api.page(&path, limit, q.offset.unwrap_or(0)).await;
+    if let Some(v) = value.as_mut() {
+        fallback::patch(&s.api, &s.hub.openf1, &path, v).await;
+    }
     json_response(&path, value)
 }
 
@@ -296,7 +300,10 @@ async fn f1_all(State(s): State<AppState>, Path(path): Path<String>) -> Response
     if !api::valid_path(&path) {
         return StatusCode::NOT_FOUND.into_response();
     }
-    let value = s.api.all(&path).await;
+    let mut value = s.api.all(&path).await;
+    if let Some(v) = value.as_mut() {
+        fallback::patch(&s.api, &s.hub.openf1, &path, v).await;
+    }
     json_response(&path, value)
 }
 
