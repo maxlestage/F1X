@@ -416,6 +416,92 @@ struct ResultsSection: View {
 }
 
 /// Point d'une courbe.
+/// Couleurs des graphiques de télémétrie, comme sur le site.
+func telemetryColor(_ field: String) -> Color {
+    switch field {
+    case "rpm": return Color(hex: 0xD95926)
+    case "throttle": return Color(hex: 0x199E70)
+    case "gear": return Color(hex: 0xC98500)
+    case "brake": return Color(hex: 0xD55181)
+    default: return Color(hex: 0x3987E5)
+    }
+}
+
+/// Valeur lisible d'une mesure (« 312 km/h », « 85 % », « oui »…).
+private func telemetryValue(_ field: String, _ v: Double) -> String {
+    switch field {
+    case "speed": return "\(Int(v)) km/h"
+    case "rpm": return "\(Int(v)) tr/min"
+    case "throttle": return "\(Int(v)) %"
+    case "brake": return v > 50 ? L("freine", "braking") : L("pas de frein", "off")
+    case "gear": return v == 0 ? "N" : L("rapport \(Int(v))", "gear \(Int(v))")
+    case "drs": return v >= 100 ? L("ouvert", "open") : v >= 50 ? L("autorisé", "armed") : L("fermé", "closed")
+    default: return "\(Int(v))"
+    }
+}
+
+/// Graphique d'une mesure le long du tour : couleur propre, valeur lue au doigt.
+private struct TraceChart: View {
+    let title: String
+    let field: String
+    let distance: [Double]
+    let values: [Double]
+    let height: CGFloat
+    let interpolation: InterpolationMethod
+    @State private var selected: Double?
+
+    private var points: [Pt] { zip(distance, values).map { Pt(series: field, x: $0 / 1000, y: $1) } }
+
+    private var picked: Pt? {
+        guard let selected else { return nil }
+        return points.min { abs($0.x - selected) < abs($1.x - selected) }
+    }
+
+    var body: some View {
+        let color = telemetryColor(field)
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title.uppercased()).font(.caption.weight(.heavy)).tracking(1).foregroundStyle(.secondary)
+            Group {
+                if let p = picked {
+                    Text("\(String(format: "%.2f", p.x)) km · \(telemetryValue(field, p.y))")
+                } else {
+                    Text(L("Touche le graphique pour lire les valeurs.", "Touch the chart to read values."))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .font(.subheadline.weight(.semibold).monospacedDigit())
+            Chart {
+                ForEach(points) { p in
+                    AreaMark(x: .value("km", p.x), y: .value(title, p.y))
+                        .interpolationMethod(interpolation)
+                        .foregroundStyle(LinearGradient(colors: [color.opacity(0.25), color.opacity(0)], startPoint: .top, endPoint: .bottom))
+                    LineMark(x: .value("km", p.x), y: .value(title, p.y))
+                        .interpolationMethod(interpolation)
+                        .foregroundStyle(color)
+                        .lineStyle(StrokeStyle(lineWidth: 2))
+                }
+                if let p = picked {
+                    RuleMark(x: .value("km", p.x))
+                        .foregroundStyle(Color.secondary)
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                    PointMark(x: .value("km", p.x), y: .value(title, p.y))
+                        .foregroundStyle(color)
+                        .symbolSize(60)
+                }
+            }
+            .chartXSelection(value: $selected)
+            .chartXAxis {
+                AxisMarks(values: .automatic(desiredCount: 4)) { v in
+                    AxisGridLine()
+                    AxisValueLabel { if let km = v.as(Double.self) { Text(String(format: "%.1f km", km)) } }
+                }
+            }
+            .frame(height: height)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
 private struct Pt: Identifiable {
     // Identifiant stable (un UUID neuf à chaque affichage faisait tout redessiner à Charts).
     var id: String { "\(series)-\(x)" }
@@ -1200,16 +1286,7 @@ struct DriverRaceSection: View {
 
     @ViewBuilder
     private func trace(_ title: String, _ field: String, _ height: CGFloat, _ interp: InterpolationMethod, _ stepped: Bool) -> some View {
-        let dist = tel["distance"].doubles, vals = tel[field].doubles
-        let pts: [Pt] = zip(dist, vals).map { Pt(series: field, x: $0 / 1000, y: $1) }
-        Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-        Chart(pts) {
-            LineMark(x: .value("km", $0.x), y: .value(title, $0.y))
-                .interpolationMethod(stepped ? .stepEnd : interp)
-                .foregroundStyle(Color(hexString: data["colour"].string))
-        }
-        .chartXAxisLabel("km")
-        // Assez haut pour que les graduations ne se chevauchent pas.
-        .frame(height: max(height, 120))
+        TraceChart(title: title, field: field, distance: tel["distance"].doubles, values: tel[field].doubles,
+                   height: max(height, 120), interpolation: stepped ? .stepEnd : interp)
     }
 }
