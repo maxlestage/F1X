@@ -26,11 +26,34 @@ pub struct Photo {
 #[derive(Deserialize)]
 struct Summary {
     thumbnail: Option<Thumb>,
+    originalimage: Option<Thumb>,
 }
 
 #[derive(Deserialize)]
 struct Thumb {
     source: String,
+    #[serde(default)]
+    width: u32,
+}
+
+/// Taille servie : 960 px de large (taille standard de Wikimedia), net sur écran Retina,
+/// ou l'original s'il est plus petit.
+fn sharp(thumb: &Thumb, original: Option<&Thumb>) -> String {
+    match original {
+        Some(o) if o.width > 0 && o.width <= 960 => o.source.clone(),
+        _ => match thumb.source.split_once("px-") {
+            Some((head, tail))
+                if head
+                    .rsplit('/')
+                    .next()
+                    .is_some_and(|n| n.chars().all(|c| c.is_ascii_digit())) =>
+            {
+                let cut = head.rfind('/').map_or(0, |i| i + 1);
+                format!("{}960px-{tail}", &head[..cut])
+            }
+            _ => thumb.source.clone(),
+        },
+    }
 }
 
 /// (date de récupération, photo).
@@ -92,10 +115,10 @@ impl Photos {
             404 => None,
             s if (200..300).contains(&s) => {
                 let summary: Summary = resp.json().await.map_err(|_| ())?;
-                summary.thumbnail.and_then(|t| {
+                summary.thumbnail.as_ref().and_then(|t| {
                     let credit = commons_page(&t.source)?;
                     Some(Photo {
-                        src: t.source,
+                        src: sharp(t, summary.originalimage.as_ref()),
                         credit,
                     })
                 })
@@ -130,6 +153,34 @@ fn commons_page(src: &str) -> Option<String> {
         parts.get(2)?
     };
     Some(format!("https://commons.wikimedia.org/wiki/File:{file}"))
+}
+
+#[cfg(test)]
+mod sharp_tests {
+    use super::*;
+
+    #[test]
+    fn upsizes_thumbnails() {
+        let t = Thumb {
+            source:
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f3/A.jpg/330px-A.jpg?x=1"
+                    .into(),
+            width: 330,
+        };
+        let big = Thumb {
+            source: "https://upload.wikimedia.org/wikipedia/commons/f/f3/A.jpg".into(),
+            width: 3000,
+        };
+        assert_eq!(
+            sharp(&t, Some(&big)),
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f3/A.jpg/960px-A.jpg?x=1"
+        );
+        let small = Thumb {
+            source: "https://upload.wikimedia.org/wikipedia/commons/f/f3/A.jpg".into(),
+            width: 600,
+        };
+        assert_eq!(sharp(&t, Some(&small)), small.source);
+    }
 }
 
 #[cfg(test)]
