@@ -210,13 +210,13 @@ struct RaceResult: Decodable, Identifiable, Sendable {
         if let time { return time.time }
         switch status ?? "" {
         case "Finished": return ""
-        case "Retired", "Accident", "Collision": return "Abandon"
-        case "Did not start": return "Non partant"
-        case "Disqualified": return "Disqualifié"
-        case "Lapped": return "Doublé"
+        case "Retired", "Accident", "Collision": return L("Abandon", "DNF")
+        case "Did not start": return L("Non partant", "DNS")
+        case "Disqualified": return L("Disqualifié", "Disqualified")
+        case "Lapped": return L("Doublé", "Lapped")
         case let s where s.hasPrefix("+") && s.contains("Lap"):
             let n = s.dropFirst().split(separator: " ").first.map { String($0) } ?? "1"
-            return "+\(n) tour\(n == "1" ? "" : "s")"
+            return L("+\(n) tour\(n == "1" ? "" : "s")", "+\(n) lap\(n == "1" ? "" : "s")")
         case let s: return s
         }
     }

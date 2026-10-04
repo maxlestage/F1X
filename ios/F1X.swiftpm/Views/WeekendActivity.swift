@@ -53,7 +53,7 @@ enum WeekendActivity {
             state = .init(session: L("Vainqueur", "Winner"), short: "🏆", start: start,
                           next: nextSession.map { pair in
                               let name = pair.0.raceName.replacingOccurrences(of: " Grand Prix", with: "")
-                              let when = pair.1.date.formatted(.dateTime.weekday(.abbreviated).day().hour().minute())
+                              let when = pair.1.date.formatted(.dateTime.weekday(.abbreviated).day().hour().minute().locale(appLocale))
                               return "\(name) · \(sessionLabel(pair.1.name)) \(when)"
                           },
                           winner: winner, winnerCode: code, winnerRace: winnerRace, podium: true)
@@ -67,7 +67,7 @@ enum WeekendActivity {
             race = r
             state = .init(session: sessionLabel(current.name), short: short(current.name), start: current.date,
                           next: following.map {
-                              "\(sessionLabel($0.name)) · \($0.date.formatted(.dateTime.weekday(.abbreviated).hour().minute()))"
+                              "\(sessionLabel($0.name)) · \($0.date.formatted(.dateTime.weekday(.abbreviated).hour().minute().locale(appLocale)))"
                           },
                           winner: winner, winnerCode: code, winnerRace: winnerRace, podium: false)
             stale = current.date.addingTimeInterval(duration(current.name))

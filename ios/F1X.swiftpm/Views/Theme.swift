@@ -90,11 +90,11 @@ enum Flag {
 extension Date {
     /// « ven. 2 oct. »
     var f1Day: String {
-        formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).locale(Locale(identifier: "fr_FR")))
+        formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).locale(appLocale))
     }
 
     /// « ven. 2 oct. · 10:30 » (heure locale de l'appareil)
     var f1DayTime: String {
-        "\(f1Day) · \(formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).locale(Locale(identifier: "fr_FR"))))"
+        "\(f1Day) · \(formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).locale(appLocale)))"
     }
 }

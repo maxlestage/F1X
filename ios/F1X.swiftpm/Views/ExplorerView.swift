@@ -9,6 +9,7 @@ struct ExplorerView: View {
     }()
 
     @AppStorage("theme") private var theme = "auto"
+    @AppStorage(AppLanguage.key) private var language = "auto"
 
     var body: some View {
         List {
@@ -17,6 +18,12 @@ struct ExplorerView: View {
                     Text(L("Automatique", "Automatic")).tag("auto")
                     Text(L("Clair", "Light")).tag("light")
                     Text(L("Sombre", "Dark")).tag("dark")
+                }
+                .pickerStyle(.segmented)
+                Picker(L("Langue", "Language"), selection: $language) {
+                    Text(L("Automatique", "Automatic")).tag("auto")
+                    Text("Français").tag("fr")
+                    Text("English").tag("en")
                 }
                 .pickerStyle(.segmented)
             }

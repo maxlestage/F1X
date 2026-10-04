@@ -156,7 +156,7 @@ struct DataYearView: View {
 
 private func shortDate(_ iso: String, time: Bool = false) -> String {
     guard let d = of1Date(iso) else { return "" }
-    return time ? d.formatted(date: .abbreviated, time: .shortened) : d.formatted(date: .abbreviated, time: .omitted)
+    return d.formatted(Date.FormatStyle(date: .abbreviated, time: time ? .shortened : .omitted).locale(appLocale))
 }
 
 struct DataMeetingView: View {
@@ -790,7 +790,7 @@ struct RaceSection: View {
 }
 
 private func shortTime(_ iso: String) -> String {
-    of1Date(iso)?.formatted(date: .omitted, time: .shortened) ?? ""
+    of1Date(iso)?.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(appLocale)) ?? ""
 }
 
 /// Lecteur des radios d'équipe (un seul à la fois).

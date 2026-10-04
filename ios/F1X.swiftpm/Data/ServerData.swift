@@ -153,7 +153,23 @@ actor ServerAPI {
 }
 
 /// Langue de l'appareil : français ou anglais.
-let isFrench: Bool = (Locale.preferredLanguages.first ?? "fr").hasPrefix("fr")
+/// Langue choisie dans Explorer : « auto » (celle de l'iPhone), « fr » ou « en ».
+enum AppLanguage {
+    static let key = "language"
+    static func resolve() -> Bool {
+        switch UserDefaults.standard.string(forKey: key) {
+        case "fr": return true
+        case "en": return false
+        default: return (Locale.preferredLanguages.first ?? "fr").hasPrefix("fr")
+        }
+    }
+}
+
+/// Vrai si l'app est en français (mis à jour quand on change de langue).
+var isFrench: Bool = AppLanguage.resolve()
+
+/// Format des dates dans la langue de l'app.
+var appLocale: Locale { Locale(identifier: isFrench ? "fr_FR" : "en_GB") }
 
 /// Texte dans la langue de l'appareil.
 func L(_ fr: String, _ en: String) -> String { isFrench ? fr : en }
