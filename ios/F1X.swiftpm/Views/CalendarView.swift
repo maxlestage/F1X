@@ -65,7 +65,7 @@ struct CalendarView: View {
             await F1API.shared.clearCache()
             await load()
         }
-        .task(id: season) { await load() }
+        .task(id: season) { await F1API.instant { await load() } }
         .autoRefresh { await load() }
     }
 

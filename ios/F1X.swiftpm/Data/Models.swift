@@ -299,3 +299,23 @@ struct ConstructorStanding: Decodable, Identifiable, Sendable {
         case constructor = "Constructor"
     }
 }
+
+extension Race {
+    /// Même course répartie sur deux pages de l'API : listes fusionnées.
+    func merging(_ other: Race) -> Race {
+        Race(season: season, round: round, raceName: raceName, circuit: circuit, date: date, time: time,
+             firstPractice: firstPractice, secondPractice: secondPractice, thirdPractice: thirdPractice,
+             sprintQualifying: sprintQualifying, sprintShootout: sprintShootout, sprint: sprint,
+             qualifying: qualifying,
+             results: joined(results, other.results),
+             sprintResults: joined(sprintResults, other.sprintResults),
+             qualifyingResults: joined(qualifyingResults, other.qualifyingResults),
+             pitStops: joined(pitStops, other.pitStops),
+             laps: joined(laps, other.laps))
+    }
+}
+
+private func joined<T>(_ a: [T]?, _ b: [T]?) -> [T]? {
+    if a == nil && b == nil { return nil }
+    return (a ?? []) + (b ?? [])
+}

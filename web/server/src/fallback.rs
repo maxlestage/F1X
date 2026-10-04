@@ -168,10 +168,12 @@ pub async fn patch(api: &F1Api, of1: &OpenF1, path: &str, value: &mut Value) {
                 }
             }
         }
-        // Vainqueurs de la saison.
-        [season, "results", "1"]
-            if season.chars().all(|c| c.is_ascii_digit()) || *season == "current" =>
+        // Vainqueurs de la saison (`results/1`) ou tous les résultats (`results`).
+        [season, "results", rest @ ..]
+            if (season.chars().all(|c| c.is_ascii_digit()) || *season == "current")
+                && (rest.is_empty() || rest == ["1"]) =>
         {
+            let winners_only = !rest.is_empty();
             let Some(schedule) = api.page(&format!("{season}.json"), 100, 0).await else {
                 return;
             };
@@ -182,7 +184,11 @@ pub async fn patch(api: &F1Api, of1: &OpenF1, path: &str, value: &mut Value) {
                     continue;
                 }
                 if let Some(mut full) = race(api, of1, season, round).await {
-                    if let Some(res) = full.get_mut("Results").and_then(Value::as_array_mut) {
+                    if let Some(res) = full
+                        .get_mut("Results")
+                        .and_then(Value::as_array_mut)
+                        .filter(|_| winners_only)
+                    {
                         res.truncate(1);
                     }
                     list.push(full);

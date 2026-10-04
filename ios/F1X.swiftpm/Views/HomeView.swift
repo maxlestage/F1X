@@ -7,6 +7,7 @@ struct HomeView: View {
         var drivers: [DriverStanding]
         var teams: [ConstructorStanding]
         var season: String
+        var races: [Race] = []
     }
 
     @State private var state: Loadable<Content> = .loading
@@ -17,6 +18,7 @@ struct HomeView: View {
                 VStack(spacing: 16) {
                     if let race = data.next {
                         NextRaceCard(race: race)
+                        ReminderToggle(races: data.races)
                         WeatherCard(race: race, full: false)
                     } else {
                         HeroCard {
@@ -27,6 +29,18 @@ struct HomeView: View {
                     if let last = data.last, let results = last.results, !results.isEmpty {
                         LastRaceCard(race: last, results: results)
                     }
+                    if !data.drivers.isEmpty {
+                        FavoritesCard(drivers: data.drivers, teams: data.teams, last: data.last)
+                    }
+                    NavigationLink { SeasonStatsView() } label: {
+                        Label(L("Statistiques de la saison : duels, records, évolution", "Season stats: battles, records, progression"),
+                              systemImage: "chart.line.uptrend.xyaxis")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(14)
+                            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+                    }
+                    .buttonStyle(.plain)
                     if !data.drivers.isEmpty {
                         SectionCard(title: "Pilotes") {
                             ForEach(data.drivers.prefix(5)) { s in
@@ -65,7 +79,7 @@ struct HomeView: View {
         }
         .navigationTitle("F1X")
         .f1Destinations()
-        .task { if case .loading = state { await load(force: false) } }
+        .task { if case .loading = state { await F1API.instant { await load(force: false) } } }
         .autoRefresh { await load(force: false) }
     }
 
@@ -82,8 +96,10 @@ struct HomeView: View {
                 last: await last,
                 drivers: await drivers ?? [],
                 teams: await teams ?? [],
-                season: races.first?.season ?? ""
+                season: races.first?.season ?? "",
+                races: races
             ))
+            await SessionReminders.schedule(races: races)
         } catch {
             state = .failed(loadErrorMessage(error))
         }
@@ -190,5 +206,57 @@ private struct PodiumStep: View {
                 .fill(Team.color(result.constructor.constructorId))
                 .frame(height: 4)
         }
+    }
+}
+
+/// Pilote et écurie favoris : classement, dernier résultat, choix rapide.
+private struct FavoritesCard: View {
+    let drivers: [DriverStanding]
+    let teams: [ConstructorStanding]
+    let last: Race?
+    @AppStorage("f1x-fav-driver") private var driverId = ""
+    @AppStorage("f1x-fav-team") private var teamId = ""
+
+    var body: some View {
+        SectionCard(title: L("Mes favoris", "My favourites")) {
+            if let s = drivers.first(where: { $0.driver.driverId == driverId }) {
+                NavigationLink(value: s.driver) {
+                    StandingRow(position: s.rank, teamId: s.team?.constructorId,
+                                title: driverTitle(s.driver, flag: true),
+                                subtitle: lastLine(s.driver.driverId), avatar: s.driver) { PointsLabel(value: s.points) }
+                }
+                .buttonStyle(.plain)
+            }
+            if let t = teams.first(where: { $0.constructor.constructorId == teamId }) {
+                NavigationLink(value: t.constructor) {
+                    StandingRow(position: t.rank, teamId: t.constructor.constructorId,
+                                title: Text(t.constructor.name).bold(), subtitle: winsLabel(t.wins)) { PointsLabel(value: t.points) }
+                }
+                .buttonStyle(.plain)
+            }
+            Menu {
+                Picker(L("Pilote", "Driver"), selection: $driverId) {
+                    Text(L("Aucun", "None")).tag("")
+                    ForEach(drivers) { Text($0.driver.fullName).tag($0.driver.driverId) }
+                }
+                .pickerStyle(.menu)
+                Picker(L("Écurie", "Team"), selection: $teamId) {
+                    Text(L("Aucune", "None")).tag("")
+                    ForEach(teams) { Text($0.constructor.name).tag($0.constructor.constructorId) }
+                }
+                .pickerStyle(.menu)
+            } label: {
+                Label(driverId.isEmpty && teamId.isEmpty ? L("Choisir mon pilote et mon écurie", "Pick my driver and team")
+                                                         : L("Changer", "Change"),
+                      systemImage: "star")
+                    .font(.subheadline.weight(.semibold))
+            }
+        }
+    }
+
+    private func lastLine(_ id: String) -> String {
+        guard let last, let r = last.results?.first(where: { $0.driver.driverId == id }) else { return "" }
+        let place = Int(r.positionText).map { "P\($0)" } ?? L("abandon", "DNF")
+        return L("Dernière course : \(place) · +\(r.points) pts", "Last race: \(place) · +\(r.points) pts")
     }
 }
