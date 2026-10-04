@@ -158,7 +158,7 @@ pub async fn patch(api: &F1Api, of1: &OpenF1, path: &str, value: &mut Value) {
             let Some(schedule) = api.page("current.json", 100, 0).await else {
                 return;
             };
-            let Some(last) = races(&schedule).into_iter().filter(is_over).next_back() else {
+            let Some(last) = races(&schedule).into_iter().rfind(is_over) else {
                 return;
             };
             let have = races(value).first().map(|r| s(r, "round").to_string());
