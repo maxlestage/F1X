@@ -33,7 +33,10 @@ struct LiveView: View {
         // Live Activity en cours : la connexion reste ouverte pour continuer à la mettre à jour.
         .onDisappear { if !activity.running { client.disconnect() } }
         .onChange(of: client.snapshot?.clock) { _, _ in
-            if let snap = client.snapshot { activity.update(snap) }
+            if let snap = client.snapshot {
+                activity.autoStart(snap)
+                activity.update(snap)
+            }
         }
         .task(id: year) { sessions = Array(((try? await ServerAPI.shared.sessions(year: year)) ?? []).filter { isPast($0) }.reversed()) }
     }

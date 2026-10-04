@@ -52,6 +52,7 @@ targets:
     sources:
       - path: Widgets
       - path: F1X.swiftpm/Views/RaceActivityAttributes.swift
+      - path: F1X.swiftpm/Views/WeekendActivityAttributes.swift
     info:
       path: Widgets/Info.plist
       properties:

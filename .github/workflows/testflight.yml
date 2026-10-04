@@ -90,6 +90,15 @@ jobs:
             exit 1
           fi
 
+      - name: Vérifier l'extension widgets
+        run: |
+          appex="$RUNNER_TEMP/F1X.xcarchive/Products/Applications/F1X.app/PlugIns/F1XWidgets.appex"
+          if [ -d "$appex" ]; then
+            echo "::notice::Extension widgets intégrée : $(ls "$appex" | tr '\n' ' ')"
+          else
+            echo "::error::F1XWidgets.appex absente de l'app"; exit 1
+          fi
+
       - name: Envoyer sur TestFlight
         run: |
           sed -i '' "s/TEAM_ID_PLACEHOLDER/$TEAM_ID/" ExportOptions.plist

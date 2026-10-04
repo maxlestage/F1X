@@ -7,6 +7,8 @@ final class LiveActivityManager: ObservableObject {
     static let shared = LiveActivityManager()
 
     @Published private(set) var running = false
+    /// L'utilisateur l'a retirée : pas de redémarrage automatique pour cette séance.
+    private var dismissedSession: Int?
     private var activity: Activity<RaceActivityAttributes>?
     private var lastUpdate = Date.distantPast
     private var lastState: RaceActivityAttributes.ContentState?
@@ -14,7 +16,19 @@ final class LiveActivityManager: ObservableObject {
     var available: Bool { ActivityAuthorizationInfo().areActivitiesEnabled }
 
     func toggle(_ snap: Snapshot) {
-        if running { stop() } else { start(snap) }
+        if running {
+            dismissedSession = snap.session.session_key
+            stop()
+        } else {
+            dismissedSession = nil
+            start(snap)
+        }
+    }
+
+    /// En direct (pas en replay) : la Live Activity démarre toute seule.
+    func autoStart(_ snap: Snapshot) {
+        guard snap.mode == "live", !snap.finished, !running, dismissedSession != snap.session.session_key else { return }
+        start(snap)
     }
 
     func start(_ snap: Snapshot) {
