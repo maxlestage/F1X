@@ -976,7 +976,10 @@ struct DriverRaceSection: View {
                     trace(L("Accélérateur (%)", "Throttle (%)"), "throttle", 100, .linear, false)
                     trace(L("Freinage", "Braking"), "brake", 60, .stepEnd, true)
                     trace(L("Rapport engagé", "Gear"), "gear", 100, .stepEnd, true)
-                    trace(L("DRS (100 ouvert · 50 autorisé)", "DRS (100 open · 50 armed)"), "drs", 60, .stepEnd, true)
+                    // Plus de DRS depuis 2026 (aileron actif) : rien à tracer.
+                    if !tel["drs"].doubles.isEmpty {
+                        trace(L("DRS (100 ouvert · 50 autorisé)", "DRS (100 open · 50 armed)"), "drs", 60, .stepEnd, true)
+                    }
                 }
                 // Replay du tour choisi : la voiture sur le circuit, tableau de bord synchronisé.
                 if tel != .null {
