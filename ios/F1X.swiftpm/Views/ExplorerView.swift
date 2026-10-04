@@ -8,8 +8,18 @@ struct ExplorerView: View {
         return "\(v) (\(b))"
     }()
 
+    @AppStorage("theme") private var theme = "auto"
+
     var body: some View {
         List {
+            Section(L("Apparence", "Appearance")) {
+                Picker(L("Thème", "Theme"), selection: $theme) {
+                    Text(L("Automatique", "Automatic")).tag("auto")
+                    Text(L("Clair", "Light")).tag("light")
+                    Text(L("Sombre", "Dark")).tag("dark")
+                }
+                .pickerStyle(.segmented)
+            }
             Section(L("Histoire", "History")) {
                 NavigationLink { ChampionsView() } label: { Label(L("Champions du monde depuis 1950", "World champions since 1950"), systemImage: "trophy.fill") }
                 NavigationLink { RecordsView() } label: { Label("Records", systemImage: "chart.bar.fill") }

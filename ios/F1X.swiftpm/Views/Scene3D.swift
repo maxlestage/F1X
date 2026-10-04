@@ -1373,6 +1373,7 @@ struct CarCard: View {
                 Button { full = false } label: { Image(systemName: "xmark.circle.fill").font(.largeTitle) }
                     .tint(.white).padding()
             }
+            .environment(\.colorScheme, .dark)
         }
     }
 }
@@ -1404,6 +1405,8 @@ struct Track3DView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 14))
                 controls.padding(8)
             }
+            // La 3D reste sur fond sombre, quel que soit le thème.
+            .environment(\.colorScheme, .dark)
             Text(L("Tracé GPS réel avec son relief (×2,5). Un doigt : tourner · pincer : zoomer · deux doigts : déplacer / hauteur · double toucher : recentrer.",
                    "Real GPS layout with elevation (×2.5). One finger: rotate · pinch: zoom · two fingers: move / height · double tap: recentre."))
                 .font(.footnote).foregroundStyle(.secondary)
@@ -1423,6 +1426,7 @@ struct Track3DView: View {
                 }
                 .padding()
             }
+            .environment(\.colorScheme, .dark)
         }
     }
 

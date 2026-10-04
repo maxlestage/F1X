@@ -75,7 +75,7 @@ struct NextRaceEntry: TimelineEntry {
 /// Lecture minimale des réponses Jolpica relayées par le serveur F1X.
 private enum Feed {
     static func json(_ path: String) async -> [String: Any]? {
-        guard let url = URL(string: "api/\(path)", relativeTo: server),
+        guard let url = URL(string: "api/f1/\(path)", relativeTo: server),
               let (data, _) = try? await URLSession.shared.data(from: url),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         return obj["MRData"] as? [String: Any]
@@ -150,7 +150,8 @@ struct NextRaceProvider: TimelineProvider {
         Task {
             let entry = await load()
             // Rafraîchi toutes les heures, et 2 h après le départ (résultats).
-            var next = Date().addingTimeInterval(3600)
+            // Hors ligne : nouvel essai dans 15 min.
+            var next = Date().addingTimeInterval(entry.leaders.isEmpty ? 900 : 3600)
             if let start = entry.race?.start, start > Date(), start < next { next = start.addingTimeInterval(2 * 3600) }
             completion(Timeline(entries: [entry], policy: .after(next)))
         }
@@ -268,7 +269,7 @@ struct NextRaceWidgetView: View {
                     .font(.caption.weight(.bold).monospacedDigit()).foregroundStyle(red).lineLimit(1)
                 if r.sprint { Text("SPRINT").font(.caption2.bold()).foregroundStyle(red) }
             } else {
-                Text(L("Saison terminée", "Season over")).font(.headline)
+                Text(entry.leaders.isEmpty ? L("Chargement…", "Loading…") : L("Saison terminée", "Season over")).font(.headline)
                 Spacer(minLength: 0)
             }
         }
@@ -279,10 +280,7 @@ struct NextRaceWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "NextRace", provider: NextRaceProvider()) { entry in
             NextRaceWidgetView(entry: entry)
-                .containerBackground(for: .widget) {
-                    LinearGradient(colors: [Color(white: 0.09), Color(red: 0.16, green: 0.03, blue: 0.03)],
-                                   startPoint: .topLeading, endPoint: .bottomTrailing)
-                }
+                .containerBackground(for: .widget) { WidgetBackground() }
         }
         .configurationDisplayName(L("Prochain Grand Prix", "Next Grand Prix"))
         .description(L("Compte à rebours de la prochaine course et top 3 du championnat.",
@@ -308,8 +306,16 @@ private struct Logo: View {
     }
 }
 
-private let widgetBackground = LinearGradient(colors: [Color(white: 0.09), Color(red: 0.16, green: 0.03, blue: 0.03)],
-                                              startPoint: .topLeading, endPoint: .bottomTrailing)
+/// Fond qui suit le thème de l'iPhone (clair le jour, sombre la nuit).
+private struct WidgetBackground: View {
+    @Environment(\.colorScheme) private var scheme
+    var body: some View {
+        LinearGradient(colors: scheme == .dark
+                           ? [Color(white: 0.09), Color(red: 0.16, green: 0.03, blue: 0.03)]
+                           : [Color.white, Color(red: 1, green: 0.92, blue: 0.91)],
+                       startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+}
 
 // MARK: - Classements
 
@@ -418,7 +424,7 @@ struct StandingsWidgetView: View {
 struct StandingsWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "Standings", provider: StandingsProvider()) { entry in
-            StandingsWidgetView(entry: entry).containerBackground(for: .widget) { widgetBackground }
+            StandingsWidgetView(entry: entry).containerBackground(for: .widget) { WidgetBackground() }
         }
         .configurationDisplayName(L("Championnat", "Championship"))
         .description(L("Classement des pilotes et des écuries.", "Driver and constructor standings."))
@@ -512,7 +518,7 @@ struct LastRaceWidgetView: View {
 struct LastRaceWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "LastRace", provider: LastRaceProvider()) { entry in
-            LastRaceWidgetView(entry: entry).containerBackground(for: .widget) { widgetBackground }
+            LastRaceWidgetView(entry: entry).containerBackground(for: .widget) { WidgetBackground() }
         }
         .configurationDisplayName(L("Dernière course", "Last race"))
         .description(L("Podium et arrivée du dernier Grand Prix.", "Podium and finish of the last Grand Prix."))
@@ -559,8 +565,7 @@ struct WeekendLiveActivity: Widget {
                 }
             }
             .padding(14)
-            .activityBackgroundTint(Color(white: 0.08))
-            .activitySystemActionForegroundColor(.white)
+            .activityBackgroundTint(nil)
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
@@ -621,7 +626,7 @@ private func statusColour(_ s: String) -> Color {
     switch s {
     case "yellow", "safety_car", "virtual_safety_car": return .yellow
     case "red": return .red
-    case "chequered": return .white
+    case "chequered": return .gray
     default: return .green
     }
 }
@@ -665,8 +670,7 @@ struct RaceLiveActivity: Widget {
                 ForEach(context.state.leaders, id: \.self) { LeaderRow(e: $0) }
             }
             .padding(14)
-            .activityBackgroundTint(Color(white: 0.08))
-            .activitySystemActionForegroundColor(.white)
+            .activityBackgroundTint(nil)
         } dynamicIsland: { context in
             let first = context.state.leaders.first
             return DynamicIsland {
