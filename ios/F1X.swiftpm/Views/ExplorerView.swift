@@ -170,6 +170,7 @@ struct NewsView: View {
             do { articles = try await ServerAPI.shared.news(lang: isFrench ? "fr" : "en") } catch { failed = true }
         }
         .refreshable { articles = (try? await ServerAPI.shared.news(lang: isFrench ? "fr" : "en")) ?? articles }
+        .autoRefresh(every: 600) { articles = (try? await ServerAPI.shared.news(lang: isFrench ? "fr" : "en")) ?? articles }
     }
 }
 

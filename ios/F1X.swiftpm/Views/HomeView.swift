@@ -66,6 +66,7 @@ struct HomeView: View {
         .navigationTitle("F1X")
         .f1Destinations()
         .task { if case .loading = state { await load(force: false) } }
+        .autoRefresh { await load(force: false) }
     }
 
     private func load(force: Bool) async {
