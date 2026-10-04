@@ -106,7 +106,7 @@ struct TrackMapView: View {
                         for (i, p) in map.points.enumerated() {
                             if i == 0 { base.move(to: pt(p)) } else { base.addLine(to: pt(p)) }
                         }
-                        ctx.stroke(base, with: .color(Color(white: 0.2)), style: StrokeStyle(lineWidth: 10, lineCap: .round, lineJoin: .round))
+                        ctx.stroke(base, with: .color(Color.chip), style: StrokeStyle(lineWidth: 10, lineCap: .round, lineJoin: .round))
                         for i in 0..<max(map.points.count - 1, 0) {
                             var seg = Path()
                             seg.move(to: pt(map.points[i]))
@@ -116,11 +116,11 @@ struct TrackMapView: View {
                         }
                         if let first = map.points.first {
                             let p = pt(first)
-                            ctx.fill(Path(ellipseIn: CGRect(x: p.x - 6, y: p.y - 6, width: 12, height: 12)), with: .color(.white))
+                            ctx.fill(Path(ellipseIn: CGRect(x: p.x - 6, y: p.y - 6, width: 12, height: 12)), with: .color(Color.ink))
                         }
                         if let i = picked, map.points.indices.contains(i) {
                             let p = pt(map.points[i])
-                            ctx.fill(Path(ellipseIn: CGRect(x: p.x - 8, y: p.y - 8, width: 16, height: 16)), with: .color(.white))
+                            ctx.fill(Path(ellipseIn: CGRect(x: p.x - 8, y: p.y - 8, width: 16, height: 16)), with: .color(Color.ink))
                         }
                     }
                     ForEach(map.points.isEmpty ? [] : markers, id: \.key) { m in

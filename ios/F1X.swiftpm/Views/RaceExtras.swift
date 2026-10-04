@@ -244,11 +244,11 @@ struct TrackOutline: View {
                             if i == 0 { path.move(to: pt(p)) } else { path.addLine(to: pt(p)) }
                         }
                         path.closeSubpath()
-                        ctx.stroke(path, with: .color(.white.opacity(0.18)), style: StrokeStyle(lineWidth: 12, lineCap: .round, lineJoin: .round))
-                        ctx.stroke(path, with: .color(.white), style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round))
+                        ctx.stroke(path, with: .color(Color.ink.opacity(0.15)), style: StrokeStyle(lineWidth: 12, lineCap: .round, lineJoin: .round))
+                        ctx.stroke(path, with: .color(Color.ink), style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round))
                         if let first = map.points.first {
                             let c = pt(first)
-                            ctx.fill(Path(ellipseIn: CGRect(x: c.x - 6, y: c.y - 6, width: 12, height: 12)), with: .color(.white))
+                            ctx.fill(Path(ellipseIn: CGRect(x: c.x - 6, y: c.y - 6, width: 12, height: 12)), with: .color(Color.cardBackground))
                             ctx.fill(Path(ellipseIn: CGRect(x: c.x - 4.5, y: c.y - 4.5, width: 9, height: 9)), with: .color(Color.f1Red))
                         }
                     }
@@ -338,7 +338,7 @@ struct PitDetailSection: View {
                     Text(L("Tour \(s.lap)", "Lap \(s.lap)"))
                         .font(.caption.weight(.heavy))
                         .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Color(white: 0.2), in: Capsule())
+                        .background(Color.chip, in: Capsule())
                         .fixedSize()
                     Text(s.name.capitalized).font(.body.weight(.semibold))
                 }

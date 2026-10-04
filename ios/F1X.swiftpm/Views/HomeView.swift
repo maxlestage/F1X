@@ -39,7 +39,8 @@ struct HomeView: View {
                             .font(.subheadline.weight(.semibold))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(14)
-                            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+                            .background(Color.cardBackground, in: RoundedRectangle(cornerRadius: 16))
+        .shadow(color: .cardShadow, radius: 10, y: 3)
                     }
                     .buttonStyle(.plain)
                     if !data.drivers.isEmpty {
@@ -76,6 +77,7 @@ struct HomeView: View {
                 }
                 .padding(16)
             }
+            .background(Color.pageBackground)
             .refreshable { await load(force: true) }
         }
         .navigationTitle("F1X")
@@ -127,7 +129,8 @@ struct SectionCard<Content: View>: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+        .background(Color.cardBackground, in: RoundedRectangle(cornerRadius: 16))
+        .shadow(color: .cardShadow, radius: 10, y: 3)
     }
 }
 
@@ -201,7 +204,7 @@ private struct PodiumStep: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, tall ? 20 : 12)
         .padding(.horizontal, 4)
-        .background(Color(uiColor: .tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+        .background(Color.tile, in: RoundedRectangle(cornerRadius: 12))
         .contentShape(Rectangle())
         .overlay(alignment: .top) {
             UnevenRoundedRectangle(topLeadingRadius: 12, topTrailingRadius: 12)

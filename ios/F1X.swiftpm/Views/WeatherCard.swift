@@ -178,7 +178,7 @@ struct StatGrid: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
-                .background(.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 10))
+                .background(Color.tile, in: RoundedRectangle(cornerRadius: 10))
             }
         }
     }
@@ -294,7 +294,7 @@ struct WeatherCard: View {
                 )))
             }
             .padding(12)
-            .background(Color(uiColor: .tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+            .background(Color.tile, in: RoundedRectangle(cornerRadius: 12))
         }
 
         if full, let d = f.daily {
@@ -360,8 +360,8 @@ struct WeatherCard: View {
                                 .foregroundStyle(Color(hex: 0xE5483F))
                         }
                     }
-                    RuleMark(x: .value("Départ", start)).foregroundStyle(.white.opacity(0.4)).lineStyle(StrokeStyle(dash: [3, 3]))
-                    if let p = picked { RuleMark(x: .value("Choix", p)).foregroundStyle(.white.opacity(0.7)) }
+                    RuleMark(x: .value("Départ", start)).foregroundStyle(Color.primary.opacity(0.4)).lineStyle(StrokeStyle(dash: [3, 3]))
+                    if let p = picked { RuleMark(x: .value("Choix", p)).foregroundStyle(Color.primary.opacity(0.7)) }
                 }
                 .chartYScale(domain: .automatic(includesZero: false))
                 .chartXSelection(value: $picked)
@@ -373,7 +373,7 @@ struct WeatherCard: View {
                             .foregroundStyle(Color(hex: 0x3B9FD8))
                             .cornerRadius(3)
                     }
-                    RuleMark(x: .value("Départ", start)).foregroundStyle(.white.opacity(0.4)).lineStyle(StrokeStyle(dash: [3, 3]))
+                    RuleMark(x: .value("Départ", start)).foregroundStyle(Color.primary.opacity(0.4)).lineStyle(StrokeStyle(dash: [3, 3]))
                 }
                 .chartYScale(domain: 0...100)
                 .chartXSelection(value: $picked)
@@ -389,7 +389,7 @@ struct WeatherCard: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(uiColor: .tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+            .background(Color.tile, in: RoundedRectangle(cornerRadius: 12))
         }
         Text(L("Piste estimée d'après l'air et l'ensoleillement. Prévisions Open-Meteo.", "Track estimated from air and sunshine. Open-Meteo forecast."))
             .font(.caption2).foregroundStyle(.secondary)
