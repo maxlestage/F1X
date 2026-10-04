@@ -558,6 +558,86 @@ impl OpenF1 {
                 "tyre_age": age,
             }));
         }
+        // Début de chaque tour, complété quand OpenF1 ne le donne pas (tour 1 de la course,
+        // tours sous drapeau…) : début du tour précédent + sa durée, ou suivant − durée.
+        let lap_info: Vec<(u32, Option<Ms>, Ms)> = {
+            let mut v: Vec<(u32, Option<Ms>, Ms)> = arr(&laps)
+                .iter()
+                .filter_map(|l| {
+                    Some((
+                        u(l, "lap_number")?,
+                        t(l, "date_start"),
+                        f(l, "lap_duration").map_or(0, |x| (x * 1000.0) as Ms),
+                    ))
+                })
+                .collect();
+            v.sort_by_key(|x| x.0);
+            v
+        };
+        let mut starts: Vec<(u32, Ms)> = Vec::new();
+        if let Some(anchor) = lap_info.iter().position(|x| x.1.is_some()) {
+            let mut at = lap_info[anchor].1.unwrap_or_default();
+            for i in (0..anchor).rev() {
+                at -= lap_info[i].2;
+                starts.push((lap_info[i].0, at));
+            }
+            let mut at = lap_info[anchor].1.unwrap_or_default();
+            for (i, x) in lap_info.iter().enumerate().skip(anchor) {
+                if i > anchor {
+                    at = x.1.unwrap_or(at + lap_info[i - 1].2);
+                }
+                starts.push((x.0, at));
+            }
+            starts.sort_by_key(|x| x.1);
+        }
+        let race_start = starts.first().map(|x| x.1);
+        let race_end = lap_info.last().zip(starts.last()).map(|(l, s0)| s0.1 + l.2);
+        // Heure réelle d'enregistrement : dans le nom du fichier (heure locale du circuit,
+        // « …_20261004_163427.mp3 ») ; le champ `date` est l'heure de publication (jusqu'à
+        // plusieurs minutes plus tard).
+        let session = self.relay("sessions", &all).await.unwrap_or_default();
+        let offset_ms: Option<Ms> = arr(&session).first().and_then(|x| {
+            let o = s(x, "gmt_offset");
+            let (sign, o) = o.strip_prefix('-').map_or((1, o.as_str()), |r| (-1, r));
+            let mut p = o.split(':').map(|n| n.parse::<i64>().ok());
+            let (h, m) = (p.next()??, p.next().flatten().unwrap_or(0));
+            Some(sign * (h * 3600 + m * 60) * 1000)
+        });
+        let recorded = |url: &str| -> Option<Ms> {
+            let stem = url.rsplit('/').next()?.strip_suffix(".mp3")?;
+            let mut parts = stem.rsplitn(3, '_');
+            let (time, date) = (parts.next()?, parts.next()?);
+            let local =
+                chrono::NaiveDateTime::parse_from_str(&format!("{date}{time}"), "%Y%m%d%H%M%S")
+                    .ok()?;
+            Some(local.and_utc().timestamp_millis() - offset_ms?)
+        };
+        // Course / sprint : temps depuis le départ ; essais et qualifs : depuis le début de séance.
+        let race_start = match arr(&session).first() {
+            Some(x) if !matches!(s(x, "session_type").as_str(), "Race") => {
+                t(x, "date_start").or(race_start)
+            }
+            _ => race_start,
+        };
+        let radios: Vec<Value> = arr(&radio)
+            .iter()
+            .map(|x| {
+                let url = s(x, "recording_url");
+                let at = recorded(&url).or_else(|| t(x, "date"));
+                let after = at.zip(race_end).is_some_and(|(ms, e)| ms > e);
+                let lap = at
+                    .filter(|_| !after)
+                    .and_then(|ms| starts.iter().rev().find(|(_, st)| *st <= ms).copied());
+                serde_json::json!({
+                    "date": s(x, "date"),
+                    "url": url,
+                    "lap": lap.map(|l| l.0),
+                    "in_lap": lap.zip(at).map(|((_, st), ms)| (ms - st) as f64 / 1000.0),
+                    "elapsed": race_start.zip(at).map(|(s0, ms)| (ms - s0) as f64 / 1000.0),
+                    "after_finish": after,
+                })
+            })
+            .collect();
         let tag = format!("CAR {d} ");
         let messages: Vec<Value> = arr(&control)
             .iter()
@@ -601,7 +681,7 @@ impl OpenF1 {
             "pit_count": arr(&pits).len(),
             "laps": rows,
             "messages": messages,
-            "radio": arr(&radio).iter().map(|x| serde_json::json!({ "date": s(x, "date"), "url": s(x, "recording_url") })).collect::<Vec<_>>(),
+            "radio": radios,
         }))
     }
 
