@@ -920,6 +920,8 @@ fn DriverView(p: &ViewProps) -> Html {
         };
         let km = Callback::from(|v: f64| format!("{v:.1} km"));
         let n0 = |v: f64| format!("{v:.0}");
+        // Pas de DRS depuis 2026 : graphique masqué quand la donnée n'existe pas.
+        let has_drs = first.get("drs").and_then(Value::as_array).is_some_and(|a| !a.is_empty());
         html! {
             <>
                 <h3 class="wx-sub">{ t("Vitesse (km/h)", "Speed (km/h)") }</h3>
@@ -932,8 +934,10 @@ fn DriverView(p: &ViewProps) -> Html {
                 <LineChart series={series("brake", SERIES[4])} height={80.0} step=true fmt_x={km.clone()} fmt_y={Callback::from(|v: f64| if v > 50.0 { t("oui", "on").to_string() } else { t("non", "off").to_string() })} />
                 <h3 class="wx-sub">{ t("Rapport engagé", "Gear") }</h3>
                 <LineChart series={series("gear", SERIES[3])} height={110.0} step=true fmt_x={km.clone()} fmt_y={Callback::from(n0)} />
-                <h3 class="wx-sub">{ t("DRS (aileron ouvert)", "DRS (flap open)") }</h3>
-                <LineChart series={series("drs", SERIES[0])} height={80.0} step=true fmt_x={km} fmt_y={Callback::from(|v: f64| if v > 75.0 { t("ouvert", "open").to_string() } else if v > 25.0 { t("autorisé", "armed").to_string() } else { t("fermé", "closed").to_string() })} />
+                if has_drs {
+                    <h3 class="wx-sub">{ t("DRS (aileron ouvert)", "DRS (flap open)") }</h3>
+                    <LineChart series={series("drs", SERIES[0])} height={80.0} step=true fmt_x={km} fmt_y={Callback::from(|v: f64| if v > 75.0 { t("ouvert", "open").to_string() } else if v > 25.0 { t("autorisé", "armed").to_string() } else { t("fermé", "closed").to_string() })} />
+                }
             </>
         }
     });
@@ -1552,9 +1556,11 @@ pub fn LapReplay(p: &LapReplayProps) -> Html {
             { bar(t("Accélérateur", "Throttle"), format!("{throttle:.0} %"), throttle / 100.0, "fill-throttle") }
             <div class="lap-flags">
                 <span class={classes!("lap-flag", (brake > 0.0).then_some("brake-on"))}>{ t("Frein", "Brake") }</span>
-                <span class={classes!("lap-flag", (drs >= 100.0).then_some("drs-open"), (50.0..100.0).contains(&drs).then_some("drs-armed"))}>
-                    { if drs >= 100.0 { t("DRS ouvert", "DRS open") } else if drs >= 50.0 { t("DRS autorisé", "DRS armed") } else { "DRS" } }
-                </span>
+                if !nums("drs").is_empty() {
+                    <span class={classes!("lap-flag", (drs >= 100.0).then_some("drs-open"), (50.0..100.0).contains(&drs).then_some("drs-armed"))}>
+                        { if drs >= 100.0 { t("DRS ouvert", "DRS open") } else if drs >= 50.0 { t("DRS autorisé", "DRS armed") } else { "DRS" } }
+                    </span>
+                }
             </div>
             <div class="replay-controls">
                 <button class="btn" onclick={toggle}>{ if *playing { t("⏸ Pause", "⏸ Pause") } else { t("▶ Lecture", "▶ Play") } }</button>

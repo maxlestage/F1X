@@ -662,6 +662,10 @@ impl OpenF1 {
                 8 => 50.0,
                 _ => 0.0,
             };
+            // Plus de DRS depuis 2026 (aileron actif) : OpenF1 renvoie `drs: null`.
+            let has_drs = arr(&car)
+                .iter()
+                .any(|c| c.get("drs").is_some_and(|v| !v.is_null()));
             let mut samples: Vec<(Ms, f64, f64, f64, f64, f64, f64)> = arr(&car)
                 .iter()
                 .filter_map(|c| {
@@ -718,7 +722,7 @@ impl OpenF1 {
             out.push(serde_json::json!({
                 "driver_number": d, "lap_number": lap, "lap_duration": duration,
                 "distance": ds, "speed": sp, "throttle": th, "brake": br, "gear": gr,
-                "rpm": rp, "drs": dr, "time": tm, "circuit_id": circuit_id,
+                "rpm": rp, "drs": if has_drs { dr } else { vec![] }, "time": tm, "circuit_id": circuit_id,
             }));
         }
         Ok(Value::Array(out))

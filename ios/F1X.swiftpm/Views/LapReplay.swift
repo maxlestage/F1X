@@ -143,10 +143,12 @@ struct LapReplayView: View {
                     .padding(.horizontal, 10).padding(.vertical, 4)
                     .background(brake > 0 ? Color.red : Color.secondary.opacity(0.15), in: Capsule())
                     .foregroundStyle(brake > 0 ? .white : .secondary)
-                Text(drs >= 100 ? L("DRS ouvert", "DRS open") : drs >= 50 ? L("DRS autorisé", "DRS armed") : "DRS")
-                    .padding(.horizontal, 10).padding(.vertical, 4)
-                    .background(drs >= 100 ? Color.green : drs >= 50 ? Color.yellow.opacity(0.6) : Color.secondary.opacity(0.15), in: Capsule())
-                    .foregroundStyle(drs >= 50 ? .black : .secondary)
+                if !tel["drs"].doubles.isEmpty {
+                    Text(drs >= 100 ? L("DRS ouvert", "DRS open") : drs >= 50 ? L("DRS autorisé", "DRS armed") : "DRS")
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                        .background(drs >= 100 ? Color.green : drs >= 50 ? Color.yellow.opacity(0.6) : Color.secondary.opacity(0.15), in: Capsule())
+                        .foregroundStyle(drs >= 50 ? .black : .secondary)
+                }
             }
             .font(.caption.bold())
             .lineLimit(1)
