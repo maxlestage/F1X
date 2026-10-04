@@ -47,7 +47,7 @@ struct CalendarView: View {
                             CalendarRow(race: race, isNext: race.id == nextId, isPast: past, winner: winners[race.round])
                         }
                         .id(race.id)
-                        .listRowBackground(race.id == nextId ? Color.f1Red.opacity(0.18) : past ? Color(hex: 0x0A0A0F) : nil)
+                        .listRowBackground(race.id == nextId ? Color.f1Red.opacity(0.18) : past ? Color.primary.opacity(0.035) : nil)
                     }
                 }
             }
@@ -136,7 +136,7 @@ private struct CalendarRow: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .frame(width: 38, height: 34)
-                .background(Color(uiColor: .tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
+                .background(Color.tile, in: RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(Flag.country(race.circuit.location.country)) \(race.raceName)")
                     .fontWeight(.bold)

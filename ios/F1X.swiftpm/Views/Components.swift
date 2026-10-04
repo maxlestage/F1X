@@ -67,7 +67,7 @@ struct CountdownView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
-        .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
+        .background(Color.tile, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
@@ -184,7 +184,8 @@ struct HeroCard<Content: View>: View {
                 LinearGradient(colors: [accent.opacity(0.3), .clear], startPoint: .topLeading, endPoint: .center),
                 in: RoundedRectangle(cornerRadius: 16)
             )
-            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+            .background(Color.cardBackground, in: RoundedRectangle(cornerRadius: 16))
+            .shadow(color: .cardShadow, radius: 10, y: 3)
     }
 }
 

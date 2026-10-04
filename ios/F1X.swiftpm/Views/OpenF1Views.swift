@@ -1120,7 +1120,7 @@ struct DriverRaceSection: View {
                 Text("T\(l["lap"].string)")
                     .font(.caption.weight(.heavy))
                     .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(Color(white: 0.2), in: Capsule())
+                    .background(Color.chip, in: Capsule())
                 Text(l["time"].double.map(formatLap) ?? "–").font(.body.monospacedDigit().weight(.semibold))
                 Text("P\(l["position"].string)").font(.footnote.weight(.bold)).foregroundStyle(.secondary)
                 if let badge {

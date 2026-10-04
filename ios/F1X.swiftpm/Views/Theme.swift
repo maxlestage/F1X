@@ -4,6 +4,23 @@ extension Color {
     static let f1Red = Color(red: 225 / 255, green: 6 / 255, blue: 0)
     static let f1Purple = Color(red: 168 / 255, green: 85 / 255, blue: 247 / 255)
 
+    /// Couleur différente en thème clair et sombre.
+    init(light: Color, dark: Color) {
+        self.init(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(dark) : UIColor(light) })
+    }
+
+    /// Fond des pages (gris clair le jour, noir la nuit) et des cartes posées dessus.
+    static let pageBackground = Color(uiColor: .systemGroupedBackground)
+    static let cardBackground = Color(uiColor: .secondarySystemGroupedBackground)
+    /// Tracés et repères bien contrastés (presque noir le jour, blanc la nuit).
+    static let ink = Color(light: Color(white: 0.12), dark: .white)
+    /// Pavés discrets (compte à rebours, météo).
+    static let tile = Color(light: Color.black.opacity(0.06), dark: Color.black.opacity(0.35))
+    /// Pastilles (« T12 », « Tour 3 »).
+    static let chip = Color(light: Color(white: 0.88), dark: Color(white: 0.2))
+    /// Ombre douce des cartes en thème clair (invisible en sombre).
+    static let cardShadow = Color(light: Color.black.opacity(0.08), dark: .clear)
+
     init(hex: UInt32) {
         self.init(
             red: Double((hex >> 16) & 0xFF) / 255,
