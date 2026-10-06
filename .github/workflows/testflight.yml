@@ -72,6 +72,7 @@ jobs:
 
       - name: Archiver (signature automatique)
         run: |
+          archive() {
           xcodebuild archive \
             -project F1X.xcodeproj -scheme F1X -configuration Release \
             -destination 'generic/platform=iOS' \
@@ -84,6 +85,14 @@ jobs:
             CODE_SIGN_STYLE=Automatic \
             CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
             | tee "$RUNNER_TEMP/archive.log" | grep -E "error:|warning: .*signing|\*\* ARCHIVE" || true
+          }
+          archive
+          # Profil de provisionnement tout juste créé par Xcode (nouvelle cible) mais pas encore
+          # enregistré sur le Mac : il existe désormais sur le compte, un second essai le récupère.
+          if [ ! -d "$RUNNER_TEMP/F1X.xcarchive" ] && grep -q "Build input file cannot be found: .*\.mobileprovision" "$RUNNER_TEMP/archive.log"; then
+            echo "::notice::Nouveau profil de provisionnement créé : second essai de l'archive."
+            archive
+          fi
           if [ ! -d "$RUNNER_TEMP/F1X.xcarchive" ]; then
             # Erreurs remontées en annotations (lisibles sans télécharger les journaux).
             grep -E "error:|requires a provisioning|No profiles|Provisioning profile" "$RUNNER_TEMP/archive.log" | grep -v "^/Applications" | sort -u | head -20 \
