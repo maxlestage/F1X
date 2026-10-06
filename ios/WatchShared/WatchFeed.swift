@@ -5,7 +5,30 @@ import SwiftUI
 
 let f1Red = Color(red: 0.88, green: 0.02, blue: 0)
 let f1Gold = Color(red: 1, green: 0.78, blue: 0.2)
-var watchFrench: Bool { Locale.preferredLanguages.first?.hasPrefix("fr") ?? true }
+/// Groupe partagé entre l'app montre et ses complications (langue reçue de l'iPhone).
+let watchGroup = "group.com.maxlestage.f1x"
+
+/// Langue choisie dans l'app iPhone, sinon celle de la montre.
+var watchFrench: Bool {
+    if let lang = UserDefaults(suiteName: watchGroup)?.string(forKey: "language") { return lang == "fr" }
+    return Locale.preferredLanguages.first?.hasPrefix("fr") ?? true
+}
+
+/// Dates dans la langue choisie.
+var wLocale: Locale { Locale(identifier: watchFrench ? "fr_FR" : "en_GB") }
+
+/// Abréviation d'une séance (« EL1 », « Q », « Course »).
+func shortSession(_ name: String) -> String {
+    switch name {
+    case "Essais libres 1", "Practice 1": return WL("EL1", "FP1")
+    case "Essais libres 2", "Practice 2": return WL("EL2", "FP2")
+    case "Essais libres 3", "Practice 3": return WL("EL3", "FP3")
+    case "Qualifs sprint", "Sprint qualifying": return "SQ"
+    case "Sprint": return "S"
+    case "Qualifications", "Qualifying": return "Q"
+    default: return WL("GP", "GP")
+    }
+}
 func WL(_ fr: String, _ en: String) -> String { watchFrench ? fr : en }
 
 struct WSession: Hashable, Codable {

@@ -168,6 +168,17 @@ enum AppLanguage {
 /// Vrai si l'app est en français (mis à jour quand on change de langue).
 var isFrench: Bool = AppLanguage.resolve()
 
+/// Groupe partagé avec les widgets et Live Activities (langue choisie).
+let appGroup = "group.com.maxlestage.f1x"
+
+extension AppLanguage {
+    /// Publie la langue effective (« fr » / « en ») pour les widgets et la montre.
+    static func share() {
+        UserDefaults(suiteName: appGroup)?.set(isFrench ? "fr" : "en", forKey: key)
+        WatchSync.shared.send()
+    }
+}
+
 /// Format des dates dans la langue de l'app.
 var appLocale: Locale { Locale(identifier: isFrench ? "fr_FR" : "en_GB") }
 

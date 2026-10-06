@@ -19,6 +19,9 @@ struct WeekendActivityAttributes: ActivityAttributes {
         var winnerRace: String?
         /// Vrai juste après l'arrivée : l'activité met le vainqueur à l'honneur 🏆.
         var podium: Bool?
+        /// Séances du week-end en abrégé (« EL1 », « Q », « Course »…) et rang de la prochaine.
+        var steps: [String]?
+        var stepIndex: Int?
     }
 
     var raceName: String
