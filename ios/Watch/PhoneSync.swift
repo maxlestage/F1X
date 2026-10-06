@@ -21,7 +21,8 @@ final class PhoneSync: NSObject, WCSessionDelegate {
     }
 
     private func apply(_ context: [String: Any]) {
-        guard let lang = context["language"] as? String, let defaults = UserDefaults(suiteName: watchGroup) else { return }
+        guard let lang = context["language"] as? String else { return }
+        let defaults = UserDefaults.standard
         guard defaults.string(forKey: "language") != lang else { return }
         defaults.set(lang, forKey: "language")
         WidgetCenter.shared.reloadAllTimelines()

@@ -7,11 +7,8 @@ import WidgetKit
 
 private let server = URL(string: "https://f1x-29170430865f.herokuapp.com/")!
 private let red = Color(red: 0.88, green: 0.02, blue: 0)
-/// Langue choisie dans l'app (groupe partagé), sinon celle de l'iPhone.
-private var isFrench: Bool {
-    if let lang = UserDefaults(suiteName: "group.com.maxlestage.f1x")?.string(forKey: "language") { return lang == "fr" }
-    return Locale.preferredLanguages.first?.hasPrefix("fr") ?? true
-}
+/// Langue de l'iPhone (les Live Activities portent celle choisie dans l'app).
+private var isFrench: Bool { Locale.preferredLanguages.first?.hasPrefix("fr") ?? true }
 /// Dates et durées (« vendredi 10:30 », « 2 jours ») dans cette langue.
 private var widgetLocale: Locale { Locale(identifier: isFrench ? "fr_FR" : "en_GB") }
 private func L(_ fr: String, _ en: String) -> String { isFrench ? fr : en }
@@ -536,10 +533,10 @@ struct LastRaceWidget: Widget {
 // MARK: - Live Activity du week-end
 
 /// « ven. 18:30 » (ou « 18:30 » si c'est aujourd'hui) : toujours juste, sans mise à jour.
-private func sessionTime(_ date: Date) -> String {
+private func sessionTime(_ date: Date, _ locale: Locale) -> String {
     Calendar.current.isDateInToday(date)
-        ? date.formatted(.dateTime.hour().minute().locale(widgetLocale))
-        : date.formatted(.dateTime.weekday(.abbreviated).hour().minute().locale(widgetLocale))
+        ? date.formatted(.dateTime.hour().minute().locale(locale))
+        : date.formatted(.dateTime.weekday(.abbreviated).hour().minute().locale(locale))
 }
 
 private let gold = Color(red: 1, green: 0.78, blue: 0.2)
@@ -585,11 +582,12 @@ private struct WinnerChip: View {
 /// Temps restant (« 2 jours 12 heures ») ou « En cours », dans la langue de l'app.
 private struct Until: View {
     let start: Date
+    let fr: Bool
     var body: some View {
         if start > Date() {
             Text(start, style: .relative)
         } else {
-            Text(L("En cours", "Live now")).foregroundColor(red)
+            Text(fr ? "En cours" : "Live now").foregroundColor(red)
         }
     }
 }
@@ -598,6 +596,9 @@ struct WeekendLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: WeekendActivityAttributes.self) { context in
             let state = context.state
+            let fr = context.attributes.lang.map { $0 == "fr" } ?? isFrench
+            let loc = Locale(identifier: fr ? "fr_FR" : "en_GB")
+            let L = { (a: String, b: String) in fr ? a : b }
             let name = context.attributes.raceName.replacingOccurrences(of: " Grand Prix", with: "")
             // Écran verrouillé.
             VStack(alignment: .leading, spacing: 10) {
@@ -627,13 +628,13 @@ struct WeekendLiveActivity: Widget {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(L("PROCHAINE SÉANCE", "NEXT SESSION")).font(.caption2.weight(.heavy)).foregroundStyle(.secondary)
                             Text(state.session).font(.title2.weight(.heavy)).lineLimit(1).minimumScaleFactor(0.7)
-                            Text(state.start.formatted(.dateTime.weekday(.wide).hour().minute().locale(widgetLocale)))
+                            Text(state.start.formatted(.dateTime.weekday(.wide).hour().minute().locale(loc)))
                                 .font(.subheadline.weight(.bold)).foregroundStyle(red)
                         }
                         Spacer(minLength: 8)
                         VStack(alignment: .trailing, spacing: 2) {
                             Text(state.start > Date() ? L("DANS", "IN") : "").font(.caption2.weight(.heavy)).foregroundStyle(.secondary)
-                            Until(start: state.start)
+                            Until(start: state.start, fr: fr)
                                 .font(.headline.monospacedDigit())
                                 .multilineTextAlignment(.trailing)
                                 .lineLimit(2)
@@ -649,10 +650,13 @@ struct WeekendLiveActivity: Widget {
                 }
             }
             .padding(16)
-            .environment(\.locale, widgetLocale)
+            .environment(\.locale, loc)
             .activityBackgroundTint(nil)
         } dynamicIsland: { context in
             let state = context.state
+            let fr = context.attributes.lang.map { $0 == "fr" } ?? isFrench
+            let loc = Locale(identifier: fr ? "fr_FR" : "en_GB")
+            let L = { (a: String, b: String) in fr ? a : b }
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -674,8 +678,8 @@ struct WeekendLiveActivity: Widget {
                 DynamicIslandExpandedRegion(.trailing) {
                     if state.podium != true {
                         VStack(alignment: .trailing, spacing: 2) {
-                            Text(sessionTime(state.start)).font(.caption.weight(.bold)).foregroundStyle(red)
-                            Until(start: state.start).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                            Text(sessionTime(state.start, loc)).font(.caption.weight(.bold)).foregroundStyle(red)
+                            Until(start: state.start, fr: fr).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                                 .multilineTextAlignment(.trailing).lineLimit(2)
                         }
                         .frame(maxWidth: 90, alignment: .trailing)
@@ -692,7 +696,7 @@ struct WeekendLiveActivity: Widget {
                             WinnerChip(code: code, race: state.winnerRace)
                         }
                     }
-                    .environment(\.locale, widgetLocale)
+                    .environment(\.locale, loc)
                 }
             } compactLeading: {
                 HStack(spacing: 4) {
@@ -704,7 +708,7 @@ struct WeekendLiveActivity: Widget {
                 if state.podium == true, let code = state.winnerCode {
                     Text(code).font(.caption.weight(.heavy)).foregroundStyle(gold)
                 } else {
-                    Text(sessionTime(state.start))
+                    Text(sessionTime(state.start, loc))
                         .font(.caption.weight(.bold))
                         .foregroundStyle(red)
                         .lineLimit(1)

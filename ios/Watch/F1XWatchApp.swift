@@ -49,7 +49,7 @@ struct WatchRoot: View {
     @StateObject private var model = WatchModel()
     @Environment(\.scenePhase) private var scenePhase
     /// Langue envoyée par l'iPhone : l'interface se reconstruit quand elle change.
-    @AppStorage("language", store: UserDefaults(suiteName: watchGroup)) private var language = ""
+    @AppStorage("language") private var language = ""
 
     var body: some View {
         NavigationStack {

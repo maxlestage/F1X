@@ -5,12 +5,9 @@ import SwiftUI
 
 let f1Red = Color(red: 0.88, green: 0.02, blue: 0)
 let f1Gold = Color(red: 1, green: 0.78, blue: 0.2)
-/// Groupe partagé entre l'app montre et ses complications (langue reçue de l'iPhone).
-let watchGroup = "group.com.maxlestage.f1x"
-
-/// Langue choisie dans l'app iPhone, sinon celle de la montre.
+/// Langue choisie dans l'app iPhone (reçue par l'app montre), sinon celle de la montre.
 var watchFrench: Bool {
-    if let lang = UserDefaults(suiteName: watchGroup)?.string(forKey: "language") { return lang == "fr" }
+    if let lang = UserDefaults.standard.string(forKey: "language") { return lang == "fr" }
     return Locale.preferredLanguages.first?.hasPrefix("fr") ?? true
 }
 
