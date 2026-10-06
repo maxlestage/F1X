@@ -13,6 +13,8 @@ struct F1XApp: App {
     init() {
         // Photos et réponses gardées en cache plus longtemps : défilement fluide, moins de réseau.
         URLCache.shared = URLCache(memoryCapacity: 64 << 20, diskCapacity: 400 << 20)
+        WatchSync.shared.start()
+        AppLanguage.share()
     }
 
     var body: some Scene {
@@ -23,6 +25,7 @@ struct F1XApp: App {
                 .environment(\.locale, appLocale)
                 .onChange(of: language) { _, _ in
                     isFrench = AppLanguage.resolve()
+                    AppLanguage.share()
                     languageVersion += 1
                     WidgetCenter.shared.reloadAllTimelines()
                 }

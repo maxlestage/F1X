@@ -16,6 +16,11 @@ targets:
   F1X:
     type: application
     platform: iOS
+    entitlements:
+      path: F1X.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.maxlestage.f1x
     sources:
       - path: F1X.swiftpm/App
       - path: F1X.swiftpm/Data
@@ -50,6 +55,11 @@ targets:
   F1XWidgets:
     type: app-extension
     platform: iOS
+    entitlements:
+      path: Widgets/F1XWidgets.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.maxlestage.f1x
     sources:
       - path: Widgets
       - path: F1X.swiftpm/Views/RaceActivityAttributes.swift
@@ -74,6 +84,11 @@ targets:
     type: application
     platform: watchOS
     deploymentTarget: "10.0"
+    entitlements:
+      path: Watch/F1XWatch.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.maxlestage.f1x
     sources:
       - path: Watch
       - path: WatchShared
@@ -100,6 +115,11 @@ targets:
     type: app-extension
     platform: watchOS
     deploymentTarget: "10.0"
+    entitlements:
+      path: WatchWidgets/F1XWatchWidgets.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.maxlestage.f1x
     sources:
       - path: WatchWidgets
       - path: WatchShared

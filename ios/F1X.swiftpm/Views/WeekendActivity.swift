@@ -56,7 +56,8 @@ enum WeekendActivity {
                               let when = pair.1.date.formatted(.dateTime.weekday(.abbreviated).day().hour().minute().locale(appLocale))
                               return "\(name) · \(sessionLabel(pair.1.name)) \(when)"
                           },
-                          winner: winner, winnerCode: code, winnerRace: winnerRace, podium: true)
+                          winner: winner, winnerCode: code, winnerRace: winnerRace, podium: true,
+                          steps: last.sessions.map { short($0.name) }, stepIndex: last.sessions.count)
             stale = start.addingTimeInterval(14 * 3600)
             soon = true
         } else if let pair = nextSession {
@@ -69,7 +70,8 @@ enum WeekendActivity {
                           next: following.map {
                               "\(sessionLabel($0.name)) · \($0.date.formatted(.dateTime.weekday(.abbreviated).hour().minute().locale(appLocale)))"
                           },
-                          winner: winner, winnerCode: code, winnerRace: winnerRace, podium: false)
+                          winner: winner, winnerCode: code, winnerRace: winnerRace, podium: false,
+                          steps: sessions.map { short($0.name) }, stepIndex: index)
             stale = current.date.addingTimeInterval(duration(current.name))
             // Démarrage automatique dans les 24 h qui précèdent la séance (week-end en cours).
             soon = current.date.timeIntervalSince(now) < 24 * 3600

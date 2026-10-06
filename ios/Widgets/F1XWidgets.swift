@@ -7,7 +7,13 @@ import WidgetKit
 
 private let server = URL(string: "https://f1x-29170430865f.herokuapp.com/")!
 private let red = Color(red: 0.88, green: 0.02, blue: 0)
-private var isFrench: Bool { Locale.preferredLanguages.first?.hasPrefix("fr") ?? true }
+/// Langue choisie dans l'app (groupe partagé), sinon celle de l'iPhone.
+private var isFrench: Bool {
+    if let lang = UserDefaults(suiteName: "group.com.maxlestage.f1x")?.string(forKey: "language") { return lang == "fr" }
+    return Locale.preferredLanguages.first?.hasPrefix("fr") ?? true
+}
+/// Dates et durées (« vendredi 10:30 », « 2 jours ») dans cette langue.
+private var widgetLocale: Locale { Locale(identifier: isFrench ? "fr_FR" : "en_GB") }
 private func L(_ fr: String, _ en: String) -> String { isFrench ? fr : en }
 
 private func colour(_ hex: String) -> Color {
@@ -199,7 +205,7 @@ struct NextRaceWidgetView: View {
                                 Circle().fill(s.date.addingTimeInterval(3600) < entry.date ? Color.secondary : red).frame(width: 5, height: 5)
                                 Text(s.name).font(.caption.weight(.semibold)).lineLimit(1)
                                 Spacer()
-                                Text(s.date.formatted(.dateTime.weekday(.abbreviated).hour().minute()))
+                                Text(s.date.formatted(.dateTime.weekday(.abbreviated).hour().minute().locale(widgetLocale)))
                                     .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                             }
                         }
@@ -225,7 +231,7 @@ struct NextRaceWidgetView: View {
                 Text(entry.race?.name ?? "F1X").font(.headline).lineLimit(1)
                 if let r = entry.race {
                     Text(r.start, style: .relative).font(.caption).monospacedDigit()
-                    Text(r.start.formatted(.dateTime.weekday(.abbreviated).day().hour().minute())).font(.caption2)
+                    Text(r.start.formatted(.dateTime.weekday(.abbreviated).day().hour().minute().locale(widgetLocale))).font(.caption2)
                 }
             }
         case .systemMedium:
@@ -262,7 +268,7 @@ struct NextRaceWidgetView: View {
             if let r = entry.race {
                 Text(r.name.replacingOccurrences(of: " Grand Prix", with: ""))
                     .font(.headline.weight(.heavy)).lineLimit(2).minimumScaleFactor(0.7)
-                Text(r.start.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()))
+                Text(r.start.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute().locale(widgetLocale)))
                     .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 Spacer(minLength: 0)
                 Text(r.start, style: .relative)
@@ -280,6 +286,7 @@ struct NextRaceWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "NextRace", provider: NextRaceProvider()) { entry in
             NextRaceWidgetView(entry: entry)
+                .environment(\.locale, widgetLocale)
                 .containerBackground(for: .widget) { WidgetBackground() }
         }
         .configurationDisplayName(L("Prochain Grand Prix", "Next Grand Prix"))
@@ -424,7 +431,7 @@ struct StandingsWidgetView: View {
 struct StandingsWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "Standings", provider: StandingsProvider()) { entry in
-            StandingsWidgetView(entry: entry).containerBackground(for: .widget) { WidgetBackground() }
+            StandingsWidgetView(entry: entry).environment(\.locale, widgetLocale).containerBackground(for: .widget) { WidgetBackground() }
         }
         .configurationDisplayName(L("Championnat", "Championship"))
         .description(L("Classement des pilotes et des écuries.", "Driver and constructor standings."))
@@ -518,7 +525,7 @@ struct LastRaceWidgetView: View {
 struct LastRaceWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "LastRace", provider: LastRaceProvider()) { entry in
-            LastRaceWidgetView(entry: entry).containerBackground(for: .widget) { WidgetBackground() }
+            LastRaceWidgetView(entry: entry).environment(\.locale, widgetLocale).containerBackground(for: .widget) { WidgetBackground() }
         }
         .configurationDisplayName(L("Dernière course", "Last race"))
         .description(L("Podium et arrivée du dernier Grand Prix.", "Podium and finish of the last Grand Prix."))
@@ -531,146 +538,180 @@ struct LastRaceWidget: Widget {
 /// « ven. 18:30 » (ou « 18:30 » si c'est aujourd'hui) : toujours juste, sans mise à jour.
 private func sessionTime(_ date: Date) -> String {
     Calendar.current.isDateInToday(date)
-        ? date.formatted(.dateTime.hour().minute())
-        : date.formatted(.dateTime.weekday(.abbreviated).hour().minute())
-}
-
-/// « dans 2 jours, 3 heures » puis, une fois commencée, « En cours ».
-private struct Until: View {
-    let start: Date
-    var body: some View {
-        if start > Date() {
-            Text(L("dans ", "in ")) + Text(start, style: .relative)
-        } else {
-            Text(L("En cours", "Live now")).foregroundColor(red)
-        }
-    }
+        ? date.formatted(.dateTime.hour().minute().locale(widgetLocale))
+        : date.formatted(.dateTime.weekday(.abbreviated).hour().minute().locale(widgetLocale))
 }
 
 private let gold = Color(red: 1, green: 0.78, blue: 0.2)
 
-/// « 🏆 Dernier vainqueur : M. Verstappen (Malaysia) ».
-private struct WinnerLine: View {
-    let winner: String
+/// Programme du week-end : séances passées, prochaine (rouge), à venir.
+private struct WeekendSteps: View {
+    let steps: [String]
+    let index: Int
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(Array(steps.enumerated()), id: \.offset) { i, label in
+                VStack(spacing: 3) {
+                    Capsule()
+                        .fill(i < index ? Color.secondary.opacity(0.5) : i == index ? red : Color.secondary.opacity(0.18))
+                        .frame(height: 4)
+                    Text(label)
+                        .font(.system(size: 9, weight: i == index ? .heavy : .semibold))
+                        .foregroundStyle(i == index ? red : .secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                }
+            }
+        }
+    }
+}
+
+/// « 🏆 VER · Bahrain ».
+private struct WinnerChip: View {
+    let code: String
     let race: String?
     var body: some View {
         HStack(spacing: 4) {
             Text("🏆")
-            Text(L("Dernier vainqueur :", "Last winner:")).foregroundStyle(.secondary)
-            Text(winner).fontWeight(.bold)
-            if let race { Text("(\(race))").foregroundStyle(.secondary) }
-            Spacer(minLength: 0)
+            Text(code).fontWeight(.heavy)
+            if let race { Text("· \(race.replacingOccurrences(of: " in ", with: " · "))").foregroundStyle(.secondary) }
         }
         .font(.caption2)
         .lineLimit(1)
     }
 }
 
+/// Temps restant (« 2 jours 12 heures ») ou « En cours », dans la langue de l'app.
+private struct Until: View {
+    let start: Date
+    var body: some View {
+        if start > Date() {
+            Text(start, style: .relative)
+        } else {
+            Text(L("En cours", "Live now")).foregroundColor(red)
+        }
+    }
+}
+
 struct WeekendLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: WeekendActivityAttributes.self) { context in
+            let state = context.state
+            let name = context.attributes.raceName.replacingOccurrences(of: " Grand Prix", with: "")
             // Écran verrouillé.
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 6) {
                     Logo()
-                    Text("\(context.attributes.flag) \(context.attributes.raceName)").font(.caption.bold()).lineLimit(1)
-                    Spacer()
-                    Text(L("Manche \(context.attributes.round)", "Round \(context.attributes.round)")).font(.caption2.bold()).foregroundStyle(.secondary)
+                    Text("\(context.attributes.flag) \(name)").font(.subheadline.weight(.bold)).lineLimit(1)
+                    Spacer(minLength: 4)
+                    Text("R\(context.attributes.round)")
+                        .font(.caption2.weight(.heavy))
+                        .padding(.horizontal, 7).padding(.vertical, 2)
+                        .background(Color.secondary.opacity(0.18), in: Capsule())
                 }
-                if context.state.podium == true, let winner = context.state.winner {
-                    Text(L("🏆 VAINQUEUR", "🏆 WINNER")).font(.caption2.weight(.heavy)).foregroundStyle(gold)
-                    Text(winner).font(.title2.weight(.black)).lineLimit(1)
-                    if let next = context.state.next {
-                        Text(L("Prochain : \(next)", "Next: \(next)")).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                if state.podium == true, let winner = state.winner {
+                    HStack(alignment: .center, spacing: 10) {
+                        Text("🏆").font(.system(size: 34))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(L("VAINQUEUR", "WINNER")).font(.caption2.weight(.heavy)).foregroundStyle(gold)
+                            Text(winner).font(.title2.weight(.black)).lineLimit(1).minimumScaleFactor(0.7)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    if let next = state.next {
+                        Text(L("Prochain : \(next)", "Next: \(next)")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
                 } else {
-                    Text(L("PROCHAINE SÉANCE", "NEXT SESSION")).font(.caption2.weight(.heavy)).foregroundStyle(.secondary)
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(context.state.session).font(.title3.weight(.heavy)).lineLimit(1)
-                        Spacer()
-                        Text(context.state.start.formatted(.dateTime.weekday(.wide).hour().minute()))
-                            .font(.subheadline.weight(.bold)).foregroundStyle(red)
-                    }
-                    HStack {
-                        Until(start: context.state.start).font(.caption.weight(.semibold))
-                        Spacer()
-                        if let next = context.state.next {
-                            Text(L("Puis : \(next)", "Then: \(next)")).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    HStack(alignment: .lastTextBaseline) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L("PROCHAINE SÉANCE", "NEXT SESSION")).font(.caption2.weight(.heavy)).foregroundStyle(.secondary)
+                            Text(state.session).font(.title2.weight(.heavy)).lineLimit(1).minimumScaleFactor(0.7)
+                            Text(state.start.formatted(.dateTime.weekday(.wide).hour().minute().locale(widgetLocale)))
+                                .font(.subheadline.weight(.bold)).foregroundStyle(red)
+                        }
+                        Spacer(minLength: 8)
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(state.start > Date() ? L("DANS", "IN") : "").font(.caption2.weight(.heavy)).foregroundStyle(.secondary)
+                            Until(start: state.start)
+                                .font(.headline.monospacedDigit())
+                                .multilineTextAlignment(.trailing)
+                                .lineLimit(2)
+                                .frame(maxWidth: 120, alignment: .trailing)
                         }
                     }
-                    if let winner = context.state.winner {
-                        WinnerLine(winner: winner, race: context.state.winnerRace)
+                    if let steps = state.steps, steps.count > 1 {
+                        WeekendSteps(steps: steps, index: state.stepIndex ?? 0)
+                    }
+                    if let code = state.winnerCode {
+                        WinnerChip(code: code, race: state.winnerRace)
                     }
                 }
             }
-            .padding(14)
+            .padding(16)
+            .environment(\.locale, widgetLocale)
             .activityBackgroundTint(nil)
         } dynamicIsland: { context in
-            DynamicIsland {
+            let state = context.state
+            return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Text(context.attributes.flag).font(.largeTitle)
-                }
-                DynamicIslandExpandedRegion(.trailing) {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(L("Manche", "Round")).font(.caption2).foregroundStyle(.secondary)
-                        Text(context.attributes.round).font(.title3.weight(.heavy))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(context.attributes.flag).font(.title)
+                        Text("R\(context.attributes.round)").font(.caption2.weight(.heavy)).foregroundStyle(.secondary)
                     }
                 }
                 DynamicIslandExpandedRegion(.center) {
                     VStack(spacing: 2) {
-                        Text(context.attributes.raceName).font(.caption.bold()).lineLimit(1)
-                        if context.state.podium == true, let winner = context.state.winner {
+                        Text(context.attributes.raceName.replacingOccurrences(of: " Grand Prix", with: ""))
+                            .font(.caption.bold()).foregroundStyle(.secondary).lineLimit(1)
+                        if state.podium == true, let winner = state.winner {
                             Text("🏆 \(winner)").font(.headline.weight(.heavy)).foregroundStyle(gold).lineLimit(1)
                         } else {
-                            Text(context.state.session).font(.headline.weight(.heavy)).lineLimit(1)
+                            Text(state.session).font(.headline.weight(.heavy)).lineLimit(1)
                         }
+                    }
+                }
+                DynamicIslandExpandedRegion(.trailing) {
+                    if state.podium != true {
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(sessionTime(state.start)).font(.caption.weight(.bold)).foregroundStyle(red)
+                            Until(start: state.start).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                                .multilineTextAlignment(.trailing).lineLimit(2)
+                        }
+                        .frame(maxWidth: 90, alignment: .trailing)
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    if context.state.podium == true {
-                        if let next = context.state.next {
-                            Text(L("Prochain : \(next)", "Next: \(next)")).font(.caption2).foregroundStyle(.secondary)
-                                .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(spacing: 6) {
+                        if let steps = state.steps, steps.count > 1 {
+                            WeekendSteps(steps: steps, index: state.stepIndex ?? 0)
                         }
-                    } else {
-                    VStack(spacing: 4) {
-                        HStack {
-                            Text(context.state.start.formatted(.dateTime.weekday(.wide).hour().minute()))
-                                .font(.subheadline.weight(.bold)).foregroundStyle(red)
-                            Spacer()
-                            Until(start: context.state.start).font(.caption.weight(.semibold))
-                        }
-                        if let next = context.state.next {
-                            Text(L("Puis : \(next)", "Then: \(next)")).font(.caption2).foregroundStyle(.secondary)
-                                .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        if let winner = context.state.winner {
-                            WinnerLine(winner: winner, race: context.state.winnerRace)
+                        if state.podium == true, let next = state.next {
+                            Text(L("Prochain : \(next)", "Next: \(next)")).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                        } else if let code = state.winnerCode {
+                            WinnerChip(code: code, race: state.winnerRace)
                         }
                     }
-                    }
+                    .environment(\.locale, widgetLocale)
                 }
             } compactLeading: {
-                // Pastille gauche : drapeau + séance (EL1, Q, Course…).
                 HStack(spacing: 4) {
                     Text(context.attributes.flag)
-                    Text(context.state.short).fontWeight(.heavy).foregroundStyle(.white)
+                    Text(state.podium == true ? "🏆" : state.short).fontWeight(.heavy).foregroundStyle(.white)
                 }
                 .font(.caption)
             } compactTrailing: {
-                if context.state.podium == true, let code = context.state.winnerCode {
-                    // Après l'arrivée : le vainqueur (« VER »).
+                if state.podium == true, let code = state.winnerCode {
                     Text(code).font(.caption.weight(.heavy)).foregroundStyle(gold)
                 } else {
-                    // Pastille droite : jour et heure de la séance (« ven. 18:30 »).
-                    Text(sessionTime(context.state.start))
+                    Text(sessionTime(state.start))
                         .font(.caption.weight(.bold))
                         .foregroundStyle(red)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                 }
             } minimal: {
-                Text(context.state.podium == true ? "🏆" : context.attributes.flag).font(.caption)
+                Text(state.podium == true ? "🏆" : context.attributes.flag).font(.caption)
             }
             .keylineTint(red)
         }
@@ -738,6 +779,7 @@ struct RaceLiveActivity: Widget {
                 ForEach(context.state.leaders, id: \.self) { LeaderRow(e: $0) }
             }
             .padding(14)
+            .environment(\.locale, widgetLocale)
             .activityBackgroundTint(nil)
         } dynamicIsland: { context in
             let first = context.state.leaders.first
