@@ -82,7 +82,10 @@ enum WeekendActivity {
         let content = ActivityContent(state: state, staleDate: stale)
 
         let existing = Activity<WeekendActivityAttributes>.activities
-        if let activity = existing.first(where: { $0.attributes.round == race.round && $0.attributes.raceName == race.raceName }) {
+        let lang = isFrench ? "fr" : "en"
+        if let activity = existing.first(where: {
+            $0.attributes.round == race.round && $0.attributes.raceName == race.raceName && $0.attributes.lang == lang
+        }) {
             if activity.content.state != state { await activity.update(content) }
             for other in existing where other.id != activity.id { await other.end(nil, dismissalPolicy: .immediate) }
             return
@@ -93,7 +96,8 @@ enum WeekendActivity {
             raceName: race.raceName,
             flag: Flag.country(race.circuit.location.country),
             round: race.round,
-            circuit: race.circuit.location.locality)
+            circuit: race.circuit.location.locality,
+            lang: lang)
         _ = try? Activity.request(attributes: attributes, content: content)
     }
 

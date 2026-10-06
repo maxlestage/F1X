@@ -28,4 +28,6 @@ struct WeekendActivityAttributes: ActivityAttributes {
     var flag: String
     var round: String
     var circuit: String
+    /// Langue de l'app au démarrage de l'activité (« fr » / « en »).
+    var lang: String?
 }
