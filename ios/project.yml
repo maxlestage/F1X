@@ -27,6 +27,7 @@ targets:
         buildPhase: resources
     dependencies:
       - target: F1XWidgets
+      - target: F1XWatch
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.maxlestage.f1x
@@ -68,3 +69,51 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         SKIP_INSTALL: YES
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+  # App Apple Watch : prochain GP, dernière course, classements.
+  F1XWatch:
+    type: application
+    platform: watchOS
+    deploymentTarget: "10.0"
+    sources:
+      - path: Watch
+      - path: WatchShared
+    dependencies:
+      - target: F1XWatchWidgets
+    info:
+      path: Watch/Info.plist
+      properties:
+        CFBundleDisplayName: F1X
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: com.maxlestage.f1x
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.maxlestage.f1x.watchkitapp
+        PRODUCT_NAME: F1XWatch
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "4"
+        SKIP_INSTALL: YES
+  # Complications des cadrans (compte à rebours, championnat).
+  F1XWatchWidgets:
+    type: app-extension
+    platform: watchOS
+    deploymentTarget: "10.0"
+    sources:
+      - path: WatchWidgets
+      - path: WatchShared
+    info:
+      path: WatchWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: F1X
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.maxlestage.f1x.watchkitapp.widgets
+        PRODUCT_NAME: F1XWatchWidgets
+        TARGETED_DEVICE_FAMILY: "4"
+        SKIP_INSTALL: YES
