@@ -98,6 +98,12 @@ jobs:
           else
             echo "::error::F1XWidgets.appex absente de l'app"; exit 1
           fi
+          watch="$RUNNER_TEMP/F1X.xcarchive/Products/Applications/F1X.app/Watch"
+          if ls "$watch"/*.app >/dev/null 2>&1; then
+            echo "::notice::App Apple Watch intégrée : $(ls "$watch") ; complications : $(ls "$watch"/*.app/PlugIns 2>/dev/null | tr '\n' ' ')"
+          else
+            echo "::error::App Apple Watch absente de l'app"; exit 1
+          fi
 
       - name: Envoyer sur TestFlight
         run: |
