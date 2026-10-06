@@ -85,6 +85,9 @@ jobs:
             CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
             | tee "$RUNNER_TEMP/archive.log" | grep -E "error:|warning: .*signing|\*\* ARCHIVE" || true
           if [ ! -d "$RUNNER_TEMP/F1X.xcarchive" ]; then
+            # Erreurs remontées en annotations (lisibles sans télécharger les journaux).
+            grep -E "error:|requires a provisioning|No profiles|Provisioning profile" "$RUNNER_TEMP/archive.log" | grep -v "^/Applications" | sort -u | head -20 \
+              | while IFS= read -r line; do echo "::error::${line:0:900}"; done
             grep -E "^/.*(error|warning): " "$RUNNER_TEMP/archive.log" | grep -v "^/Applications" | sort -u | head -80
             grep -A3 -E "^/.*error: " "$RUNNER_TEMP/archive.log" | grep -v "^/Applications" | head -150
             exit 1
