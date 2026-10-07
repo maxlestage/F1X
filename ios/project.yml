@@ -50,6 +50,8 @@ targets:
   F1XWidgets:
     type: app-extension
     platform: iOS
+    # Vue Apple Watch des Live Activities (supplementalActivityFamilies) : iOS 18.
+    deploymentTarget: "18.0"
     sources:
       - path: Widgets
       - path: F1X.swiftpm/Views/RaceActivityAttributes.swift

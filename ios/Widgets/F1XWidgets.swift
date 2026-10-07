@@ -592,6 +592,57 @@ private struct Until: View {
     }
 }
 
+/// Vue « small » (Apple Watch) ou complète (écran verrouillé) selon l'endroit d'affichage.
+private struct ActivitySwitch<Small: View, Full: View>: View {
+    @Environment(\.activityFamily) private var family
+    @ViewBuilder let small: () -> Small
+    @ViewBuilder let full: () -> Full
+
+    var body: some View {
+        if family == .small { small() } else { full() }
+    }
+}
+
+/// Live Activity du week-end sur l'Apple Watch : GP, séance, heure et compte à rebours.
+private struct WeekendWatchView: View {
+    let context: ActivityViewContext<WeekendActivityAttributes>
+
+    var body: some View {
+        let state = context.state
+        let fr = context.attributes.lang.map { $0 == "fr" } ?? isFrench
+        let loc = Locale(identifier: fr ? "fr_FR" : "en_GB")
+        let name = context.attributes.raceName.replacingOccurrences(of: " Grand Prix", with: "")
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                Text(context.attributes.flag).font(.footnote)
+                Text(name).font(.footnote.weight(.bold)).lineLimit(1)
+                Spacer(minLength: 2)
+                Text("R\(context.attributes.round)").font(.caption2.weight(.heavy)).foregroundStyle(.secondary)
+            }
+            if state.podium == true, let winner = state.winner {
+                Text(fr ? "🏆 VAINQUEUR" : "🏆 WINNER").font(.caption2.weight(.heavy)).foregroundStyle(gold)
+                Text(winner).font(.title3.weight(.heavy)).lineLimit(1).minimumScaleFactor(0.6)
+            } else {
+                Text(state.session).font(.title3.weight(.heavy)).lineLimit(1).minimumScaleFactor(0.6)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(sessionTime(state.start, loc)).font(.footnote.weight(.bold)).foregroundStyle(red)
+                    Spacer(minLength: 2)
+                    Until(start: state.start, fr: fr)
+                        .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                        .lineLimit(1).minimumScaleFactor(0.5)
+                }
+                if let steps = state.steps, steps.count > 1 {
+                    WeekendSteps(steps: steps, index: state.stepIndex ?? 0)
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .environment(\.locale, loc)
+        .background(LinearGradient(colors: [red.opacity(0.45), red.opacity(0.08)], startPoint: .topLeading, endPoint: .bottomTrailing))
+    }
+}
+
 struct WeekendLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: WeekendActivityAttributes.self) { context in
@@ -600,6 +651,9 @@ struct WeekendLiveActivity: Widget {
             let loc = Locale(identifier: fr ? "fr_FR" : "en_GB")
             let L = { (a: String, b: String) in fr ? a : b }
             let name = context.attributes.raceName.replacingOccurrences(of: " Grand Prix", with: "")
+            ActivitySwitch {
+                WeekendWatchView(context: context)
+            } full: {
             // Écran verrouillé.
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 6) {
@@ -651,6 +705,7 @@ struct WeekendLiveActivity: Widget {
             }
             .padding(16)
             .environment(\.locale, loc)
+            }
             .activityBackgroundTint(nil)
         } dynamicIsland: { context in
             let state = context.state
@@ -719,6 +774,8 @@ struct WeekendLiveActivity: Widget {
             }
             .keylineTint(red)
         }
+        // Vue dédiée dans la pile intelligente de l'Apple Watch (et CarPlay).
+        .supplementalActivityFamilies([.small, .medium])
     }
 }
 
@@ -763,9 +820,32 @@ private struct LeaderRow: View {
     }
 }
 
+/// Live Activity de course sur l'Apple Watch : tour, drapeau et top 3.
+private struct RaceWatchView: View {
+    let context: ActivityViewContext<RaceActivityAttributes>
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                Circle().fill(statusColour(context.state.status)).frame(width: 6, height: 6)
+                Text(context.attributes.location).font(.footnote.weight(.bold)).lineLimit(1)
+                Spacer(minLength: 2)
+                Text(progress(context.state, context.attributes)).font(.caption2.monospacedDigit().weight(.heavy))
+            }
+            ForEach(context.state.leaders, id: \.self) { LeaderRow(e: $0) }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(LinearGradient(colors: [red.opacity(0.35), red.opacity(0.05)], startPoint: .topLeading, endPoint: .bottomTrailing))
+    }
+}
+
 struct RaceLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: RaceActivityAttributes.self) { context in
+            ActivitySwitch {
+                RaceWatchView(context: context)
+            } full: {
             // Écran verrouillé / bannière.
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
@@ -784,6 +864,7 @@ struct RaceLiveActivity: Widget {
             }
             .padding(14)
             .environment(\.locale, widgetLocale)
+            }
             .activityBackgroundTint(nil)
         } dynamicIsland: { context in
             let first = context.state.leaders.first
@@ -819,5 +900,7 @@ struct RaceLiveActivity: Widget {
             }
             .keylineTint(red)
         }
+        // Vue dédiée dans la pile intelligente de l'Apple Watch (et CarPlay).
+        .supplementalActivityFamilies([.small, .medium])
     }
 }
