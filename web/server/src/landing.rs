@@ -213,9 +213,13 @@ fn shell(lang: Lang, origin: &str, m: Meta, body: &str) -> String {
 <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
 <link rel="icon" href="/static/img/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap">
 <style>{CSS}</style>
 </head>
 <body>
+<div class="grain" aria-hidden="true"></div>
 <header class="top">
   <a class="brand" href="/presentation?lang={code}" aria-label="F1X"><span>F1</span><span class="x">X</span></a>
   <nav class="top-links">
@@ -818,11 +822,11 @@ fn credits_page(lang: Lang, origin: &str) -> String {
 }
 
 const CSS: &str = r#"
-:root{--bg:#0b0b10;--surface:#15151e;--surface-2:#1e1e2a;--line:#2a2a38;--text:#f4f4f8;--muted:#a3a3b5;--red:#e10600;color-scheme:dark}
+:root{--bg:#0e0d0c;--surface:#161513;--surface-2:#201e1b;--line:rgba(242,237,227,.12);--text:#f2ede3;--muted:#8d877d;--red:#e8501a;--font:"Archivo",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--ease:cubic-bezier(.2,.7,.1,1);color-scheme:dark}
 *,*::before,*::after{box-sizing:border-box;min-width:0}
 html,body{margin:0;max-width:100%;overflow-x:hidden}
 html{scroll-behavior:smooth;scroll-padding-top:72px}
-body{background:var(--bg);color:var(--text);font:17px/1.55 system-ui,-apple-system,"SF Pro Text","Segoe UI",Roboto,sans-serif;overflow-wrap:anywhere;-webkit-text-size-adjust:100%}
+body{background:var(--bg);color:var(--text);font:17px/1.55 var(--font);font-variation-settings:"wdth" 100;-webkit-font-smoothing:antialiased;overflow-wrap:anywhere;-webkit-text-size-adjust:100%}
 a{color:inherit}
 h1,h2,h3,p{margin:0}
 .top{position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:calc(env(safe-area-inset-top) + 10px) 16px 10px;background:rgba(11,11,16,.88);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
@@ -902,6 +906,39 @@ main{width:100%;max-width:1080px;margin:0 auto;padding:0 16px}
   .foot-grid{grid-template-columns:minmax(0,1.4fr) repeat(3,minmax(0,1fr))}
   .foot-brand{grid-column:auto}
 }
+
+/* Habillage atelier : nuit et crème, signal orange, typographie Archivo à largeur variable, grain de film. */
+::selection{background:var(--red);color:var(--bg)}
+.grain{position:fixed;inset:-50%;z-index:90;pointer-events:none;opacity:.065;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");animation:grain .9s steps(6,end) infinite}
+@keyframes grain{0%{transform:translate(0)}20%{transform:translate(-4%,3%)}40%{transform:translate(3%,-5%)}60%{transform:translate(-2%,6%)}80%{transform:translate(5%,2%)}to{transform:translate(0)}}
+.top{background:linear-gradient(rgba(8,7,6,.92),rgba(8,7,6,.6) 70%,rgba(8,7,6,0));border-bottom:0}
+.brand{font-variation-settings:"wdth" 112;letter-spacing:-.03em}
+.lang{background:transparent;border-color:var(--line);font-weight:600;letter-spacing:.08em}
+.btn{border-radius:99px;color:var(--bg);font-weight:700;padding:14px 24px;transition:transform .35s var(--ease),background .3s,color .3s}
+.btn:hover{transform:translateY(-2px)}
+.btn-small{border-radius:99px;padding:8px 16px}
+.btn-big{box-shadow:none}
+.btn-ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+.btn-ghost:hover{background:var(--text);color:var(--bg)}
+.eyebrow{display:inline-flex;align-items:center;gap:10px;font-weight:500;font-size:.75rem;letter-spacing:.16em}
+.eyebrow::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--red);box-shadow:0 0 14px var(--red);flex:none}
+h1,h2{font-variation-settings:"wdth" 88;text-wrap:balance}
+.hero h1{font-size:clamp(2.6rem,11vw,6.2rem);line-height:.9;font-weight:800;letter-spacing:-.03em}
+.feature h2,.band h2,.final h2{font-weight:700;letter-spacing:-.02em;line-height:1}
+.feature h2{font-size:clamp(2rem,7.5vw,3.6rem)}
+.final h2{font-size:clamp(2.2rem,9vw,4.4rem)}
+.lead{font-size:clamp(1.1rem,2.3vw,1.6rem);line-height:1.3;color:var(--muted);max-width:30ch}
+.numbers li,.mini,.steps li{background:transparent;border:1px solid var(--line);border-radius:18px}
+.numbers strong{font-size:clamp(2.4rem,8vw,3.6rem);line-height:.9;font-weight:300;font-variation-settings:"wdth" 62}
+.numbers span{letter-spacing:.14em;text-transform:uppercase;font-size:.72rem;margin-top:8px}
+.checks li::before{border-color:var(--red)}
+.chips li{background:transparent;border-color:var(--line);font-weight:500;letter-spacing:.02em}
+.phone{background:linear-gradient(160deg,#2a2622,#100f0d);box-shadow:0 30px 60px rgba(0,0,0,.6),0 0 0 1px rgba(242,237,227,.14)}
+.foot{background:#0a0908}
+.foot h3{font-weight:500;letter-spacing:.16em}
+.foot-legal{color:#6e6961}
+.doc p,.doc li{color:#d8d2c6}
+@media (prefers-reduced-motion:reduce){.grain{animation:none}.btn{transition:none}.btn:hover{transform:none}}
 "#;
 
 #[cfg(test)]
