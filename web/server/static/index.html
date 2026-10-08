@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0b0b10">
+  <meta name="theme-color" content="#0e0d0c">
   <meta name="color-scheme" content="dark">
   <title>F1X — Toute la Formule 1 dans ta poche</title>
   <meta name="description" content="Calendrier, résultats, classements, Race Center en temps réel, circuits et monoplaces en 3D, 75 ans d'archives de Formule 1. Gratuit, sans compte, pensé pour le mobile.">
@@ -37,10 +37,20 @@
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
   <link rel="icon" href="/static/img/favicon-32.png" type="image/png" sizes="32x32">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap">
   <link rel="stylesheet" href="/static/app.css?v={{CSS}}">
 </head>
 <body>
-  <div id="splash" aria-hidden="true"><div class="speed"><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="splash-inner"><div class="lights"><span class="light"></span><span class="light"></span><span class="light"></span><span class="light"></span><span class="light"></span></div><div class="splash-logo"><span class="f1">F1</span><span class="x">X</span></div><div class="splash-line"></div></div></div>
+  <!-- Ouverture : le signe F1X se trace pendant que le compteur monte jusqu'à 100 %. -->
+  <div id="splash" aria-hidden="true">
+    <svg class="porte-signe" viewBox="0 0 200 100"><text x="6" y="80">F1</text><text class="trace-x" x="122" y="80">X</text></svg>
+    <p class="porte-ligne">Formule 1 · saison en direct</p>
+    <div class="porte-compte"><span id="porte-n">0</span></div>
+  </div>
+  <div class="grain" aria-hidden="true"></div>
+  <div class="curseur" aria-hidden="true"><span></span></div>
   <script>
     // Carte Apple Maps (MapKit JS) : jeton signé par le serveur ; rejet = repli OpenStreetMap.
     window.f1xAppleMap = function (el, lat, lon, name) {
@@ -80,7 +90,30 @@
       if (seen) { s.remove(); return; }
       var done = function () { if (s.parentNode) s.remove(); };
       s.addEventListener("click", done);
-      setTimeout(done, 1960);
+      // Compteur 0 → 100 % pendant que le signe se trace.
+      var n = document.getElementById("porte-n"), t0 = performance.now();
+      (function tick(t) {
+        var k = Math.min(1, (t - t0) / 1350);
+        n.textContent = Math.round(100 * (1 - Math.pow(1 - k, 3)));
+        if (k < 1 && s.parentNode) requestAnimationFrame(tick);
+      })(t0);
+      setTimeout(done, 2100);
+    })();
+  </script>
+  <script>
+    (function () {
+      var c = document.querySelector(".curseur");
+      if (!c || !matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+      var x = -100, y = -100, cx = x, cy = y, slow = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+      addEventListener("mousemove", function (e) {
+        x = e.clientX; y = e.clientY;
+        c.classList.toggle("actif", !!(e.target.closest && e.target.closest("a, button, select, summary, [role=button], input[type=checkbox]")));
+      }, { passive: true });
+      (function loop() {
+        cx += (x - cx) * (slow ? .22 : 1); cy += (y - cy) * (slow ? .22 : 1);
+        c.style.transform = "translate(" + cx + "px," + cy + "px)";
+        requestAnimationFrame(loop);
+      })();
     })();
   </script>
   <div id="app"><div class="boot"><span class="brand"><span class="brand-mark">F1</span><span class="brand-x">X</span></span></div></div>
