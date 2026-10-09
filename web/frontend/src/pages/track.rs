@@ -315,7 +315,7 @@ pub fn TrackOutline(props: &OutlineProps) -> Html {
         <svg class="outline" viewBox={format!("0 0 {w:.0} {h:.0}")} role="img"
              aria-label={t("Tracé du circuit", "Circuit layout")}>
             <polyline class="outline-base" points={line.clone()} />
-            <polyline class="outline-line" points={line} />
+            <polyline class="outline-line" pathLength="1" points={line} />
             <circle class="outline-start" cx={format!("{x0:.0}")} cy={format!("{y0:.0}")} r="16" />
         </svg>
     }

@@ -1569,7 +1569,7 @@ pub fn LapReplay(p: &LapReplayProps) -> Html {
                 <svg class="outline lap-replay-map" viewBox={format!("0 0 {:.0} {:.0}", m.width + 2.0 * pad, m.height + 2.0 * pad)}
                      role="img" aria-label={t("Position de la voiture sur le circuit", "Car position on the circuit")}>
                     <polyline class="outline-base" points={line.clone()} />
-                    <polyline class="outline-line" points={line} />
+                    <polyline class="outline-line" pathLength="1" points={line} />
                     <circle cx={format!("{cx:.0}")} cy={format!("{cy:.0}")} r="34" fill={format!("#{}", p.colour)} stroke="#fff" stroke-width="10" />
                 </svg>
             }
