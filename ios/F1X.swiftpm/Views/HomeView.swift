@@ -136,7 +136,6 @@ struct SectionCard<Content: View>: View {
         .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color.hairline))
         .shadow(color: .cardShadow, radius: 10, y: 3)
         .cascadeUp()
-        .revealOnScroll()
     }
 }
 

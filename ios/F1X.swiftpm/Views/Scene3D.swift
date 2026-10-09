@@ -627,11 +627,25 @@ enum Studio {
 
 // MARK: - Vue monoplace
 
+/// Vue SceneKit avec contrôle de caméra intégré, posée dans une page qui défile : un glissement
+/// vertical d'un doigt fait défiler la page ; horizontal, il tourne la voiture ; pincer zoome toujours.
+final class ScrollFriendlySCNView: SCNView {
+    override func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        if let pan = g as? UIPanGestureRecognizer, pan.numberOfTouches <= 1 {
+            let v = pan.velocity(in: self)
+            if abs(v.y) > abs(v.x) { return false }
+        }
+        return super.gestureRecognizerShouldBegin(g)
+    }
+}
+
 struct CarSceneView: UIViewRepresentable {
     let livery: Livery
+    /// Vue intégrée à une page défilante (sinon plein écran : tous les gestes pilotent la caméra).
+    var inline = true
 
     func makeUIView(context: Context) -> SCNView {
-        let view = SCNView()
+        let view: SCNView = inline ? ScrollFriendlySCNView() : SCNView()
         view.backgroundColor = .clear
         view.antialiasingMode = .multisampling4X
         view.allowsCameraControl = true
@@ -961,8 +975,14 @@ struct TrackSceneView: UIViewRepresentable {
     var ghost = true
     var markers: [TrackMarker] = []
     @ObservedObject var control: TrackControl
+    /// Vue intégrée à une page défilante : un glissement vertical d'un doigt fait défiler la page.
+    var inline = true
 
-    func makeCoordinator() -> Coordinator { Coordinator(map: map, ghost: ghost, control: control) }
+    func makeCoordinator() -> Coordinator {
+        let c = Coordinator(map: map, ghost: ghost, control: control)
+        c.inline = inline
+        return c
+    }
 
     func makeUIView(context: Context) -> SCNView {
         let view = SCNView()
@@ -1009,6 +1029,8 @@ struct TrackSceneView: UIViewRepresentable {
         let control: TrackControl
         let ghostCar: SCNNode?
         weak var view: SCNView?
+        /// Vue intégrée à une page défilante.
+        var inline = true
         /// Voiture affichée (plateau simulé ou direct) : nœud, cible, position, voie, écart.
         typealias Car = (key: String, node: SCNNode, target: Float, cur: Float, lane: Float, offset: Float)
         private var cars: [Car] = []
@@ -1157,6 +1179,14 @@ struct TrackSceneView: UIViewRepresentable {
 
         func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
             (g is UIPinchGestureRecognizer && other is UIPanGestureRecognizer) || (g is UIPanGestureRecognizer && other is UIPinchGestureRecognizer)
+        }
+
+        /// Dans la page, un glissement vertical d'un doigt laisse défiler la page (sinon on restait bloqué
+        /// sur la 3D) ; en plein écran, tous les gestes pilotent la caméra.
+        func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+            guard inline, let pan = g as? UIPanGestureRecognizer, pan.maximumNumberOfTouches == 1 else { return true }
+            let v = pan.velocity(in: pan.view)
+            return abs(v.x) >= abs(v.y)
         }
 
         @objc func onPan(_ g: UIPanGestureRecognizer) {
@@ -1369,7 +1399,7 @@ struct CarCard: View {
         .fullScreenCover(isPresented: $full) {
             ZStack(alignment: .topTrailing) {
                 Color.black.ignoresSafeArea()
-                CarSceneView(livery: .team(constructorId)).ignoresSafeArea()
+                CarSceneView(livery: .team(constructorId), inline: false).ignoresSafeArea()
                 Button { full = false } label: { Image(systemName: "xmark.circle.fill").font(.largeTitle) }
                     .tint(.white).padding()
             }
@@ -1414,7 +1444,7 @@ struct Track3DView: View {
         .fullScreenCover(isPresented: $full) {
             ZStack(alignment: .bottom) {
                 Color.black.ignoresSafeArea()
-                TrackSceneView(map: map, ghost: ghost, markers: markers, control: control).ignoresSafeArea()
+                TrackSceneView(map: map, ghost: ghost, markers: markers, control: control, inline: false).ignoresSafeArea()
                 SpeedOverlay(hud: control.hud, active: control.following).ignoresSafeArea()
                 VStack {
                     HStack {

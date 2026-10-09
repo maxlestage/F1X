@@ -1,21 +1,25 @@
 name: Compilation iOS
 
-# Vérifie que l'app iOS compile sur les branches de travail (simulateur, sans signature,
-# rien n'est envoyé sur TestFlight). L'envoi sur TestFlight reste réservé à master.
+# Sur les branches de travail : compile l'app iOS, la lance dans un simulateur iPhone (français,
+# thème sombre), ouvre chaque page et en prend une capture. Rien n'est signé ni envoyé sur
+# TestFlight (réservé à master). Les captures sont publiées sur la branche « captures-ios ».
 on:
   workflow_dispatch:
   push:
-    branches-ignore: [master]
+    branches-ignore: [master, captures-ios]
     paths: ["ios/**", ".github/workflows/ios-build.yml"]
 
 concurrency:
   group: ios-build-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: ios
@@ -26,24 +30,76 @@ jobs:
         with:
           xcode-version: latest-stable
 
-      - name: Générer le projet Xcode
+      - name: Générer le projet Xcode (app + parcours des pages)
         run: |
           brew install xcodegen
-          xcodegen generate
+          xcodegen generate --spec screens.yml
 
-      - name: Compiler (simulateur iOS, sans signature)
+      - name: Démarrer un simulateur iPhone (thème sombre)
         run: |
-          xcodebuild build \
-            -project F1X.xcodeproj -scheme F1X -configuration Debug \
-            -destination 'generic/platform=iOS Simulator' \
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          runtimes = sorted((k for k in devices if ".iOS-" in k), reverse=True)
+          for rt in runtimes:
+              phones = [d for d in devices[rt] if d["name"].startswith("iPhone")]
+              pro = [d for d in phones if d["name"].endswith(" Pro")]
+              pick = (pro or phones)
+              if pick:
+                  print(pick[0]["udid"]); break
+          ')
+          echo "Simulateur : $UDID"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl ui "$UDID" appearance dark
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+
+      - name: Compiler et parcourir toutes les pages
+        run: |
+          mkdir -p "$RUNNER_TEMP/shots"
+          TEST_RUNNER_SHOTS_DIR="$RUNNER_TEMP/shots" xcodebuild test \
+            -project F1X.xcodeproj -scheme F1XScreens -configuration Debug \
+            -destination "id=$UDID" \
+            -resultBundlePath "$RUNNER_TEMP/screens.xcresult" \
             CODE_SIGNING_ALLOWED=NO \
             > "$RUNNER_TEMP/build.log" 2>&1 || true
-          grep -E "\*\* BUILD" "$RUNNER_TEMP/build.log" || true
-          if ! grep -q "\*\* BUILD SUCCEEDED" "$RUNNER_TEMP/build.log"; then
-            # Erreurs remontées en annotations (lisibles sans télécharger les journaux).
+          grep -E "\*\* (BUILD|TEST)" "$RUNNER_TEMP/build.log" || true
+          if grep -qE "^/.*error: |\*\* BUILD FAILED|\*\* TEST BUILD FAILED" "$RUNNER_TEMP/build.log"; then
+            # Erreurs de compilation remontées en annotations.
             grep -E "^/.*error: " "$RUNNER_TEMP/build.log" | sort -u | head -40 \
               | while IFS= read -r line; do echo "::error::${line:0:900}"; done
             grep -A3 -E "^/.*error: " "$RUNNER_TEMP/build.log" | head -150
-            tail -40 "$RUNNER_TEMP/build.log"
+            tail -60 "$RUNNER_TEMP/build.log"
             exit 1
           fi
+
+      - name: Publier les captures (branche captures-ios)
+        if: always()
+        run: |
+          out="$RUNNER_TEMP/captures"
+          mkdir -p "$out"
+          # Captures écrites par le test ; sinon, celles jointes au résultat.
+          if ! ls "$RUNNER_TEMP/shots"/*.png >/dev/null 2>&1 && [ -d "$RUNNER_TEMP/screens.xcresult" ]; then
+            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/screens.xcresult" --output-path "$RUNNER_TEMP/att" || true
+            python3 - "$RUNNER_TEMP/att" "$RUNNER_TEMP/shots" <<'PY' || true
+          import json, os, shutil, sys
+          src, dst = sys.argv[1], sys.argv[2]
+          for test in json.load(open(os.path.join(src, "manifest.json"))):
+              for a in test.get("attachments", []):
+                  name = a.get("suggestedHumanReadableName", a["exportedFileName"]).split("_")[0]
+                  shutil.copy(os.path.join(src, a["exportedFileName"]), os.path.join(dst, name + ".png"))
+          PY
+          fi
+          for f in "$RUNNER_TEMP/shots"/*.png; do
+            [ -e "$f" ] || continue
+            sips -s format jpeg -s formatOptions 60 --resampleWidth 430 "$f" --out "$out/$(basename "${f%.png}").jpg" >/dev/null
+          done
+          # Journal : résultat du test, plantages éventuels.
+          { echo "Commit : $GITHUB_SHA"; grep -E "\*\* (BUILD|TEST)|error|Failing|crash|Crash|failed" "$RUNNER_TEMP/build.log" | grep -v "^/Applications" | tail -80; } > "$out/journal.txt" || true
+          cd "$out"
+          git init -q
+          git checkout -q -b captures-ios
+          git add -A
+          git -c user.name="F1X CI" -c user.email="ci@users.noreply.github.com" commit -qm "Captures iOS de $GITHUB_SHA"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" captures-ios
+          echo "::notice::$(ls *.jpg 2>/dev/null | wc -l | tr -d ' ') captures publiées sur la branche captures-ios"
