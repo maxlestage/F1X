@@ -627,15 +627,29 @@ enum Studio {
 
 // MARK: - Vue monoplace
 
-/// Vue SceneKit avec contrôle de caméra intégré, posée dans une page qui défile : un glissement
-/// vertical d'un doigt fait défiler la page ; horizontal, il tourne la voiture ; pincer zoome toujours.
-final class ScrollFriendlySCNView: SCNView {
-    override func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
-        if let pan = g as? UIPanGestureRecognizer, pan.numberOfTouches <= 1 {
-            let v = pan.velocity(in: self)
-            if abs(v.y) > abs(v.x) { return false }
-        }
-        return super.gestureRecognizerShouldBegin(g)
+/// Gestes de la monoplace posée dans une page qui défile : glisser horizontalement la tourne,
+/// pincer zoome ; un glissement vertical n'est pas capté et fait défiler la page.
+/// (Le contrôle de caméra de SceneKit captait tous les glissements : la page restait bloquée.)
+final class CarGestures: NSObject, UIGestureRecognizerDelegate {
+    weak var view: SCNView?
+
+    @objc func onPan(_ g: UIPanGestureRecognizer) {
+        guard let car = view?.scene?.rootNode.childNode(withName: "car", recursively: false) else { return }
+        let d = g.translation(in: g.view)
+        g.setTranslation(.zero, in: g.view)
+        car.eulerAngles.y += Float(d.x) * 0.012
+    }
+
+    @objc func onPinch(_ g: UIPinchGestureRecognizer) {
+        guard let camera = view?.pointOfView?.camera else { return }
+        camera.fieldOfView = min(max(camera.fieldOfView / g.scale, 14), 75)
+        g.scale = 1
+    }
+
+    func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        guard let pan = g as? UIPanGestureRecognizer else { return true }
+        let v = pan.velocity(in: pan.view)
+        return abs(v.x) > abs(v.y)
     }
 }
 
@@ -644,14 +658,28 @@ struct CarSceneView: UIViewRepresentable {
     /// Vue intégrée à une page défilante (sinon plein écran : tous les gestes pilotent la caméra).
     var inline = true
 
+    func makeCoordinator() -> CarGestures { CarGestures() }
+
     func makeUIView(context: Context) -> SCNView {
-        let view: SCNView = inline ? ScrollFriendlySCNView() : SCNView()
+        let view = SCNView()
         view.backgroundColor = .clear
         view.antialiasingMode = .multisampling4X
-        view.allowsCameraControl = true
-        view.defaultCameraController.interactionMode = .orbitTurntable
-        view.defaultCameraController.maximumVerticalAngle = 80
-        view.defaultCameraController.minimumVerticalAngle = -5
+        if inline {
+            // Nos propres gestes : seul un glissement horizontal tourne la voiture.
+            view.allowsCameraControl = false
+            let gestures = context.coordinator
+            gestures.view = view
+            let pan = UIPanGestureRecognizer(target: gestures, action: #selector(CarGestures.onPan(_:)))
+            pan.maximumNumberOfTouches = 1
+            pan.delegate = gestures
+            view.addGestureRecognizer(pan)
+            view.addGestureRecognizer(UIPinchGestureRecognizer(target: gestures, action: #selector(CarGestures.onPinch(_:))))
+        } else {
+            view.allowsCameraControl = true
+            view.defaultCameraController.interactionMode = .orbitTurntable
+            view.defaultCameraController.maximumVerticalAngle = 80
+            view.defaultCameraController.minimumVerticalAngle = -5
+        }
         let scene = Studio.scene()
         let car = CarModel.node(livery: livery)
         car.name = "car"
