@@ -83,8 +83,8 @@ struct LiveView: View {
                 ForEach(sessions) { s in
                     Button { client.replay(s, speed: speed) } label: {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("\(s.location) · \(s.session_name)").bold().foregroundStyle(.primary)
-                            Text("\(s.country) · \(String(s.date_start.prefix(10)))").font(.footnote).foregroundStyle(.secondary)
+                            Text("\(s.location) · \(s.session_name)").bold().foregroundStyle(Color.primary)
+                            Text("\(s.country) · \(String(s.date_start.prefix(10)))").font(.footnote).foregroundStyle(Color.secondary)
                         }
                     }
                 }

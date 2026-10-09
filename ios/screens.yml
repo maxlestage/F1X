@@ -1,0 +1,29 @@
+# Projet de vérification visuelle (CI uniquement) : le projet de l'app + un test d'interface
+# qui ouvre chaque page et en prend une capture. Le projet de TestFlight (project.yml) n'est pas modifié.
+include:
+  - project.yml
+targets:
+  F1XScreens:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: ScreensUITests
+    dependencies:
+      - target: F1X
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.maxlestage.f1x.screens
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: F1X
+        TARGETED_DEVICE_FAMILY: "1,2"
+schemes:
+  F1XScreens:
+    build:
+      targets:
+        F1X: all
+        F1XScreens: [test]
+    test:
+      config: Debug
+      targets:
+        - F1XScreens

@@ -233,7 +233,7 @@ struct HeroCard<Content: View>: View {
             .background(Color.cardBackground, in: RoundedRectangle(cornerRadius: 18))
             .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color.hairline))
             .shadow(color: .cardShadow, radius: 10, y: 3)
-            .revealOnScroll()
+            .cascadeUp()
     }
 }
 

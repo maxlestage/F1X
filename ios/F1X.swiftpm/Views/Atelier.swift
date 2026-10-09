@@ -163,16 +163,6 @@ private struct Rise: ViewModifier {
 extension View {
     /// Monte et apparaît (avec un petit retard pour enchaîner plusieurs éléments).
     func rise(delay: Double = 0) -> some View { modifier(Rise(delay: delay)) }
-
-    /// Les cartes se révèlent en défilant (s'atténuent et rétrécissent un peu hors champ).
-    func revealOnScroll() -> some View {
-        scrollTransition(.interactive, axis: .vertical) { content, phase in
-            content
-                .opacity(phase.isIdentity ? 1 : 0.35)
-                .scaleEffect(phase.isIdentity ? 1 : 0.95)
-                .offset(y: CGFloat(phase.value) * 22)
-        }
-    }
 }
 
 /// Bouton qui s'enfonce sous le doigt.
