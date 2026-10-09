@@ -26,6 +26,8 @@ struct FavoriteButton: View {
             current = on ? "" : id
         } label: {
             Label(on ? L("Favori", "Favourite") : L("Ajouter aux favoris", "Add to favourites"), systemImage: on ? "star.fill" : "star")
+                .contentTransition(.symbolEffect(.replace))
+                .symbolEffect(.bounce, value: on)
         }
         .buttonStyle(.bordered)
         .tint(on ? .yellow : .primary)

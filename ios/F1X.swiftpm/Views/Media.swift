@@ -11,15 +11,19 @@ struct Avatar: View {
     var size: CGFloat = 36
 
     @State private var photo: Photo?
+    @State private var popped = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
             Circle().fill(color.opacity(0.85))
             Text(initials).font(.system(size: size * 0.38, weight: .heavy)).foregroundStyle(.black.opacity(0.75))
             if let src = photo.flatMap({ URL(string: $0.src) }) {
-                AsyncImage(url: src) { phase in
+                // La photo se dévoile (zoom arrière) à son arrivée.
+                AsyncImage(url: src, transaction: Transaction(animation: reduceMotion ? nil : .easeOut(duration: 0.6))) { phase in
                     if let image = phase.image {
                         image.resizable().scaledToFill()
+                            .transition(.opacity.combined(with: .scale(scale: 1.25)))
                     }
                 }
                 .clipShape(Circle())
@@ -27,6 +31,15 @@ struct Avatar: View {
         }
         .frame(width: size, height: size)
         .overlay(Circle().stroke(color, lineWidth: 2))
+        // L'avatar arrive en pivotant.
+        .scaleEffect(popped ? 1 : 0.3)
+        .rotationEffect(.degrees(popped ? 0 : -35))
+        .opacity(popped ? 1 : 0)
+        .onAppear {
+            guard !popped else { return }
+            if reduceMotion { popped = true; return }
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.62).delay(0.12)) { popped = true }
+        }
         .task(id: wikipedia) { photo = await ServerAPI.shared.photo(wikipedia: wikipedia) }
         .accessibilityHidden(true)
     }
@@ -55,9 +68,10 @@ struct WikiPhotoView: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: wide ? 190 : 300)
                         .overlay(alignment: wide ? .center : .top) {
-                            AsyncImage(url: src, transaction: Transaction(animation: .easeOut(duration: 0.25))) { phase in
+                            AsyncImage(url: src, transaction: Transaction(animation: .easeOut(duration: 0.7))) { phase in
                                 if let image = phase.image {
                                     image.resizable().aspectRatio(contentMode: wide ? .fit : .fill)
+                                        .transition(.opacity.combined(with: .scale(scale: 1.12)))
                                 } else {
                                     ProgressView()
                                 }
@@ -90,6 +104,9 @@ struct TrackMapView: View {
     var showTelemetry = true
 
     @State private var picked: Int?
+    /// Avancement du dessin du tracé (0 → 1) : la couleur suit le sens de la course.
+    @State private var drawn: Double = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -105,13 +122,15 @@ struct TrackMapView: View {
                 let pt = { (p: TrackPoint) in CGPoint(x: ox + (p.x + pad) * scale, y: oy + (p.y + pad) * scale) }
                 let minS = Double(map.stats.min_speed), maxS = Double(map.stats.top_speed)
                 ZStack {
+                    ProgressReveal(progress: drawn) { k in
                     Canvas { ctx, _ in
+                        let shown = k >= 1 ? map.points.count : Int(Double(map.points.count) * k)
                         var base = Path()
-                        for (i, p) in map.points.enumerated() {
+                        for (i, p) in map.points.prefix(shown).enumerated() {
                             if i == 0 { base.move(to: pt(p)) } else { base.addLine(to: pt(p)) }
                         }
                         ctx.stroke(base, with: .color(Color.chip), style: StrokeStyle(lineWidth: 10, lineCap: .round, lineJoin: .round))
-                        for i in 0..<max(map.points.count - 1, 0) {
+                        for i in 0..<max(shown - 1, 0) {
                             var seg = Path()
                             seg.move(to: pt(map.points[i]))
                             seg.addLine(to: pt(map.points[i + 1]))
@@ -126,6 +145,7 @@ struct TrackMapView: View {
                             let p = pt(map.points[i])
                             ctx.fill(Path(ellipseIn: CGRect(x: p.x - 8, y: p.y - 8, width: 16, height: 16)), with: .color(Color.ink))
                         }
+                    }
                     }
                     ForEach(map.points.isEmpty ? [] : markers, id: \.key) { m in
                         let target = m.fraction * map.lap_time
@@ -154,6 +174,11 @@ struct TrackMapView: View {
                 })
             }
             .aspectRatio((map.width + 80) / (map.height + 80), contentMode: .fit)
+            .onAppear {
+                guard drawn == 0 else { return }
+                if reduceMotion { drawn = 1; return }
+                withAnimation(.easeInOut(duration: 1.6)) { drawn = 1 }
+            }
             if showTelemetry {
                 HStack(spacing: 6) {
                     Text("\(map.stats.min_speed) km/h").font(.caption2)
@@ -223,7 +248,7 @@ struct TrackPanel: View {
                         .buttonStyle(.bordered)
                 }
             } else {
-                ProgressView().frame(maxWidth: .infinity, minHeight: 120)
+                StartLightsLoader().frame(minHeight: 120)
             }
         }
         .task(id: "\(circuitId)-\(attempt)") {
