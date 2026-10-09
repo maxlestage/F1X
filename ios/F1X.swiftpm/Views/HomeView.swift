@@ -40,9 +40,10 @@ struct HomeView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(14)
                             .background(Color.cardBackground, in: RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .cardShadow, radius: 10, y: 3)
+                            .shadow(color: .cardShadow, radius: 10, y: 3)
                     }
                     .buttonStyle(.plain)
+                    .cascadeUp()
                     if !data.drivers.isEmpty {
                         SectionCard(title: L("Pilotes", "Drivers")) {
                             ForEach(data.drivers.prefix(5)) { s in
@@ -126,6 +127,7 @@ struct SectionCard<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title).font(.archivo(23, weight: 750, width: 88))
+                .rise(delay: 0.1)
             content()
         }
         .padding(16)
@@ -133,6 +135,7 @@ struct SectionCard<Content: View>: View {
         .background(Color.cardBackground, in: RoundedRectangle(cornerRadius: 18))
         .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color.hairline))
         .shadow(color: .cardShadow, radius: 10, y: 3)
+        .cascadeUp()
         .revealOnScroll()
     }
 }
@@ -159,6 +162,8 @@ private struct NextRaceCard: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
                     .background(Color.f1Red, in: Capsule())
+                    // Un reflet passe sur le bouton de temps en temps.
+                    .overlay { SweepShine().clipShape(Capsule()) }
                     .foregroundStyle(.white)
             }
             .buttonStyle(PressableStyle())
@@ -177,8 +182,9 @@ private struct LastRaceCard: View {
             // Podium : 3 colonnes de largeur égale, 2 – 1 – 3.
             let podium = Array(results.prefix(3))
             HStack(alignment: .bottom, spacing: 8) {
+                // Les marches montent, le vainqueur en dernier.
                 ForEach([1, 0, 2].filter { $0 < podium.count }, id: \.self) { i in
-                    PodiumStep(result: podium[i], tall: i == 0)
+                    PodiumStep(result: podium[i], tall: i == 0, delay: [0.35, 0, 0.12][i])
                 }
             }
             NavigationLink(value: race) {
@@ -191,12 +197,19 @@ private struct LastRaceCard: View {
 private struct PodiumStep: View {
     let result: RaceResult
     let tall: Bool
+    var delay: Double = 0
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var up = false
 
     var body: some View {
         VStack(spacing: 2) {
             Avatar(name: result.driver.fullName, wikipedia: result.driver.url,
                    color: Team.color(result.constructor.constructorId), size: tall ? 56 : 46)
             Text(result.position).font(.title2.weight(.black)).italic()
+                // Le vainqueur en or.
+                .foregroundStyle(tall ? Color(hex: 0xFACC15) : Color.primary)
+                .shadow(color: tall ? Color(hex: 0xFACC15).opacity(0.5) : .clear, radius: 8)
             Text(result.driver.familyName)
                 .font(.subheadline.bold())
                 .lineLimit(1)
@@ -216,6 +229,20 @@ private struct PodiumStep: View {
             UnevenRoundedRectangle(topLeadingRadius: 12, topTrailingRadius: 12)
                 .fill(Team.color(result.constructor.constructorId))
                 .frame(height: 4)
+        }
+        // Reflet doré qui passe sur la marche du vainqueur.
+        .overlay {
+            if tall {
+                SweepShine(color: Color(hex: 0xFFD666).opacity(0.28), period: 4, active: 0.4)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+        }
+        .opacity(up ? 1 : 0)
+        .offset(y: up ? 0 : 40)
+        .onAppear {
+            guard !up else { return }
+            if reduceMotion { up = true; return }
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.78).delay(delay)) { up = true }
         }
     }
 }
