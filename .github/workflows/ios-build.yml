@@ -1,0 +1,49 @@
+name: Compilation iOS
+
+# Vérifie que l'app iOS compile sur les branches de travail (simulateur, sans signature,
+# rien n'est envoyé sur TestFlight). L'envoi sur TestFlight reste réservé à master.
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore: [master]
+    paths: ["ios/**", ".github/workflows/ios-build.yml"]
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Générer le projet Xcode
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Compiler (simulateur iOS, sans signature)
+        run: |
+          xcodebuild build \
+            -project F1X.xcodeproj -scheme F1X -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            > "$RUNNER_TEMP/build.log" 2>&1 || true
+          grep -E "\*\* BUILD" "$RUNNER_TEMP/build.log" || true
+          if ! grep -q "\*\* BUILD SUCCEEDED" "$RUNNER_TEMP/build.log"; then
+            # Erreurs remontées en annotations (lisibles sans télécharger les journaux).
+            grep -E "^/.*error: " "$RUNNER_TEMP/build.log" | sort -u | head -40 \
+              | while IFS= read -r line; do echo "::error::${line:0:900}"; done
+            grep -A3 -E "^/.*error: " "$RUNNER_TEMP/build.log" | head -150
+            tail -40 "$RUNNER_TEMP/build.log"
+            exit 1
+          fi

@@ -16,8 +16,8 @@ struct LoadableView<Value, Content: View>: View {
     var body: some View {
         switch state {
         case .loading:
-            ProgressView(L("Chargement…", "Loading…"))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            StartLightsLoader()
+                .frame(maxHeight: .infinity)
         case .failed(let message):
             ContentUnavailableView {
                 Label(L("Drapeau rouge", "Red flag"), systemImage: "flag.fill")
@@ -49,6 +49,8 @@ struct CountdownView: View {
                 cell(String(format: "%02d", (s % 86400) / 3600), L("heures", "hours"))
                 cell(String(format: "%02d", (s % 3600) / 60), "min")
                 cell(String(format: "%02d", s % 60), "sec")
+                    // Un trait rouge se remplit à chaque seconde.
+                    .overlay(alignment: .bottom) { SecondsBar(target: target).offset(y: 6) }
             }
         }
     }
@@ -74,6 +76,27 @@ struct CountdownView: View {
         .padding(.vertical, 4)
         .overlay(alignment: .leading) {
             if !first { Rectangle().fill(Color.hairline).frame(width: 1) }
+        }
+    }
+}
+
+/// Trait sous les secondes du compte à rebours : plein quand le chiffre change.
+private struct SecondsBar: View {
+    let target: Date
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        if !reduceMotion {
+            TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+                let remaining = target.timeIntervalSince(context.date)
+                let k = remaining > 0 ? 1 - (remaining - remaining.rounded(.down)) : 0
+                Capsule()
+                    .fill(Color.f1Red)
+                    .frame(width: 34, height: 2)
+                    .scaleEffect(x: CGFloat(k), y: 1, anchor: .leading)
+                    .shadow(color: .f1Red, radius: 4)
+            }
+            .accessibilityHidden(true)
         }
     }
 }
@@ -130,15 +153,22 @@ struct StandingRow<Trailing: View>: View {
     var avatar: Driver? = nil
     @ViewBuilder let trailing: () -> Trailing
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var grown = false
+
     var body: some View {
         HStack(spacing: 12) {
+            // La barre de couleur de l'écurie pousse, puis la place arrive.
             RoundedRectangle(cornerRadius: 2)
                 .fill(Team.color(teamId))
                 .frame(width: 4)
                 .padding(.vertical, 2)
+                .scaleEffect(x: 1, y: grown ? 1 : 0)
             Text(position)
                 .font(.body.weight(.heavy).monospacedDigit())
                 .frame(minWidth: 24)
+                .opacity(grown ? 1 : 0)
+                .offset(y: grown ? 0 : 8)
             if let d = avatar {
                 Avatar(name: d.fullName, wikipedia: d.url, color: Team.color(teamId), size: 36)
             }
@@ -157,6 +187,12 @@ struct StandingRow<Trailing: View>: View {
                 .layoutPriority(1)
         }
         .padding(.vertical, 4)
+        .cascadeIn()
+        .onAppear {
+            guard !grown else { return }
+            if reduceMotion { grown = true; return }
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.15)) { grown = true }
+        }
     }
 }
 
@@ -166,7 +202,8 @@ struct PointsLabel: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 2) {
-            Text(value).font(.body.weight(.heavy).monospacedDigit())
+            // Les points comptent depuis 0.
+            CountingText(text: value).font(.body.weight(.heavy).monospacedDigit())
             if !suffix.isEmpty {
                 Text(suffix).font(.caption2).foregroundStyle(.secondary)
             }

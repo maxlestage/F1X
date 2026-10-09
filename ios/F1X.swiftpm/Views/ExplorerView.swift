@@ -28,26 +28,26 @@ struct ExplorerView: View {
                 .pickerStyle(.segmented)
             }
             Section(L("Histoire", "History")) {
-                NavigationLink { ChampionsView() } label: { Label(L("Champions du monde depuis 1950", "World champions since 1950"), systemImage: "trophy.fill") }
-                NavigationLink { RecordsView() } label: { Label("Records", systemImage: "chart.bar.fill") }
-                NavigationLink { CalendarView() } label: { Label(L("Toutes les saisons", "Every season"), systemImage: "calendar") }
+                NavigationLink { ChampionsView() } label: { Label(L("Champions du monde depuis 1950", "World champions since 1950"), systemImage: "trophy.fill").cascadeIn() }
+                NavigationLink { RecordsView() } label: { Label("Records", systemImage: "chart.bar.fill").cascadeIn() }
+                NavigationLink { CalendarView() } label: { Label(L("Toutes les saisons", "Every season"), systemImage: "calendar").cascadeIn() }
             }
             Section(L("Outils", "Tools")) {
-                NavigationLink { DataYearView(year: Calendar.current.component(.year, from: Date())) } label: { Label(L("Données OpenF1 (télémétrie, pneus, radios…)", "OpenF1 data (telemetry, tyres, radio…)"), systemImage: "chart.xyaxis.line") }
-                NavigationLink { CompareView() } label: { Label(L("Comparateur de pilotes", "Driver comparison"), systemImage: "arrow.left.arrow.right") }
-                NavigationLink { NewsView() } label: { Label(L("Actualités", "News"), systemImage: "newspaper.fill") }
-                NavigationLink { GlossaryView() } label: { Label(L("Lexique", "Glossary"), systemImage: "book.fill") }
+                NavigationLink { DataYearView(year: Calendar.current.component(.year, from: Date())) } label: { Label(L("Données OpenF1 (télémétrie, pneus, radios…)", "OpenF1 data (telemetry, tyres, radio…)"), systemImage: "chart.xyaxis.line").cascadeIn() }
+                NavigationLink { CompareView() } label: { Label(L("Comparateur de pilotes", "Driver comparison"), systemImage: "arrow.left.arrow.right").cascadeIn() }
+                NavigationLink { NewsView() } label: { Label(L("Actualités", "News"), systemImage: "newspaper.fill").cascadeIn() }
+                NavigationLink { GlossaryView() } label: { Label(L("Lexique", "Glossary"), systemImage: "book.fill").cascadeIn() }
             }
             Section(L("Jeux", "Games")) {
-                NavigationLink { PredictView() } label: { Label(L("Pronostics", "Predictions"), systemImage: "sparkles") }
-                NavigationLink { FantasyView() } label: { Label("Fantasy F1", systemImage: "person.3.fill") }
-                NavigationLink { QuizView() } label: { Label(L("Quiz : devine le pilote", "Quiz: guess the driver"), systemImage: "questionmark.circle.fill") }
+                NavigationLink { PredictView() } label: { Label(L("Pronostics", "Predictions"), systemImage: "sparkles").cascadeIn() }
+                NavigationLink { FantasyView() } label: { Label("Fantasy F1", systemImage: "person.3.fill").cascadeIn() }
+                NavigationLink { QuizView() } label: { Label(L("Quiz : devine le pilote", "Quiz: guess the driver"), systemImage: "questionmark.circle.fill").cascadeIn() }
             }
             Section("F1X") {
-                Link(destination: URL(string: "presentation", relativeTo: Server.base)!) { Label(L("Site de F1X", "F1X website"), systemImage: "safari") }
-                Link(destination: URL(string: "mentions-legales", relativeTo: Server.base)!) { Label(L("Mentions légales", "Legal notice"), systemImage: "doc.text") }
-                Link(destination: URL(string: "confidentialite", relativeTo: Server.base)!) { Label(L("Confidentialité", "Privacy"), systemImage: "hand.raised") }
-                Link(destination: URL(string: "credits", relativeTo: Server.base)!) { Label(L("Crédits et sources", "Credits & sources"), systemImage: "info.circle") }
+                Link(destination: URL(string: "presentation", relativeTo: Server.base)!) { Label(L("Site de F1X", "F1X website"), systemImage: "safari").cascadeIn() }
+                Link(destination: URL(string: "mentions-legales", relativeTo: Server.base)!) { Label(L("Mentions légales", "Legal notice"), systemImage: "doc.text").cascadeIn() }
+                Link(destination: URL(string: "confidentialite", relativeTo: Server.base)!) { Label(L("Confidentialité", "Privacy"), systemImage: "hand.raised").cascadeIn() }
+                Link(destination: URL(string: "credits", relativeTo: Server.base)!) { Label(L("Crédits et sources", "Credits & sources"), systemImage: "info.circle").cascadeIn() }
             }
             Section {
                 VStack(alignment: .leading, spacing: 4) {
@@ -96,6 +96,7 @@ struct ChampionsView: View {
                     Text(L("Constructeurs : \(k.name)", "Constructors: \(k.name)")).font(.footnote).foregroundStyle(.secondary)
                 }
             }
+            .cascadeIn()
         }
         .navigationTitle(L("Champions", "Champions"))
         .task { champions = (try? await ServerAPI.shared.champions()) ?? [] }
@@ -120,8 +121,9 @@ struct RecordsView: View {
                             Avatar(name: e.0.fullName, wikipedia: e.0.url, size: 30)
                             Text(e.0.fullName)
                             Spacer()
-                            Text("×\(e.1)").bold()
+                            CountingText(text: "×\(e.1)").bold()
                         }
+                        .cascadeIn()
                     }
                 }
             }
@@ -133,8 +135,9 @@ struct RecordsView: View {
                             RoundedRectangle(cornerRadius: 2).fill(Team.color(e.0.constructorId)).frame(width: 4, height: 22)
                             Text(e.0.name)
                             Spacer()
-                            Text("×\(e.1)").bold()
+                            CountingText(text: "×\(e.1)").bold()
                         }
+                        .cascadeIn()
                     }
                 }
             }
@@ -163,14 +166,21 @@ struct NewsView: View {
 
     var body: some View {
         List {
-            if articles.isEmpty && !failed { ProgressView().frame(maxWidth: .infinity) }
+            if articles.isEmpty && !failed { StartLightsLoader() }
             if failed { Text(L("Actualités indisponibles.", "News unavailable.")).foregroundStyle(.secondary) }
             ForEach(articles) { a in
                 if let url = URL(string: a.link) {
                     Link(destination: url) {
                         VStack(alignment: .leading, spacing: 6) {
                             if let img = a.image.flatMap(URL.init(string:)) {
-                                AsyncImage(url: img) { $0.resizable().scaledToFill() } placeholder: { Color.clear }
+                                AsyncImage(url: img, transaction: Transaction(animation: .easeOut(duration: 0.6))) { phase in
+                                    if let image = phase.image {
+                                        image.resizable().scaledToFill()
+                                            .transition(.opacity.combined(with: .scale(scale: 1.12)))
+                                    } else {
+                                        Color.clear
+                                    }
+                                }
                                     .frame(height: 150).frame(maxWidth: .infinity).clipped()
                                     .clipShape(RoundedRectangle(cornerRadius: 10))
                             }
@@ -178,6 +188,7 @@ struct NewsView: View {
                             if !a.excerpt.isEmpty { Text(a.excerpt).font(.footnote).foregroundStyle(.secondary).lineLimit(3) }
                             Text("\(a.source) ↗").font(.caption.bold()).foregroundStyle(Color.f1Red)
                         }
+                        .cascadeUp()
                     }
                 }
             }
@@ -204,6 +215,7 @@ struct GlossaryView: View {
                 Text(e.term).font(.headline)
                 Text(e.definition).font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
+            .cascadeIn()
         }
         .searchable(text: $query, prompt: L("Rechercher un terme", "Search a term"))
         .navigationTitle(L("Lexique", "Glossary"))
@@ -441,6 +453,8 @@ struct QuizView: View {
     @State private var options: [Champion] = []
     @State private var picked: String?
     @State private var score = 0
+    /// Secousse de la mauvaise réponse (0 → 1 en une demi-seconde).
+    @State private var shake: CGFloat = 0
     @AppStorage("f1x-quiz-best") private var best = 0
 
     var body: some View {
@@ -448,8 +462,10 @@ struct QuizView: View {
             Section {
                 HStack {
                     Text(L("Score : \(score)", "Score: \(score)")).bold()
+                        .contentTransition(.numericText(value: Double(score)))
                     Spacer()
                     Text(L("Record : \(best)", "Best: \(best)")).foregroundStyle(.secondary)
+                        .contentTransition(.numericText(value: Double(best)))
                 }
             }
             if let a = answer, let d = a.driver {
@@ -463,19 +479,33 @@ struct QuizView: View {
                             Button {
                                 guard picked == nil else { return }
                                 picked = od.driverId
-                                if od.driverId == d.driverId {
-                                    score += 1
-                                    best = max(best, score)
-                                } else {
-                                    score = 0
+                                withAnimation(.snappy) {
+                                    if od.driverId == d.driverId {
+                                        score += 1
+                                        best = max(best, score)
+                                    } else {
+                                        score = 0
+                                    }
+                                }
+                                if od.driverId != d.driverId {
+                                    withAnimation(.linear(duration: 0.45)) { shake = 1 }
                                 }
                             } label: {
                                 HStack {
                                     Text(od.fullName).foregroundStyle(.primary)
                                     Spacer()
-                                    if picked != nil && od.driverId == d.driverId { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
-                                    else if picked == od.driverId { Image(systemName: "xmark.circle.fill").foregroundStyle(.red) }
+                                    // Bonne réponse : la coche rebondit ; mauvaise : la ligne secoue la tête.
+                                    if picked != nil && od.driverId == d.driverId {
+                                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                                            .symbolEffect(.bounce, value: picked)
+                                            .transition(.scale.combined(with: .opacity))
+                                    } else if picked == od.driverId {
+                                        Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+                                            .transition(.scale.combined(with: .opacity))
+                                    }
                                 }
+                                .modifier(ShakeEffect(animatableData: picked == od.driverId && od.driverId != d.driverId ? shake : 0))
+                                .cascadeIn()
                             }
                         }
                     }
@@ -484,7 +514,7 @@ struct QuizView: View {
                     }
                 }
             } else {
-                ProgressView()
+                StartLightsLoader()
             }
         }
         .navigationTitle("Quiz")
@@ -496,6 +526,7 @@ struct QuizView: View {
 
     private func newQuestion() {
         picked = nil
+        shake = 0
         guard let a = champions.randomElement(), let ad = a.driver else { return }
         var seen: Set<String> = [ad.driverId]
         var opts = [a]
