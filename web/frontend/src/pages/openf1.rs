@@ -190,7 +190,7 @@ pub fn LineChart(p: &LineProps) -> Html {
                     <line class="chart-crosshair" x1={format!("{:.1}", x(px))} x2={format!("{:.1}", x(px))} y1={mt.to_string()} y2={(h - mb).to_string()} />
                 }
                 { for p.series.iter().map(|s| html! {
-                    <path d={path(s)} fill="none" stroke={s.color.clone()} stroke-width="2" stroke-linejoin="round" />
+                    <path class="chart-line" pathLength="1" d={path(s)} fill="none" stroke={s.color.clone()} stroke-width="2" stroke-linejoin="round" />
                 }) }
             </svg>
             if p.series.len() > 1 {

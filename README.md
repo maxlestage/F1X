@@ -8,7 +8,7 @@ des pilotes, palmarès des écuries et des circuits (avec leur **tracé GPS colo
 
 | | |
 |---|---|
-| 🏁 **Site de présentation** | `/presentation` — page vitrine FR/EN (HTML + CSS rendus par le serveur Rust, sans JavaScript) avec captures réelles et bouton « Voir l'app web » |
+| 🏁 **Site de présentation** | `/presentation` — page vitrine FR/EN (HTML + CSS rendus par le serveur Rust, lisible sans JavaScript ; un petit script facultatif anime la page) avec captures réelles et bouton « Voir l'app web » |
 | 📱 **App iOS native** | SwiftUI, dans [`ios/F1X.swiftpm`](ios/) |
 | 🌐 **Site web mobile first** | 100 % Rust : front **Yew 0.23** (WebAssembly) + serveur **axum**, dans [`web/`](web/) |
 | ☁️ **Déploiement** | Heroku, pilotable 100 % depuis un téléphone |
@@ -19,7 +19,7 @@ Données : API publique [Jolpica F1](https://github.com/jolpica/jolpica-f1) (suc
 
 C'est une règle du projet, appliquée des deux côtés :
 
-- **Web (Yew)** : tout est empilé verticalement (pas de tableau, pas de carrousel), `overflow-x: hidden`,
+- **Web (Yew)** : tout est empilé verticalement (pas de tableau, pas de carrousel), `overflow-x: hidden` puis `clip` (la barre du haut reste collée en haut),
   `min-width: 0` partout, texte long qui passe à la ligne (`overflow-wrap: anywhere`), grilles en
   `minmax(0, 1fr)`. Vérifié automatiquement sur toutes les pages à 320, 375 et 430 px de large.
 - **iOS** : uniquement des `List` / `ScrollView(.vertical)`, aucune `ScrollView(.horizontal)` ni

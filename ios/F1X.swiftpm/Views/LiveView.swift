@@ -18,7 +18,7 @@ struct LiveView: View {
                 board(snap)
             } else if let message = client.loading {
                 VStack(spacing: 12) {
-                    ProgressView()
+                    StartLightsLoader(label: nil)
                     Text(message).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     Button(L("Annuler", "Cancel")) { client.stop() }
                 }
@@ -55,7 +55,7 @@ struct LiveView: View {
         List {
             Section {
                 HStack {
-                    Circle().fill(client.connected ? Color.green : Color.gray).frame(width: 10, height: 10)
+                    LiveDot(on: client.connected)
                     Text(client.connected ? L("Connecté au serveur F1X", "Connected to F1X") : L("Connexion…", "Connecting…"))
                     Spacer()
                     if client.viewers > 0 { Text("👀 \(client.viewers)").foregroundStyle(.secondary) }
@@ -109,6 +109,8 @@ struct LiveView: View {
                             .padding(.horizontal, 8).padding(.vertical, 4)
                             .background(trackStatusColor(snap.track_status).opacity(0.25), in: Capsule())
                             .foregroundStyle(trackStatusColor(snap.track_status))
+                            // Drapeau jaune, voiture de sécurité, drapeau rouge : la pastille clignote doucement.
+                            .glow(trackStatusColor(snap.track_status), active: ["yellow", "safety_car", "virtual_safety_car", "red"].contains(snap.track_status))
                     }
                     ProgressView(value: snap.progress).tint(.f1Red)
                     // Live Activity : classement sur l'écran verrouillé et dans la Dynamic Island.
@@ -173,6 +175,8 @@ struct LiveView: View {
             }
         }
         .listStyle(.insetGrouped)
+        // Dépassement : les lignes glissent à leur nouvelle place.
+        .animation(.spring(response: 0.5, dampingFraction: 0.85), value: snap.cars.map(\.id))
     }
 
     @ViewBuilder
@@ -197,9 +201,12 @@ struct LiveView: View {
                         }
                         HStack(spacing: 3) {
                             ForEach(0..<3, id: \.self) { i in
+                                let flag = car.sector_flags.count > i ? car.sector_flags[i] : 0
                                 Capsule()
-                                    .fill(sectorColor(car.sector_flags.count > i ? car.sector_flags[i] : 0))
+                                    .fill(sectorColor(flag))
                                     .frame(width: 14, height: 4)
+                                    // Meilleur secteur de la session : il luit.
+                                    .glow(.f1Purple, active: flag == 3)
                             }
                             Text(car.last_lap.map(formatLap) ?? "").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                         }
@@ -213,11 +220,13 @@ struct LiveView: View {
                         Circle().stroke(tyreColor(car.compound), lineWidth: 3).frame(width: 24, height: 24)
                         Text(car.compound.map { String($0.prefix(1)) } ?? "?").font(.caption2.bold())
                     }
+                    .spinIn()
                     .overlay(alignment: .bottomTrailing) {
                         if let age = car.tyre_age { Text("\(age)").font(.system(size: 8).bold()).offset(x: 6, y: 4) }
                     }
                 }
                 .opacity(car.retired ? 0.45 : 1)
+                .cascadeIn()
             }
         } footer: {
             Text(L("Secteurs : violet = meilleur de la session, vert = record personnel, jaune = plus lent. Pneu : S tendre, M medium, H dur, I intermédiaire, W pluie (chiffre = tours).",
@@ -278,6 +287,8 @@ struct LiveView: View {
                         }
                     }
                     .frame(height: 12)
+                    // Les relais se déroulent de gauche à droite.
+                    .drawIn()
                     Text("\(car.pits)").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 18)
                 }
             }
@@ -296,6 +307,7 @@ struct LiveView: View {
                 ForEach(champ.prefix(10), id: \.self) { r in
                     HStack(spacing: 8) {
                         Text("\(r.position_now)").font(.headline.monospacedDigit()).frame(width: 26)
+                            .contentTransition(.numericText())
                         RoundedRectangle(cornerRadius: 2).fill(Color(hexString: r.colour)).frame(width: 4, height: 22)
                         Text(r.name).font(.subheadline.weight(.semibold)).lineLimit(1)
                         let move = r.position_before - r.position_now

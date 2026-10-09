@@ -163,7 +163,7 @@ struct StatGrid: View {
 
     var body: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: columns), spacing: 8) {
-            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                 VStack(spacing: 2) {
                     Text(item.0.uppercased())
                         .font(.caption2.weight(.semibold))
@@ -171,7 +171,7 @@ struct StatGrid: View {
                         .lineLimit(2)
                         .multilineTextAlignment(.center)
                         .minimumScaleFactor(0.7)
-                    Text(item.1)
+                    CountingText(text: item.1)
                         .font(.headline.monospacedDigit())
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
@@ -179,6 +179,7 @@ struct StatGrid: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
                 .background(Color.tile, in: RoundedRectangle(cornerRadius: 10))
+                .rise(delay: 0.06 * Double(index))
             }
         }
     }
@@ -263,7 +264,7 @@ struct WeatherCard: View {
                 } else if failed {
                     Text(L("Prévisions indisponibles.", "Forecast unavailable.")).foregroundStyle(.secondary)
                 } else {
-                    ProgressView().frame(maxWidth: .infinity)
+                    StartLightsLoader()
                 }
             }
             .task { await load() }
@@ -280,7 +281,7 @@ struct WeatherCard: View {
         if full, let c = f.current {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 10) {
-                    Text(WeatherText.icon(c.weather_code)).font(.largeTitle)
+                    Text(WeatherText.icon(c.weather_code)).font(.largeTitle).floating()
                     VStack(alignment: .leading) {
                         Text("\(WeatherText.deg(c.temperature_2m)) · \(WeatherText.describe(c.weather_code))").font(.headline)
                         Text(L("Maintenant au circuit", "Now at the circuit")).font(.caption).foregroundStyle(.secondary)
@@ -366,6 +367,7 @@ struct WeatherCard: View {
                 .chartYScale(domain: .automatic(includesZero: false))
                 .chartXSelection(value: $picked)
                 .frame(height: 120)
+                .drawIn()
                 Text(L("Probabilité de pluie (%)", "Chance of rain (%)")).font(.caption).foregroundStyle(.secondary)
                 Chart {
                     ForEach(window, id: \.date) { h in
@@ -378,6 +380,7 @@ struct WeatherCard: View {
                 .chartYScale(domain: 0...100)
                 .chartXSelection(value: $picked)
                 .frame(height: 100)
+                .drawIn()
             }
         }
 

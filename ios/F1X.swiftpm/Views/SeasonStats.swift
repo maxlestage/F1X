@@ -37,7 +37,7 @@ struct SeasonStatsView: View {
                                         .frame(width: 3, height: 18)
                                     driverTitle(row.driver).lineLimit(1)
                                     Spacer()
-                                    Text(row.value).font(.body.weight(.heavy).monospacedDigit())
+                                    CountingText(text: row.value).font(.body.weight(.heavy).monospacedDigit())
                                 }
                             }
                         }
@@ -46,7 +46,7 @@ struct SeasonStatsView: View {
             } else if failed {
                 ContentUnavailableView(L("Données indisponibles", "Data unavailable"), systemImage: "wifi.slash")
             } else {
-                ProgressView().frame(maxWidth: .infinity)
+                StartLightsLoader()
             }
         }
         .listStyle(.insetGrouped)
@@ -275,6 +275,8 @@ private struct ProgressionChart: View {
         .chartForegroundStyleScale(domain: series.map(\.name), range: series.map { Team.color($0.team) })
         .chartLegend(position: .bottom, alignment: .leading)
         .chartXAxisLabel(L("Manche", "Round"))
+        // Les courbes se dessinent manche après manche.
+        .drawIn(trigger: series.count)
     }
 }
 
@@ -325,6 +327,7 @@ private struct DuelRow: View {
                 }
             }
             .frame(height: 6)
+            .drawIn()
         }
     }
 }

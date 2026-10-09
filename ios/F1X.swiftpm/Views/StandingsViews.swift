@@ -36,7 +36,7 @@ struct StandingsView: View {
             }
             switch drivers {
             case .loading:
-                Section { ProgressView().frame(maxWidth: .infinity) }
+                Section { StartLightsLoader() }
             case .failed(let message):
                 Section {
                     Text(message).foregroundStyle(.secondary)
@@ -53,8 +53,9 @@ struct StandingsView: View {
                                                 title: Text(s.constructor.name).bold(), subtitle: winsLabel(s.wins)) {
                                         PointsLabel(value: s.points)
                                     }
-                                    ProgressView(value: leader > 0 ? min((Double(s.points) ?? 0) / leader, 1) : 0)
-                                        .tint(Team.color(s.constructor.constructorId))
+                                    // La barre se remplit à son arrivée.
+                                    FillBar(value: leader > 0 ? min((Double(s.points) ?? 0) / leader, 1) : 0,
+                                            color: Team.color(s.constructor.constructorId))
                                 }
                             }
                         }
