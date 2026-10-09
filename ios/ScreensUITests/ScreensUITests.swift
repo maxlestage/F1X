@@ -62,6 +62,14 @@ final class ScreensUITests: XCTestCase {
             sleep(6)
             shot("course")
             scrollShots("course", count: 5)
+            scrollToTop()
+            let circuit = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Circuit' OR label CONTAINS 'Park' OR label CONTAINS 'Autodromo'")).firstMatch
+            if tap(circuit) {
+                sleep(6)
+                shot("circuit")
+                scrollShots("circuit", count: 3)
+                back()
+            }
             back()
         }
 
@@ -73,6 +81,12 @@ final class ScreensUITests: XCTestCase {
             sleep(6)
             shot("pilote")
             scrollShots("pilote", count: 3)
+            back()
+        }
+        if tap(app.buttons["Statistiques et duels de la saison"]) {
+            sleep(8)
+            shot("statistiques")
+            scrollShots("statistiques", count: 3)
             back()
         }
         if tap(app.buttons["Écuries"]) {
@@ -104,11 +118,21 @@ final class ScreensUITests: XCTestCase {
         ]
         for (name, label) in pages {
             tab("Explorer")
+            var tries = 0
+            while !app.staticTexts[label].exists && !app.buttons[label].exists && tries < 5 {
+                app.swipeUp(velocity: .slow)
+                tries += 1
+            }
             let link = app.buttons[label].exists ? app.buttons[label] : app.staticTexts[label]
             guard tap(link) else { continue }
             sleep(6)
             shot(name)
             scrollShots(name, count: 2)
+            if name == "fantasy" {
+                scrollToTop()
+                let pick = app.buttons.matching(NSPredicate(format: "label CONTAINS 'M€'")).element(boundBy: 6)
+                if tap(pick) { sleep(1); shot("fantasy-brouillon") }
+            }
             if name == "quiz" {
                 scrollToTop()
                 let option = app.buttons.matching(NSPredicate(format: "label MATCHES '^[A-Z][a-zé]+ .+'")).element(boundBy: 0)
