@@ -186,6 +186,9 @@ pub struct Race {
     pub sprint_results: Option<Vec<RaceResult>>,
     #[serde(rename = "QualifyingResults")]
     pub qualifying_results: Option<Vec<QualifyingResult>>,
+    /// Qualifs sprint : ajoutées par le serveur F1X depuis OpenF1 (absentes de Jolpica).
+    #[serde(rename = "SprintQualifyingResults")]
+    pub sprint_qualifying_results: Option<Vec<QualifyingResult>>,
     #[serde(rename = "Laps")]
     pub laps: Option<Vec<Lap>>,
     #[serde(rename = "PitStops")]

@@ -18,6 +18,8 @@ struct HomeView: View {
                 VStack(spacing: 16) {
                     if let race = data.next {
                         NextRaceCard(race: race)
+                        // Ordre des qualifications dès la fin de la séance (qualifs, qualifs sprint).
+                        QualiOrderCard(race: race)
                         ReminderToggle(races: data.races)
                         WeekendActivityToggle(races: data.races, last: data.last)
                         WeatherCard(race: race, full: false)
@@ -167,6 +169,63 @@ private struct NextRaceCard: View {
             }
             .buttonStyle(PressableStyle())
         }
+    }
+}
+
+/// Ordre des qualifications du prochain Grand Prix : qualifs (grille du Grand Prix) et
+/// qualifs sprint. N'apparaît qu'une fois une séance de qualifications terminée.
+private struct QualiOrderCard: View {
+    let race: Race
+
+    @State private var main: [QualifyingResult] = []
+    @State private var sprint: [QualifyingResult] = []
+    /// Onglet choisi (sinon : les qualifs si elles ont eu lieu, sinon les qualifs sprint).
+    @State private var showSprint: Bool?
+    @State private var all = false
+
+    var body: some View {
+        let sprintShown = showSprint ?? main.isEmpty
+        let list = sprintShown ? sprint : main
+        Group {
+            if !list.isEmpty {
+                SectionCard(title: L("Ordre des qualifications", "Qualifying order")) {
+                    if !main.isEmpty && !sprint.isEmpty {
+                        Picker("", selection: Binding(get: { sprintShown }, set: { value in withAnimation(.snappy) { showSprint = value } })) {
+                            Text(L("Qualifications", "Qualifying")).tag(false)
+                            Text(L("Qualifs sprint", "Sprint quali")).tag(true)
+                        }
+                        .pickerStyle(.segmented)
+                    } else {
+                        Eyebrow(text: sprintShown ? L("Qualifs sprint", "Sprint qualifying") : L("Qualifications", "Qualifying"))
+                    }
+                    ForEach(Array(list.prefix(all ? list.count : 10).enumerated()), id: \.offset) { _, q in
+                        NavigationLink(value: q.driver) { QualifyingRow(result: q, sprint: sprintShown) }
+                            .buttonStyle(.plain)
+                    }
+                    HStack {
+                        if list.count > 10 {
+                            Button(all ? L("Voir le top 10", "Show top 10") : L("Voir les \(list.count) pilotes", "See all \(list.count) drivers")) {
+                                withAnimation(.snappy) { all.toggle() }
+                            }
+                            .font(.subheadline.weight(.semibold))
+                        }
+                        Spacer()
+                        NavigationLink(value: race) {
+                            Text(L("Détails", "Details")).font(.subheadline.weight(.semibold))
+                        }
+                    }
+                }
+            }
+        }
+        .task(id: race.id) { await load() }
+        .autoRefresh { await load() }
+    }
+
+    private func load() async {
+        guard let start = race.start, Date.now > start.addingTimeInterval(-4 * 86400) else { return }
+        guard let q = try? await F1API.shared.qualifyingWeekend(season: race.season, round: race.roundNumber) else { return }
+        main = q.main
+        sprint = q.sprint
     }
 }
 
