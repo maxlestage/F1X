@@ -897,8 +897,8 @@ struct RadioSection: View {
                         Image(systemName: player.playing == url ? "stop.circle.fill" : "play.circle.fill").font(.title2)
                         Rectangle().fill(Color(hexString: drivers[r["driver_number"].int ?? 0]?.colour ?? "888888")).frame(width: 3, height: 26)
                         VStack(alignment: .leading, spacing: 0) {
-                            Text(of1Name(drivers, r["driver_number"].int ?? 0)).foregroundStyle(.primary)
-                            Text(shortTime(r["date"].string)).font(.caption).foregroundStyle(.secondary)
+                            Text(of1Name(drivers, r["driver_number"].int ?? 0)).foregroundStyle(Color.primary)
+                            Text(shortTime(r["date"].string)).font(.caption).foregroundStyle(Color.secondary)
                         }
                         Spacer()
                     }
