@@ -196,6 +196,26 @@ struct StandingRow<Trailing: View>: View {
     }
 }
 
+/// Ligne de qualifications : place, pilote, écurie, meilleur temps et segment atteint
+/// (Q1 / Q2 / Q3, ou SQ1 / SQ2 / SQ3 pour les qualifs sprint).
+struct QualifyingRow: View {
+    let result: QualifyingResult
+    var sprint = false
+
+    var body: some View {
+        StandingRow(
+            position: result.position,
+            teamId: result.constructor.constructorId,
+            title: driverTitle(result.driver),
+            subtitle: result.constructor.name
+        ) {
+            if let best = result.best {
+                PointsLabel(value: best.time, suffix: (sprint ? "S" : "") + best.segment)
+            }
+        }
+    }
+}
+
 struct PointsLabel: View {
     let value: String
     var suffix: String = "pts"
