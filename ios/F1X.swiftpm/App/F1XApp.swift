@@ -73,6 +73,8 @@ struct RootView: View {
                     .zIndex(10)
             }
         }
+        // Onde rouge là où l'on touche l'écran, comme sur le site.
+        .background(TouchRipples())
         .task { await F1API.shared.warmUp() }
         .onChange(of: tab) { _, new in
             guard !reduceMotion else { return }

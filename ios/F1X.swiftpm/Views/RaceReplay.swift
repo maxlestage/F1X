@@ -37,7 +37,7 @@ struct RaceReplayCard: View {
                 Text(L("Pas de replay disponible pour cette course.", "No replay available for this race."))
                     .font(.footnote).foregroundStyle(.secondary)
             } else {
-                ProgressView().frame(maxWidth: .infinity)
+                StartLightsLoader()
             }
         }
         .task {

@@ -1,5 +1,5 @@
 //! Site de présentation (`/presentation`) et pages légales : HTML + CSS rendus par le serveur,
-//! sans JavaScript. Bilingue : `?lang=fr|en`, sinon langue du navigateur (`Accept-Language`).
+//! lisibles sans JavaScript (un petit script facultatif ne fait qu'animer). Bilingue : `?lang=fr|en`, sinon langue du navigateur (`Accept-Language`).
 
 use axum::extract::Query;
 use axum::http::{HeaderMap, header};
@@ -217,9 +217,19 @@ fn shell(lang: Lang, origin: &str, m: Meta, body: &str) -> String {
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap">
 <style>{CSS}</style>
+<script>
+// Animations d'entrée prévues dès le départ (sinon tout reste visible) ; filet de sécurité si le script de fin ne passe pas.
+(function () {{
+  var r = document.documentElement;
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches || !("IntersectionObserver" in window)) return;
+  r.classList.add("anime");
+  setTimeout(function () {{ if (!window.__f1xVu) r.classList.remove("anime"); }}, 3000);
+}})();
+</script>
 </head>
 <body>
 <div class="grain" aria-hidden="true"></div>
+<div class="curseur" aria-hidden="true"><span></span></div>
 <header class="top">
   <a class="brand" href="/presentation?lang={code}" aria-label="F1X"><span>F1</span><span class="x">X</span></a>
   <nav class="top-links">
@@ -233,6 +243,63 @@ fn shell(lang: Lang, origin: &str, m: Meta, body: &str) -> String {
 {footer}
 <script>
 (function () {{
+  var root = document.documentElement, reduit = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var souris = matchMedia("(hover: hover) and (pointer: fine)").matches;
+  // Barre du haut plus dense au défilement ; barre de progression si le CSS ne sait pas la lier au défilement.
+  var progres = !(window.CSS && CSS.supports && CSS.supports("animation-timeline: scroll()")), prevu = false;
+  addEventListener("scroll", function () {{
+    if (prevu) return;
+    prevu = true;
+    requestAnimationFrame(function () {{
+      prevu = false;
+      var y = scrollY, h = root.scrollHeight - innerHeight;
+      root.toggleAttribute("data-defile", y > 24);
+      if (progres) root.style.setProperty("--defile", h > 0 ? Math.min(1, y / h).toFixed(4) : 0);
+    }});
+  }}, {{ passive: true }});
+  // Blocs qui entrent en scène en arrivant à l'écran (en cascade s'ils arrivent ensemble).
+  window.__f1xVu = 1;
+  if (root.classList.contains("anime")) {{
+    var vus = new IntersectionObserver(function (es) {{
+      var k = 0;
+      es.forEach(function (e) {{
+        if (!e.isIntersecting) return;
+        vus.unobserve(e.target);
+        e.target.style.setProperty("--d", Math.min(k++, 6) * 90 + "ms");
+        e.target.classList.add("vu");
+      }});
+    }}, {{ rootMargin: "0px 0px -8% 0px" }});
+    document.querySelectorAll(".numbers li, .feature, .band, .final, .doc > *, .foot-grid > *, .foot-bottom, .foot-legal").forEach(function (el) {{ vus.observe(el); }});
+  }}
+  if (souris) {{
+    // Curseur anneau qui grossit sur ce qui se clique.
+    var c = document.querySelector(".curseur"), x = -100, y = -100, cx = x, cy = y;
+    addEventListener("mousemove", function (e) {{
+      x = e.clientX; y = e.clientY;
+      c.classList.toggle("actif", !!(e.target.closest && e.target.closest("a, button")));
+    }}, {{ passive: true }});
+    (function boucle() {{
+      cx += (x - cx) * (reduit ? 1 : .22); cy += (y - cy) * (reduit ? 1 : .22);
+      c.style.transform = "translate(" + cx + "px," + cy + "px)";
+      requestAnimationFrame(boucle);
+    }})();
+    if (!reduit) {{
+      // Projecteur sur les cartes et téléphone de l'accueil qui s'incline vers la souris.
+      document.addEventListener("pointermove", function (e) {{
+        var b = e.target.closest && e.target.closest(".mini, .numbers li, .steps li");
+        if (!b) return;
+        var r = b.getBoundingClientRect();
+        b.style.setProperty("--mx", Math.round(e.clientX - r.left) + "px");
+        b.style.setProperty("--my", Math.round(e.clientY - r.top) + "px");
+      }}, {{ passive: true }});
+      var tel = document.querySelector(".hero-shot");
+      if (tel) addEventListener("mousemove", function (e) {{
+        var kx = e.clientX / innerWidth - .5, ky = e.clientY / innerHeight - .5;
+        tel.style.setProperty("--ry", (kx * 14).toFixed(2) + "deg");
+        tel.style.setProperty("--rx", (-ky * 10).toFixed(2) + "deg");
+      }}, {{ passive: true }});
+    }}
+  }}
   // Chiffres clés : comptent depuis 0 quand ils arrivent à l'écran (valeur finale déjà affichée sans script).
   if (!matchMedia("(prefers-reduced-motion: reduce)").matches && "IntersectionObserver" in window) {{
     var io = new IntersectionObserver(function (es) {{
@@ -354,8 +421,19 @@ fn footer(lang: Lang, app: &str) -> String {
 // ---------- Présentation ----------
 
 /// Découpe un texte en mots animables (`<span class="{class}" style="--i:n">`).
+/// La ponctuation isolée (« ? », « ! ») reste collée au mot d'avant (espace insécable).
 fn words(text: &str, class: &str) -> String {
-    text.split(' ')
+    let mut list: Vec<String> = Vec::new();
+    for w in text.split(' ') {
+        match list.last_mut() {
+            Some(prev) if !w.is_empty() && !w.chars().any(char::is_alphanumeric) => {
+                prev.push('\u{a0}');
+                prev.push_str(w);
+            }
+            _ => list.push(w.to_string()),
+        }
+    }
+    list.iter()
         .enumerate()
         .map(|(i, w)| format!(r#"<span class="{class}" style="--i:{i}"><span>{w}</span></span> "#))
         .collect::<String>()
@@ -365,7 +443,7 @@ fn words(text: &str, class: &str) -> String {
 
 /// Bandeau qui défile : les rubriques de l'app séparées par un point signal.
 fn ribbon(lang: Lang) -> String {
-    [
+    ribbon_of(&[
         lang.t("Race Center", "Race Center"),
         lang.t("Circuits en 3D", "3D circuits"),
         lang.t("Télémétrie", "Telemetry"),
@@ -373,10 +451,28 @@ fn ribbon(lang: Lang) -> String {
         lang.t("Stratégie", "Strategy"),
         lang.t("Météo", "Weather"),
         lang.t("75 ans d'archives", "75 years of history"),
-    ]
-    .iter()
-    .map(|w| format!("<span>{w}</span><i></i>"))
-    .collect()
+    ])
+}
+
+/// Second bandeau (sens inverse) : ce qu'on fait avec l'app.
+fn ribbon_fans(lang: Lang) -> String {
+    ribbon_of(&[
+        lang.t("Direct", "Live"),
+        lang.t("Replays ×60", "Replays ×60"),
+        lang.t("Pronostics", "Predictions"),
+        "Fantasy",
+        "Quiz",
+        "Records",
+        lang.t("Comparateur", "Head to head"),
+        lang.t("Monoplaces 3D", "3D cars"),
+    ])
+}
+
+fn ribbon_of(items: &[&str]) -> String {
+    items
+        .iter()
+        .map(|w| format!("<span>{w}</span><i></i>"))
+        .collect()
 }
 
 fn render(lang: Lang, back: Option<&str>, origin: &str) -> String {
@@ -395,9 +491,14 @@ fn render(lang: Lang, back: Option<&str>, origin: &str) -> String {
                    bullets: &[&str],
                    shots: &str,
                    reverse: bool| {
-        let items: String = bullets.iter().map(|b| format!("<li>{b}</li>")).collect();
+        let items: String = bullets
+            .iter()
+            .enumerate()
+            .map(|(i, b)| format!(r#"<li style="--i:{i}">{b}</li>"#))
+            .collect();
+        let title = words(title, "mot");
         format!(
-            r#"<section class="feature{rev}" id="{id}"><div class="feature-text"><p class="eyebrow">{eyebrow}</p><h2>{title}</h2><p>{text}</p><ul class="checks">{items}</ul></div><div class="feature-shots">{shots}</div></section>"#,
+            r#"<section class="feature{rev}" id="{id}"><div class="feature-text"><p class="eyebrow">{eyebrow}</p><h2 class="mots">{title}</h2><p>{text}</p><ul class="checks">{items}</ul></div><div class="feature-shots">{shots}</div></section>"#,
             rev = if reverse { " reverse" } else { "" }
         )
     };
@@ -502,7 +603,8 @@ fn render(lang: Lang, back: Option<&str>, origin: &str) -> String {
         ("📚", t("Lexique", "Glossary"), t("Drapeaux, pneus, stratégie, règlement 2026.", "Flags, tyres, strategy, 2026 rules.")),
     ]
     .iter()
-    .map(|(i, h, p)| format!(r#"<li class="mini"><span class="mini-icon" aria-hidden="true">{i}</span><strong>{h}</strong><span>{p}</span></li>"#))
+    .enumerate()
+    .map(|(n, (i, h, p))| format!(r#"<li class="mini" style="--i:{n}"><span class="mini-icon" aria-hidden="true">{i}</span><strong>{h}</strong><span>{p}</span></li>"#))
     .collect::<String>();
 
     let app = back.unwrap_or("/");
@@ -539,13 +641,13 @@ fn render(lang: Lang, back: Option<&str>, origin: &str) -> String {
   <div id="fonctionnalites">{features}</div>
 
   <section class="band">
-    <h2>{more}</h2>
+    <h2 class="mots">{more}</h2>
     <ul class="minis">{cards}</ul>
   </section>
 
   <section class="band install" id="installer">
     <p class="eyebrow">{install_eyebrow}</p>
-    <h2>{install_h}</h2>
+    <h2 class="mots">{install_h}</h2>
     <p class="band-lead">{install_lead}</p>
     <ol class="steps">
       <li><strong>iPhone · iPad (Safari)</strong><span>{install_ios}</span></li>
@@ -556,13 +658,15 @@ fn render(lang: Lang, back: Option<&str>, origin: &str) -> String {
 
   <section class="band tech">
     <p class="eyebrow">{tech_eyebrow}</p>
-    <h2>{tech_h}</h2>
+    <h2 class="mots">{tech_h}</h2>
     <p>{tech_p}</p>
     <ul class="chips"><li>Rust</li><li>WebAssembly</li><li>Yew</li><li>WebGL 2</li><li>WebSocket</li><li>PWA</li></ul>
   </section>
 
+  <div class="bande inverse" aria-hidden="true"><div class="bande-piste">{ribbon2}{ribbon2}</div></div>
+
   <section class="final">
-    <h2>{final_h}</h2>
+    <h2 class="mots">{final_h}</h2>
     <a class="btn btn-big" href="{app}">{cta} <span aria-hidden="true">→</span></a>
   </section>"##,
         eyebrow = t("Application web gratuite", "Free web app"),
@@ -581,6 +685,7 @@ fn render(lang: Lang, back: Option<&str>, origin: &str) -> String {
             "lueur"
         ),
         ribbon = ribbon(lang),
+        ribbon2 = ribbon_fans(lang),
         lead = t(
             "Race Center en temps réel, monoplaces et circuits en 3D, photos des pilotes et 75 ans d'archives. Rapide, clair, pensé pour le téléphone.",
             "A real-time Race Center, 3D cars and circuits, driver photos and 75 years of history. Fast, clear and built for your phone.",
@@ -601,11 +706,14 @@ fn render(lang: Lang, back: Option<&str>, origin: &str) -> String {
         seasons = t("saisons", "seasons"),
         drivers = t("pilotes", "drivers"),
         three_d = t("monoplaces et circuits", "cars and circuits"),
-        more = t("Et aussi", "And also"),
+        more = words(t("Et aussi", "And also"), "mot"),
         install_eyebrow = t("Application installable", "Installable app"),
-        install_h = t(
-            "Installe-la comme une vraie app.",
-            "Install it like a real app."
+        install_h = words(
+            t(
+                "Installe-la comme une vraie app.",
+                "Install it like a real app."
+            ),
+            "mot"
         ),
         install_lead = t(
             "Icône sur l'écran d'accueil, ouverture en plein écran, lancement instantané et consultation hors ligne. Rien à télécharger sur un store.",
@@ -625,17 +733,23 @@ fn render(lang: Lang, back: Option<&str>, origin: &str) -> String {
             "Click the install icon in the address bar."
         ),
         tech_eyebrow = t("Sous le capot", "Under the hood"),
-        tech_h = t(
-            "Écrite en Rust, de bout en bout.",
-            "Written in Rust, end to end."
+        tech_h = words(
+            t(
+                "Écrite en Rust, de bout en bout.",
+                "Written in Rust, end to end."
+            ),
+            "mot"
         ),
         tech_p = t(
             "L'interface et le rendu 3D sont en Rust compilé en WebAssembly, le serveur aussi. Le temps réel passe par WebSocket, les données sont mises en cache pour rester rapides, même en 4G.",
             "The interface and the 3D rendering are Rust compiled to WebAssembly, and so is the server. Real time runs over WebSocket, and data is cached to stay fast, even on 4G.",
         ),
-        final_h = t(
-            "Prêt pour le prochain Grand Prix ?",
-            "Ready for the next Grand Prix?"
+        final_h = words(
+            t(
+                "Prêt pour le prochain Grand Prix ?",
+                "Ready for the next Grand Prix?"
+            ),
+            "mot"
         ),
     );
     shell(
@@ -672,9 +786,10 @@ fn doc_page(
         "Dernière mise à jour : 1er octobre 2026",
         "Last updated: 1 October 2026",
     );
+    let title_words = words(title, "mot");
     let body = format!(
         r#"  <article class="doc">
-    <h1>{title}</h1>
+    <h1 class="mots">{title_words}</h1>
     <p class="doc-date">{updated}</p>
 {content}
   </article>"#
@@ -897,7 +1012,7 @@ fn credits_page(lang: Lang, origin: &str) -> String {
 const CSS: &str = r#"
 :root{--bg:#0e0d0c;--surface:#161513;--surface-2:#201e1b;--line:rgba(242,237,227,.12);--text:#f2ede3;--muted:#8d877d;--red:#e10600;--font:"Archivo",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--ease:cubic-bezier(.2,.7,.1,1);color-scheme:dark}
 *,*::before,*::after{box-sizing:border-box;min-width:0}
-html,body{margin:0;max-width:100%;overflow-x:hidden}
+html,body{margin:0;max-width:100%;overflow-x:hidden;overflow-x:clip}
 html{scroll-behavior:smooth;scroll-padding-top:72px}
 body{background:var(--bg);color:var(--text);font:17px/1.55 var(--font);font-variation-settings:"wdth" 100;-webkit-font-smoothing:antialiased;overflow-wrap:anywhere;-webkit-text-size-adjust:100%}
 a{color:inherit}
@@ -1034,7 +1149,6 @@ h1,h2{font-variation-settings:"wdth" 88;text-wrap:balance}
 .lueur{display:inline}
 @supports (animation-timeline: view()){
   .lueur>span{animation:lueur linear both;animation-timeline:view();animation-range:entry 30% cover 45%}
-  .feature,.numbers li,.mini,.steps li,.final{animation:apparait linear both;animation-timeline:view();animation-range:entry 0% entry 40%}
 }
 @keyframes lueur{from{opacity:.12}to{opacity:1}}
 @keyframes apparait{from{opacity:0;transform:translateY(48px)}to{opacity:1;transform:none}}
@@ -1045,6 +1159,117 @@ h1,h2{font-variation-settings:"wdth" 88;text-wrap:balance}
 @media (prefers-reduced-motion:reduce){
   .mots .mot>span,.hero .lead,.hero .ctas,.hero .note,.hero .eyebrow,.eyebrow::before,.phone,.bande-piste,.lueur>span,.feature,.numbers li,.mini,.steps li,.final{animation:none}
   body::after{display:none}
+}
+/* =====================================================================
+   Encore plus de mouvement : les blocs entrent en scène au défilement
+   (classe .vu posée par le script), les téléphones pivotent, les cartes
+   s'allument sous la souris, un second bandeau défile à l'envers.
+   ===================================================================== */
+.anime :is(.numbers li,.feature,.band,.final,.doc>*,.foot-grid>*,.foot-bottom,.foot-legal):not(.vu){opacity:0}
+.anime :is(.numbers li,.feature,.band,.final,.doc>*,.foot-grid>*,.foot-bottom,.foot-legal):not(.vu)::before,
+.anime :is(.numbers li,.feature,.band,.final,.doc>*,.foot-grid>*,.foot-bottom,.foot-legal):not(.vu)::after,
+.anime :is(.numbers li,.feature,.band,.final,.doc>*,.foot-grid>*,.foot-bottom,.foot-legal):not(.vu) *,
+.anime :is(.numbers li,.feature,.band,.final,.doc>*,.foot-grid>*,.foot-bottom,.foot-legal):not(.vu) *::before,
+.anime :is(.numbers li,.feature,.band,.final,.doc>*,.foot-grid>*,.foot-bottom,.foot-legal):not(.vu) *::after{animation-play-state:paused!important}
+.anime :is(.numbers li,.band,.final,.doc>*,.foot-grid>*,.foot-bottom,.foot-legal).vu{animation:entre .9s var(--ease) var(--d,0ms) backwards}
+@keyframes entre{from{opacity:0;transform:translateY(46px)}}
+@keyframes surgit{from{opacity:0;transform:translateY(14px) scale(.85)}}
+
+/* Barre du haut : trait rouge qui file au chargement, logo plus petit après défilement. */
+.top{transition:box-shadow .4s var(--ease)}
+.top::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;pointer-events:none;background:linear-gradient(90deg,transparent,var(--red),transparent) no-repeat;background-size:45% 100%;animation:file-haut 1.3s var(--ease) .2s both}
+@keyframes file-haut{from{background-position:-90% 0}75%{opacity:1}to{background-position:190% 0;opacity:0}}
+[data-defile] .top{box-shadow:0 14px 30px -22px rgba(0,0,0,.95)}
+.top .brand{display:inline-block;transform-origin:0 50%;transition:transform .45s var(--ease)}
+[data-defile] .top .brand{transform:scale(.86)}
+.brand .x{display:inline-block;animation:x-allume 3.2s ease-in-out infinite}
+@keyframes x-allume{0%,70%,100%{text-shadow:none}80%{text-shadow:0 0 14px rgba(225,6,0,.9);transform:skewX(-6deg)}}
+.lang{transition:background .3s var(--ease),color .3s var(--ease)}
+.lang:hover{background:var(--text);color:var(--bg)}
+@supports not (animation-timeline: scroll()){
+  body::after{content:"";position:fixed;top:0;left:0;right:0;height:2px;z-index:80;pointer-events:none;background:var(--red);transform-origin:0 50%;transform:scaleX(var(--defile,0))}
+}
+
+/* Curseur anneau (ordinateur). */
+.curseur{position:fixed;top:0;left:0;z-index:95;pointer-events:none;width:36px;height:36px;margin:-18px 0 0 -18px;border-radius:50%;border:1px solid rgba(242,237,227,.45);mix-blend-mode:difference;transform:translate(-100px,-100px);transition:width .35s var(--ease),height .35s var(--ease),margin .35s var(--ease),background .35s,border-color .35s}
+.curseur span{position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px;border-radius:50%;background:var(--text)}
+.curseur.actif{width:72px;height:72px;margin:-36px 0 0 -36px;background:var(--text);border-color:transparent}
+@media (hover:none),(pointer:coarse),(max-width:760px){.curseur{display:none}}
+
+/* Boutons pleins : un reflet passe ; l'appel final respire. */
+.btn:not(.btn-ghost){position:relative;overflow:hidden;isolation:isolate}
+.btn:not(.btn-ghost)::after{content:"";position:absolute;z-index:-1;top:0;bottom:0;left:-50%;width:40%;pointer-events:none;background:linear-gradient(100deg,transparent,rgba(255,255,255,.5),transparent);transform:skewX(-18deg);animation:reflet 5s var(--ease) 1.8s infinite}
+@keyframes reflet{0%{transform:translateX(0) skewX(-18deg)}28%,100%{transform:translateX(480%) skewX(-18deg)}}
+.final .btn-big{animation:appel 2.6s ease-in-out infinite}
+@keyframes appel{50%{box-shadow:0 0 0 10px rgba(225,6,0,.12),0 0 46px rgba(225,6,0,.4)}}
+.btn:active{scale:.96}
+
+/* Accueil : halo rouge derrière le téléphone, qui arrive en pivotant puis suit la souris. */
+.hero-shot{position:relative;isolation:isolate;transform:perspective(1000px) rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg));transition:transform .6s var(--ease)}
+.hero-shot::before{content:"";position:absolute;z-index:-1;inset:14% 12%;border-radius:50%;background:radial-gradient(circle,rgba(225,6,0,.5),transparent 66%);filter:blur(40px);animation:halo 6s ease-in-out infinite alternate}
+@keyframes halo{from{transform:scale(.9);opacity:.6}to{transform:scale(1.1) translate(3%,-3%);opacity:1}}
+.hero .phone{animation:phone-in 1.3s var(--ease) .35s backwards,flotte 7s ease-in-out 1.7s infinite}
+@keyframes phone-in{from{opacity:0;transform:translateY(90px) rotate(7deg) scale(.9)}}
+/* Reflet qui glisse sur l'écran des téléphones. */
+.phone{position:relative}
+.phone::after{content:"";position:absolute;inset:8px;border-radius:27px;pointer-events:none;background:linear-gradient(115deg,transparent 38%,rgba(255,255,255,.14) 50%,transparent 62%) no-repeat 130% 0/260% 100%;animation:reflet-ecran 7s ease-in-out 2.4s infinite}
+@keyframes reflet-ecran{from{background-position:130% 0}35%,to{background-position:-130% 0}}
+
+/* Chiffres : un trait rouge se trace sous chacun. */
+.numbers li{position:relative;overflow:hidden}
+.numbers li::after{content:"";position:absolute;left:16px;right:16px;bottom:0;height:2px;background:var(--red);transform-origin:0 50%;animation:trait 1.1s var(--ease) calc(var(--d,0ms) + .3s) both}
+@keyframes trait{from{transform:scaleX(0)}}
+
+/* Fonctionnalités : texte en cascade, coches qui se posent, téléphones qui pivotent depuis le côté. */
+.feature-text>.eyebrow{animation:monte-in .7s var(--ease) backwards}
+.feature-text>p:not(.eyebrow){animation:monte-in .8s var(--ease) .35s backwards}
+.checks li{animation:monte-in .6s var(--ease) calc(var(--i,0)*90ms + .5s) backwards}
+.checks li::before{animation:coche .5s cubic-bezier(.3,1.6,.5,1) calc(var(--i,0)*90ms + .7s) backwards}
+@keyframes coche{from{transform:rotate(-45deg) scale(0)}}
+.feature .phone{animation:phone-cote 1.1s var(--ease) .2s backwards,flotte 7s ease-in-out 1.3s infinite}
+.feature-shots .phone:nth-child(2){animation-delay:.45s,1.55s}
+.feature.reverse .phone{animation-name:phone-cote-inv,flotte}
+@keyframes phone-cote{from{opacity:0;transform:perspective(1000px) rotateY(-32deg) translateY(70px)}}
+@keyframes phone-cote-inv{from{opacity:0;transform:perspective(1000px) rotateY(32deg) translateY(70px)}}
+
+/* Petites cartes, étapes, technologies : cascade, survol vivant. */
+.mini{animation:surgit .6s var(--ease) calc(var(--i,0)*60ms + .25s) backwards;transition:translate .4s var(--ease),border-color .3s}
+.mini-icon{display:inline-block;transition:transform .45s cubic-bezier(.3,1.6,.5,1)}
+.steps{counter-reset:etape}
+.steps li{counter-increment:etape;animation:monte-in .7s var(--ease) backwards;transition:translate .4s var(--ease),border-color .3s}
+.steps li::before{content:counter(etape,decimal-leading-zero);font-weight:300;font-size:2.4rem;line-height:1;font-variation-settings:"wdth" 62;color:var(--red);margin-bottom:8px;animation:surgit .6s var(--ease) backwards}
+.steps li:nth-child(2),.steps li:nth-child(2)::before{animation-delay:.15s}
+.steps li:nth-child(3),.steps li:nth-child(3)::before{animation-delay:.3s}
+.chips li{animation:surgit .5s var(--ease) backwards;transition:background .3s,color .3s}
+.chips li:nth-child(2){animation-delay:.07s}.chips li:nth-child(3){animation-delay:.14s}.chips li:nth-child(4){animation-delay:.21s}
+.chips li:nth-child(5){animation-delay:.28s}.chips li:nth-child(6){animation-delay:.35s}
+@media (hover:hover) and (pointer:fine){
+  .mini:hover,.steps li:hover,.numbers li:hover{translate:0 -4px;border-color:rgba(242,237,227,.3);background-image:radial-gradient(320px circle at var(--mx,50%) var(--my,0%),rgba(242,237,227,.07),transparent 62%)}
+  .mini:hover .mini-icon{transform:scale(1.25) rotate(-10deg)}
+  .chips li:hover{background:var(--text);color:var(--bg)}
+}
+.numbers li{transition:translate .4s var(--ease),border-color .3s}
+
+/* Second bandeau : lettres en contour, défile à l'envers ; tous s'arrêtent au survol. */
+.bande.inverse{margin-top:0;margin-bottom:12px;transform:rotate(1.6deg) scale(1.04);background:transparent}
+.bande.inverse .bande-piste{animation-direction:reverse;animation-duration:44s}
+.bande.inverse .bande-piste span{color:transparent;-webkit-text-stroke:1px var(--text)}
+.bande:hover .bande-piste{animation-play-state:paused}
+
+/* Appel final : halo rouge qui respire. */
+.final{position:relative;isolation:isolate;overflow:hidden}
+.final::before{content:"";position:absolute;z-index:-1;left:50%;top:50%;width:min(720px,90%);aspect-ratio:1;translate:-50% -50%;border-radius:50%;background:radial-gradient(circle,rgba(225,6,0,.22),transparent 62%);animation:respire-final 5s ease-in-out infinite}
+@keyframes respire-final{50%{transform:scale(1.15);opacity:.7}}
+
+/* Pied de page : liens soulignés au survol. */
+.foot nav a{position:relative}
+.foot nav a::after{content:"";position:absolute;left:0;right:0;bottom:3px;height:1px;background:currentColor;transform:scaleX(0);transform-origin:right;transition:transform .5s var(--ease)}
+.foot nav a:hover::after{transform:scaleX(1);transform-origin:left}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;animation-delay:0s!important;transition-duration:.01ms!important}
+  html{scroll-behavior:auto}
+  .hero-shot{transform:none}
 }
 "#;
 

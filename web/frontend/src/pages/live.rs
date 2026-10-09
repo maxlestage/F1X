@@ -855,8 +855,8 @@ fn LiveMap(props: &MapProps) -> Html {
             <div class="segmented">{ tab(false, t("Plan 2D", "2D map")) }{ tab(true, t("Relief 3D", "3D relief")) }</div>
             <svg class="track" viewBox={format!("0 0 {w:.0} {h:.0}")} role="img"
                  aria-label={t("Position des voitures sur le circuit", "Car positions on the circuit")}>
-                <polyline class="track-base" points={line.clone()} />
-                <polyline class="track-line" points={line} />
+                <polyline class="track-base" pathLength="1" points={line.clone()} />
+                <polyline class="track-line" pathLength="1" points={line} />
                 { for cars.iter().map(|c| {
                     let (x, y) = at_fraction(c.lap_progress.unwrap_or(0.0));
                     html! {

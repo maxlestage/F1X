@@ -495,7 +495,7 @@ fn RaceWindow(props: &WindowProps) -> Html {
                 <text class="wx-tick" x="2" y={format!("{:.1}", ty(lo) + 4.0)}>{ format!("{lo:.0}°") }</text>
                 { start_mark(tt + th) }
                 { guide(tt + th) }
-                <polyline points={line} fill="none" stroke={TEMP_COLOUR} stroke-width="2" stroke-linejoin="round" />
+                <polyline class="chart-line" pathLength="1" points={line} fill="none" stroke={TEMP_COLOUR} stroke-width="2" stroke-linejoin="round" />
                 { for pts.iter().enumerate().filter_map(|(i, p)| p.1.map(|v| html! {
                     <circle cx={format!("{:.1}", x(i))} cy={format!("{:.1}", ty(v))} r="4" fill={TEMP_COLOUR} class="wx-dot" />
                 })) }

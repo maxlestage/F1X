@@ -21,7 +21,7 @@ struct CalendarView: View {
             }
             switch state {
             case .loading:
-                Section { ProgressView().frame(maxWidth: .infinity) }
+                Section { StartLightsLoader() }
             case .failed(let message):
                 Section {
                     Text(message).foregroundStyle(.secondary)
@@ -34,7 +34,8 @@ struct CalendarView: View {
                 if let next {
                     Section {
                         NavigationLink(value: next) { NextRaceHeader(race: next) }
-                            .listRowBackground(Color.f1Red.opacity(0.18))
+                            // Lueur rouge qui dérive et ligne de vitesse, comme la carte de l'accueil.
+                            .listRowBackground(ZStack { Color.f1Red.opacity(0.18); HeroGlow() }.clipped())
                     } header: {
                         Text(L("Prochaine course", "Next race"))
                     }
@@ -128,15 +129,21 @@ private struct CalendarRow: View {
     let isPast: Bool
     let winner: RaceResult?
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var flipped = false
+
     var body: some View {
         HStack(spacing: 10) {
+            // Le numéro de manche se retourne à l'arrivée ; la prochaine course respire.
             Text("R\(race.round)")
                 .font(.caption.weight(.heavy).monospacedDigit())
-                .foregroundStyle(.secondary)
+                .foregroundStyle(isNext ? Color.white : Color.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .frame(width: 38, height: 34)
-                .background(Color.tile, in: RoundedRectangle(cornerRadius: 8))
+                .background(isNext ? Color.f1Red : Color.tile, in: RoundedRectangle(cornerRadius: 8))
+                .glow(.f1Red, active: isNext)
+                .rotation3DEffect(.degrees(flipped ? 0 : -90), axis: (x: 0, y: 1, z: 0))
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(Flag.country(race.circuit.location.country)) \(race.raceName)")
                     .fontWeight(.bold)
@@ -158,9 +165,16 @@ private struct CalendarRow: View {
             if isPast {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(Color(hex: 0x6C6C80))
+                    .scaleEffect(flipped ? 1 : 0.1)
                     .accessibilityLabel(L("Terminé", "Done"))
             }
         }
         .opacity(isPast ? 0.62 : race.isOver() && winner == nil ? 0.6 : 1)
+        .cascadeIn()
+        .onAppear {
+            guard !flipped else { return }
+            if reduceMotion { flipped = true; return }
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.12)) { flipped = true }
+        }
     }
 }

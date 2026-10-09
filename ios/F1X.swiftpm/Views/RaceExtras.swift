@@ -149,7 +149,7 @@ struct LapByLapSection: View {
                     .font(.footnote).foregroundStyle(.secondary)
                 Button(L("Charger l'analyse", "Load the analysis")) { Task { await load() } }
             case 1:
-                ProgressView().frame(maxWidth: .infinity)
+                StartLightsLoader()
             case 3:
                 Text(L("Données tour par tour indisponibles.", "Lap data unavailable.")).foregroundStyle(.secondary)
                 Button(L("Réessayer", "Retry")) { Task { await load() } }
@@ -331,8 +331,7 @@ struct PitDetailSection: View {
                            : L("Détail de chaque arrêt", "Every pit stop in detail")) {
             switch state {
             case 0:
-                ProgressView()
-                    .frame(maxWidth: .infinity)
+                StartLightsLoader()
                     .task(id: query) { await load() }
             case 1:
                 let fastest = stops.compactMap(\.stop_duration).min()

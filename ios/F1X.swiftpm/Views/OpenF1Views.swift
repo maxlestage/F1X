@@ -128,7 +128,7 @@ struct DataYearView: View {
             }
             Section(L("Grands Prix \(year)", "\(year) Grands Prix")) {
                 if loading {
-                    ProgressView()
+                    StartLightsLoader()
                 } else if meetings.isEmpty {
                     Text(L("Aucune donnée.", "No data.")).foregroundStyle(.secondary)
                 }
@@ -177,7 +177,7 @@ struct DataMeetingView: View {
                 }
             }
             Section(L("Séances", "Sessions")) {
-                if sessions.isEmpty { ProgressView() }
+                if sessions.isEmpty { StartLightsLoader() }
                 ForEach(sessions, id: \.self) { s in
                     NavigationLink {
                         DataSessionView(key: s["session_key"].int ?? 0, title: "\(s["location"].string) — \(s["session_name"].string)", type: s["session_type"].string)
@@ -366,7 +366,7 @@ struct ResultsSection: View {
     var body: some View {
         VStack(spacing: 16) {
             Card(title: L("Classement de la séance", "Session classification")) {
-                if !loaded { ProgressView() }
+                if !loaded { StartLightsLoader() }
                 ForEach(results, id: \.self) { r in
                     let pos = r["position"].int.map(String.init) ?? (r["dnf"].bool ? "DNF" : r["dns"].bool ? "DNS" : r["dsq"].bool ? "DSQ" : "–")
                     DriverRow(pos: pos, driver: drivers[r["driver_number"].int ?? 0], fallback: r["driver_number"].int ?? 0, detail: detail(r))
@@ -497,6 +497,7 @@ private struct TraceChart: View {
                 }
             }
             .frame(height: height)
+            .drawIn(trigger: points.count)
         }
         .padding(.vertical, 4)
     }
@@ -533,7 +534,7 @@ struct LapsSection: View {
         }
         return VStack(spacing: 16) {
             Card(title: L("Temps au tour (5 meilleurs)", "Lap times (top 5)")) {
-                if !loaded { ProgressView() }
+                if !loaded { StartLightsLoader() }
                 Chart(pts) {
                     LineMark(x: .value(L("Tour", "Lap"), $0.x), y: .value(L("Temps", "Time"), $0.y))
                         .foregroundStyle(by: .value(L("Pilote", "Driver"), $0.series))
@@ -547,6 +548,7 @@ struct LapsSection: View {
                         }
                     } }
                 .frame(height: 220)
+                .drawIn(trigger: pts.count)
             }
             Card(title: L("Meilleurs tours", "Best laps")) {
                 ForEach(Array(best.enumerated()), id: \.offset) { i, l in
@@ -593,7 +595,7 @@ struct PositionsSection: View {
         }
         return VStack(spacing: 16) {
             Card(title: L("Positions (5 premiers à l'arrivée)", "Positions (top 5 at the finish)")) {
-                if !loaded { ProgressView() }
+                if !loaded { StartLightsLoader() }
                 Chart(pts) {
                     LineMark(x: .value("min", $0.x), y: .value("Position", $0.y))
                         .interpolationMethod(.stepEnd)
@@ -603,6 +605,7 @@ struct PositionsSection: View {
                 .chartYScale(domain: .automatic(includesZero: false, reversed: true))
                 .chartXAxisLabel("min")
                 .frame(height: 220)
+                .drawIn(trigger: pts.count)
             }
             if !gaps.isEmpty {
                 Card(title: L("Écart au leader (s)", "Gap to leader (s)")) {
@@ -613,6 +616,7 @@ struct PositionsSection: View {
                     .chartForegroundStyleScale(range: palette)
                     .chartXAxisLabel("min")
                     .frame(height: 200)
+                    .drawIn(trigger: gaps.count)
                 }
             }
         }
@@ -652,13 +656,14 @@ struct TyresSection: View {
         }
         return VStack(spacing: 16) {
             Card(title: L("Stratégie des pneus", "Tyre strategy")) {
-                if !loaded { ProgressView() }
+                if !loaded { StartLightsLoader() }
                 Chart(bars) {
                     BarMark(xStart: .value(L("Tour", "Lap"), $0.start), xEnd: .value(L("Tour", "Lap"), $0.end), y: .value(L("Pilote", "Driver"), $0.driver))
                         .foregroundStyle(tyreColor($0.compound))
                 }
                 .chartYScale(domain: { var seen = Set<String>(); return all.map { of1Code(drivers, $0) }.filter { seen.insert($0).inserted } }())
                 .frame(height: CGFloat(max(all.count, 1)) * 18 + 30)
+                .drawIn(trigger: bars.count)
                 Text(L("Rouge tendre · jaune medium · blanc dur · vert intermédiaire · bleu pluie.", "Red soft · yellow medium · white hard · green intermediate · blue wet."))
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -698,7 +703,7 @@ struct TelemetrySection: View {
                 Picker("B", selection: $b) { ForEach(list, id: \.number) { Text($0.name).tag($0.number) } }
             }
             .pickerStyle(.menu)
-            if loading { ProgressView() }
+            if loading { StartLightsLoader() }
             Text(traces.map { "\(of1Code(drivers, $0["driver_number"].int ?? 0)) \(formatLap($0["lap_duration"].double ?? 0)) (T\($0["lap_number"].string))" }.joined(separator: " · "))
                 .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             trace(L("Vitesse (km/h)", "Speed (km/h)"), "speed", 200)
@@ -738,6 +743,7 @@ struct TelemetrySection: View {
         .chartForegroundStyleScale(range: palette)
         .chartXAxisLabel("km")
         .frame(height: height)
+        .drawIn(trigger: pts.count)
     }
 }
 
@@ -753,7 +759,7 @@ struct RaceSection: View {
         let ranking = counts.sorted { $0.value > $1.value }
         return VStack(spacing: 16) {
             Card(title: L("Dépassements (\(overtakes.count))", "Overtakes (\(overtakes.count))")) {
-                if !loaded { ProgressView() }
+                if !loaded { StartLightsLoader() }
                 ForEach(Array(ranking.prefix(10).enumerated()), id: \.offset) { i, e in
                     DriverRow(pos: "\(i + 1)", driver: drivers[e.key], fallback: e.key, detail: "\(e.value)")
                 }
@@ -881,7 +887,7 @@ struct RadioSection: View {
 
     var body: some View {
         Card(title: L("Radios d'équipe (\(radio.count))", "Team radio (\(radio.count))")) {
-            if !loaded { ProgressView() }
+            if !loaded { StartLightsLoader() }
             ForEach(radio.reversed().prefix(60), id: \.self) { r in
                 let url = r["recording_url"].string
                 Button {
@@ -925,7 +931,7 @@ struct SessionWeatherSection: View {
         let last = weather.last ?? .null
         let rain = weather.contains { ($0["rainfall"].double ?? 0) > 0 }
         return Card(title: L("Météo de la séance", "Session weather")) {
-            if !loaded { ProgressView() }
+            if !loaded { StartLightsLoader() }
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 10) {
                 stat("Air", last["air_temperature"].double.map { String(format: "%.1f°", $0) })
                 stat(L("Piste", "Track"), last["track_temperature"].double.map { String(format: "%.1f°", $0) })
@@ -941,11 +947,13 @@ struct SessionWeatherSection: View {
             .chartForegroundStyleScale(range: [palette[1], palette[0]])
             .chartYScale(domain: .automatic(includesZero: false))
             .frame(height: 180)
+            .drawIn(trigger: temps.count)
             Text(L("Vent (km/h)", "Wind (km/h)")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             Chart(wind) {
                 LineMark(x: .value("min", $0.x), y: .value("km/h", $0.y)).foregroundStyle(palette[2])
             }
             .frame(height: 120)
+            .drawIn(trigger: wind.count)
         }
         .task {
             weather = await of1("weather", "session_key=\(key)")
@@ -982,7 +990,7 @@ struct MeetingLinkButton: View {
                 Text(L("Pas de données OpenF1 pour ce Grand Prix.", "No OpenF1 data for this Grand Prix."))
                     .font(.footnote).foregroundStyle(.secondary)
             } else {
-                ProgressView().frame(maxWidth: .infinity)
+                StartLightsLoader()
             }
         }
         .task {
@@ -1054,7 +1062,7 @@ struct RaceDataLinks: View {
                 Text(L("Pas de données OpenF1 pour cette course.", "No OpenF1 data for this race."))
                     .font(.footnote).foregroundStyle(.secondary)
             } else {
-                ProgressView().frame(maxWidth: .infinity)
+                StartLightsLoader()
             }
         }
         .task {
@@ -1099,7 +1107,7 @@ struct DriverRaceSection: View {
                     ForEach(list, id: \.number) { Text($0.name).tag($0.number) }
                 }
                 .pickerStyle(.menu)
-                if loading { ProgressView().frame(maxWidth: .infinity) }
+                if loading { StartLightsLoader() }
                 if data != .null {
                     summary
                 }

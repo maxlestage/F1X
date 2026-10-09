@@ -506,7 +506,7 @@ pub fn LapAnalysis(props: &LapAnalysisProps) -> Html {
                 if let Some((lap, _, _)) = hovered {
                     <line class="chart-crosshair" x1={x(*lap).to_string()} x2={x(*lap).to_string()} y1={MT.to_string()} y2={(H - MB).to_string()} />
                 }
-                <path d={path} fill="none" stroke={color} stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+                <path class="chart-line" pathLength="1" d={path} fill="none" stroke={color} stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
                 { for pit_laps.iter().filter_map(|l| series.iter().find(|(lap, _, _)| lap == l)).map(|(lap, pos, _)| html! {
                     <circle class="chart-pit" cx={x(*lap).to_string()} cy={y(*pos).to_string()} r="4" stroke={color} />
                 }) }

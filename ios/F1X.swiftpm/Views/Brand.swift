@@ -303,11 +303,14 @@ struct SectionLogoToolbar: ViewModifier {
     @Environment(\.appSection) private var section
 
     func body(content: Content) -> some View {
-        content.toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                SectionBadge(section: section, size: 22)
+        content
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    SectionBadge(section: section, size: 22)
+                }
             }
-        }
+            // Un trait rouge file sous la barre à chaque nouvelle page.
+            .overlay(alignment: .top) { PageSweep() }
     }
 }
 
