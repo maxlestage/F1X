@@ -125,13 +125,15 @@ struct SectionCard<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.title3.bold())
+            Text(title).font(.archivo(23, weight: 750, width: 88))
             content()
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.cardBackground, in: RoundedRectangle(cornerRadius: 16))
+        .background(Color.cardBackground, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color.hairline))
         .shadow(color: .cardShadow, radius: 10, y: 3)
+        .revealOnScroll()
     }
 }
 
@@ -142,10 +144,12 @@ private struct NextRaceCard: View {
         HeroCard {
             Eyebrow(text: L("Prochain Grand Prix · Manche \(race.round)", "Next Grand Prix · Round \(race.round)"))
             Text("\(Flag.country(race.circuit.location.country)) \(race.raceName)")
-                .font(.title.weight(.heavy))
+                .font(.archivo(38, weight: 800, width: 84))
                 .fixedSize(horizontal: false, vertical: true)
+                .rise(delay: 0.05)
             Text("\(race.circuit.circuitName) — \(race.circuit.location.locality)")
                 .foregroundStyle(.secondary)
+                .rise(delay: 0.15)
             TrackOutline(circuitId: race.circuit.circuitId)
             if let start = race.start { CountdownView(target: start) }
             SessionsList(race: race)
@@ -153,10 +157,11 @@ private struct NextRaceCard: View {
                 Text(L("Voir le Grand Prix", "Open the Grand Prix"))
                     .fontWeight(.bold)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(Color.f1Red, in: RoundedRectangle(cornerRadius: 12))
+                    .padding(.vertical, 14)
+                    .background(Color.f1Red, in: Capsule())
                     .foregroundStyle(.white)
             }
+            .buttonStyle(PressableStyle())
         }
     }
 }

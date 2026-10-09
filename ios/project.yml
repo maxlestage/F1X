@@ -25,6 +25,11 @@ targets:
         buildPhase: resources
       - path: Resources/start_engine.wav
         buildPhase: resources
+      # Police Archivo (SIL Open Font License, licence jointe).
+      - path: Resources/Archivo.ttf
+        buildPhase: resources
+      - path: Resources/Archivo-OFL.txt
+        buildPhase: resources
     dependencies:
       - target: F1XWidgets
       - target: F1XWatch
