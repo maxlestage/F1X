@@ -184,8 +184,8 @@ struct NewsView: View {
                                     .frame(height: 150).frame(maxWidth: .infinity).clipped()
                                     .clipShape(RoundedRectangle(cornerRadius: 10))
                             }
-                            Text(a.title).font(.headline).foregroundStyle(.primary)
-                            if !a.excerpt.isEmpty { Text(a.excerpt).font(.footnote).foregroundStyle(.secondary).lineLimit(3) }
+                            Text(a.title).font(.headline).foregroundStyle(Color.primary)
+                            if !a.excerpt.isEmpty { Text(a.excerpt).font(.footnote).foregroundStyle(Color.secondary).lineLimit(3) }
                             Text("\(a.source) ↗").font(.caption.bold()).foregroundStyle(Color.f1Red)
                         }
                         .cascadeUp()
@@ -372,7 +372,11 @@ struct PredictView: View {
 struct FantasyView: View {
     @State private var drivers: [DriverStanding] = []
     @State private var teams: [ConstructorStanding] = []
-    @State private var squad = FantasyTeam.load()
+    /// Équipe validée (enregistrée) et brouillon en cours de composition.
+    @State private var saved = FantasyTeam.load()
+    @State private var draft = FantasyTeam.load()
+    /// Pourquoi le dernier choix a été refusé (5 pilotes déjà, budget dépassé).
+    @State private var notice: String?
 
     private let budget = 100.0
 
@@ -384,64 +388,144 @@ struct FantasyView: View {
 
     var body: some View {
         let dp = drivers.map { Double($0.points) ?? 0 }, tp = teams.map { Double($0.points) ?? 0 }
-        let spent = drivers.filter { squad.drivers.contains($0.driver.driverId) }.map { price($0.points, dp) }.reduce(0, +)
-            + (teams.first { $0.constructor.constructorId == squad.team }.map { price($0.points, tp) } ?? 0)
-        let score = drivers.filter { squad.drivers.contains($0.driver.driverId) }.map { Double($0.points) ?? 0 }.reduce(0, +)
-            + (teams.first { $0.constructor.constructorId == squad.team }.flatMap { Double($0.points) } ?? 0)
+        let teamCost = teams.first { $0.constructor.constructorId == draft.team }.map { price($0.points, tp) } ?? 0
+        let spent = drivers.filter { draft.drivers.contains($0.driver.driverId) }.map { price($0.points, dp) }.reduce(0, +) + teamCost
+        let score = drivers.filter { saved.drivers.contains($0.driver.driverId) }.map { Double($0.points) ?? 0 }.reduce(0, +)
+            + (teams.first { $0.constructor.constructorId == saved.team }.flatMap { Double($0.points) } ?? 0)
         List {
             Section {
                 StatGrid(items: [
                     (L("Budget restant", "Budget left"), String(format: "%.0f M€", budget - spent)),
-                    (L("Pilotes", "Drivers"), "\(squad.drivers.count)/5"),
+                    (L("Pilotes", "Drivers"), "\(draft.drivers.count)/5"),
                     (L("Points", "Points"), String(format: "%.0f", score)),
                 ])
-                Text(L("Choisis 5 pilotes et 1 écurie sans dépasser 100 M€. Ton score = les points marqués cette saison.",
-                       "Pick 5 drivers and 1 team within €100M. Your score = points scored this season."))
+                Text(L("Choisis 5 pilotes et 1 écurie sans dépasser 100 M€, puis valide ton équipe. Ton score = les points marqués cette saison par l'équipe validée.",
+                       "Pick 5 drivers and 1 team within €100M, then confirm your team. Your score = points scored this season by the confirmed team."))
                     .font(.caption).foregroundStyle(.secondary)
+                if let notice {
+                    Text(notice).font(.footnote.bold()).foregroundStyle(Color.f1Red)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
             }
             Section(L("Pilotes", "Drivers")) {
                 ForEach(drivers) { d in
-                    let on = squad.drivers.contains(d.driver.driverId)
                     let cost = price(d.points, dp)
-                    Button {
-                        if on { squad.drivers.removeAll { $0 == d.driver.driverId } }
-                        else if squad.drivers.count < 5 && spent + cost <= budget { squad.drivers.append(d.driver.driverId) }
-                        squad.save()
-                    } label: {
-                        HStack {
-                            Image(systemName: on ? "checkmark.circle.fill" : "circle").foregroundStyle(on ? Color.f1Red : .secondary)
-                            Text(d.driver.fullName).foregroundStyle(.primary)
-                            Spacer()
-                            Text(String(format: "%.0f M€", cost)).monospacedDigit().foregroundStyle(.secondary)
-                        }
+                    Button { toggleDriver(d.driver.driverId, cost: cost, spent: spent) } label: {
+                        pickRow(d.driver.fullName, cost: cost, on: draft.drivers.contains(d.driver.driverId))
                     }
+                    .buttonStyle(.plain)
                 }
             }
             Section(L("Écurie", "Team")) {
                 ForEach(teams) { t in
-                    let on = squad.team == t.constructor.constructorId
                     let cost = price(t.points, tp)
-                    Button {
-                        squad.team = on ? nil : t.constructor.constructorId
-                        squad.save()
-                    } label: {
-                        HStack {
-                            Image(systemName: on ? "checkmark.circle.fill" : "circle").foregroundStyle(on ? Color.f1Red : .secondary)
-                            Text(t.constructor.name).foregroundStyle(.primary)
-                            Spacer()
-                            Text(String(format: "%.0f M€", cost)).monospacedDigit().foregroundStyle(.secondary)
-                        }
+                    Button { chooseTeam(t.constructor.constructorId, cost: cost, spent: spent - teamCost) } label: {
+                        pickRow(t.constructor.name, cost: cost, on: draft.team == t.constructor.constructorId)
                     }
+                    .buttonStyle(.plain)
                 }
             }
         }
         .navigationTitle("Fantasy F1")
+        // Bouton « Valider mon équipe » toujours visible au-dessus de la barre d'onglets.
+        .safeAreaInset(edge: .bottom) { validateBar(spent: spent) }
         .task {
             async let d = try? F1API.shared.driverStandings()
             async let t = try? F1API.shared.constructorStandings()
             drivers = await d ?? []
             teams = await t ?? []
         }
+    }
+
+    private func pickRow(_ name: String, cost: Double, on: Bool) -> some View {
+        HStack {
+            Image(systemName: on ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(on ? Color.f1Red : Color.secondary)
+                .contentTransition(.symbolEffect(.replace))
+            Text(name).foregroundStyle(Color.primary)
+            Spacer()
+            Text(String(format: "%.0f M€", cost)).monospacedDigit().foregroundStyle(Color.secondary)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func toggleDriver(_ id: String, cost: Double, spent: Double) {
+        withAnimation(.snappy) {
+            if let i = draft.drivers.firstIndex(of: id) {
+                draft.drivers.remove(at: i)
+                notice = nil
+            } else if draft.drivers.count >= 5 {
+                notice = L("5 pilotes maximum : retire d'abord un pilote.", "5 drivers max: remove a driver first.")
+            } else if spent + cost > budget {
+                notice = L(String(format: "Budget dépassé : il manque %.0f M€ pour ce pilote.", spent + cost - budget),
+                           String(format: "Over budget: €%.0fM short for this driver.", spent + cost - budget))
+            } else {
+                draft.drivers.append(id)
+                notice = nil
+            }
+        }
+    }
+
+    /// `spent` : dépenses hors écurie (on peut toujours remplacer l'écurie choisie).
+    private func chooseTeam(_ id: String, cost: Double, spent: Double) {
+        withAnimation(.snappy) {
+            if draft.team == id {
+                draft.team = nil
+                notice = nil
+            } else if spent + cost > budget {
+                notice = L(String(format: "Budget dépassé : il manque %.0f M€ pour cette écurie.", spent + cost - budget),
+                           String(format: "Over budget: €%.0fM short for this team.", spent + cost - budget))
+            } else {
+                draft.team = id
+                notice = nil
+            }
+        }
+    }
+
+    private func validateBar(spent: Double) -> some View {
+        let missing = 5 - draft.drivers.count
+        let ready = missing == 0 && draft.team != nil && spent <= budget
+        let changed = draft != saved
+        let done = ready && !changed
+        let status: String = {
+            if spent > budget { return L(String(format: "Budget dépassé de %.0f M€.", spent - budget), String(format: "€%.0fM over budget.", spent - budget)) }
+            if missing > 0 && draft.team == nil { return L("Encore \(missing) pilote(s) et une écurie à choisir.", "\(missing) more driver(s) and a team to pick.") }
+            if missing > 0 { return L("Encore \(missing) pilote(s) à choisir.", "\(missing) more driver(s) to pick.") }
+            if draft.team == nil { return L("Choisis une écurie.", "Pick a team.") }
+            if changed { return L("Modifications pas encore validées.", "Changes not confirmed yet.") }
+            return L("Équipe validée : elle marque des points toute la saison.", "Team confirmed: it scores all season.")
+        }()
+        return VStack(spacing: 6) {
+            Button {
+                draft.save()
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.65)) {
+                    saved = draft
+                    notice = nil
+                }
+            } label: {
+                Label(done ? L("Équipe validée", "Team confirmed") : L("Valider mon équipe", "Confirm my team"),
+                      systemImage: done ? "checkmark.seal.fill" : "checkmark.circle")
+                    .font(.headline)
+                    .contentTransition(.symbolEffect(.replace))
+                    .symbolEffect(.bounce, value: saved)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .foregroundStyle(done ? Color.green : ready ? Color.white : Color.secondary)
+                    .background(done ? Color.green.opacity(0.18) : ready ? Color.f1Red : Color.gray.opacity(0.25), in: Capsule())
+                    .overlay { if ready && changed { SweepShine().clipShape(Capsule()) } }
+            }
+            .buttonStyle(PressableStyle())
+            .disabled(!(ready && changed))
+            .sensoryFeedback(.success, trigger: saved)
+            Text(status)
+                .font(.caption)
+                .foregroundStyle(spent > budget ? Color.f1Red : Color.secondary)
+                .contentTransition(.opacity)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .background(.bar)
     }
 }
 
@@ -492,7 +576,7 @@ struct QuizView: View {
                                 }
                             } label: {
                                 HStack {
-                                    Text(od.fullName).foregroundStyle(.primary)
+                                    Text(od.fullName).foregroundStyle(Color.primary)
                                     Spacer()
                                     // Bonne réponse : la coche rebondit ; mauvaise : la ligne secoue la tête.
                                     if picked != nil && od.driverId == d.driverId {

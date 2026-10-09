@@ -30,7 +30,7 @@ struct FavoriteButton: View {
                 .symbolEffect(.bounce, value: on)
         }
         .buttonStyle(.bordered)
-        .tint(on ? .yellow : .primary)
+        .tint(on ? Color.yellow : Color.primary)
     }
 }
 
@@ -71,7 +71,7 @@ enum Predictions {
 }
 
 /// Équipe Fantasy : 5 pilotes + 1 écurie, budget 100 M€.
-struct FantasyTeam: Codable {
+struct FantasyTeam: Codable, Equatable {
     var drivers: [String] = []
     var team: String?
 
