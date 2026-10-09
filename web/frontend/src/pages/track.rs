@@ -120,12 +120,14 @@ pub fn TrackView(props: &TrackProps) -> Html {
                  aria-label={tr!("Tracé du circuit coloré selon la vitesse, de {} à {} km/h", "Circuit layout coloured by speed, from {} to {} km/h", s.min_speed, s.top_speed)}
                  {onpointermove} {onpointerleave}>
                 // Fond du tracé, pour que la forme reste lisible partout.
-                <polyline class="track-base" points={pts.iter().map(|p| format!("{:.1},{:.1}", p.x as f64 + PAD, p.y as f64 + PAD)).collect::<Vec<_>>().join(" ")} />
+                <polyline class="track-base" pathLength="1" points={pts.iter().map(|p| format!("{:.1},{:.1}", p.x as f64 + PAD, p.y as f64 + PAD)).collect::<Vec<_>>().join(" ")} />
+                // `--k` : avancement dans le tour, pour que la couleur suive le sens de la course à l'affichage.
                 { for (0..pts.len() - 1).map(|i| {
                     let (x1, y1) = px(i);
                     let (x2, y2) = px(i + 1);
                     html! { <line x1={format!("{x1:.1}")} y1={format!("{y1:.1}")} x2={format!("{x2:.1}")} y2={format!("{y2:.1}")}
-                                  stroke={speed_colour(ratio(pts[i].speed))} class="track-seg" /> }
+                                  stroke={speed_colour(ratio(pts[i].speed))} class="track-seg"
+                                  style={format!("--k:{:.3}", i as f64 / pts.len() as f64)} /> }
                 }) }
                 <g transform={arrow}>
                     <line class="track-start" x1="0" y1="-26" x2="0" y2="26" />
@@ -311,12 +313,18 @@ pub fn TrackOutline(props: &OutlineProps) -> Html {
         .collect::<Vec<_>>()
         .join(" ");
     let (x0, y0) = (pts[0].x as f64 + PAD, pts[0].y as f64 + PAD);
+    // Trajet du point rouge qui fait le tour une fois le tracé dessiné.
+    let lap = format!("M{}Z", line.replace(' ', "L"));
     html! {
         <svg class="outline" viewBox={format!("0 0 {w:.0} {h:.0}")} role="img"
              aria-label={t("Tracé du circuit", "Circuit layout")}>
             <polyline class="outline-base" points={line.clone()} />
             <polyline class="outline-line" pathLength="1" points={line} />
             <circle class="outline-start" cx={format!("{x0:.0}")} cy={format!("{y0:.0}")} r="16" />
+            <circle class="outline-runner" r="15" opacity="0">
+                <@{"set"} attributeName="opacity" to="1" begin="2s" />
+                <@{"animateMotion"} dur="7s" begin="2s" repeatCount="indefinite" path={lap} />
+            </circle>
         </svg>
     }
 }
