@@ -114,6 +114,27 @@
         c.style.transform = "translate(" + cx + "px," + cy + "px)";
         requestAnimationFrame(loop);
       })();
+      // Boutons aimantés : suivent légèrement le pointeur.
+      document.addEventListener("pointermove", function (e) {
+        var b = e.target.closest && e.target.closest(".btn, .site-link, .lang-switch, .pill");
+        if (window.__aimant && window.__aimant !== b) { window.__aimant.style.transform = ""; }
+        window.__aimant = b;
+        if (!b) return;
+        var r = b.getBoundingClientRect();
+        b.style.transform = "translate(" + (e.clientX - r.left - r.width / 2) * .22 + "px," + (e.clientY - r.top - r.height / 2) * .3 + "px)";
+      }, { passive: true });
+    })();
+    // Compte à rebours : le chiffre qui change bascule.
+    (function () {
+      if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      new MutationObserver(function (list) {
+        list.forEach(function (m) {
+          var el = m.target.nodeType === 3 ? m.target.parentElement : m.target;
+          var n = el && el.closest && el.closest(".cd-num");
+          if (!n) return;
+          n.classList.remove("tic"); void n.offsetWidth; n.classList.add("tic");
+        });
+      }).observe(document.body, { subtree: true, characterData: true, childList: true });
     })();
   </script>
   <div id="app"><div class="boot"><span class="brand"><span class="brand-mark">F1</span><span class="brand-x">X</span></span></div></div>

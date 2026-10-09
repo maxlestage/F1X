@@ -231,6 +231,38 @@ fn shell(lang: Lang, origin: &str, m: Meta, body: &str) -> String {
 {body}
 </main>
 {footer}
+<script>
+(function () {{
+  // Chiffres clés : comptent depuis 0 quand ils arrivent à l'écran (valeur finale déjà affichée sans script).
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches && "IntersectionObserver" in window) {{
+    var io = new IntersectionObserver(function (es) {{
+      es.forEach(function (e) {{
+        if (!e.isIntersecting) return;
+        io.unobserve(e.target);
+        var el = e.target, final = el.textContent, n = parseInt(final.replace(/\D/g, ""), 10);
+        if (!n) return;
+        var t0 = performance.now();
+        (function tick(t) {{
+          var k = Math.min(1, (t - t0) / 1400), v = Math.round(n * (1 - Math.pow(1 - k, 3)));
+          el.textContent = k < 1 ? final.replace(/[\d\s\u202f]+/, v.toLocaleString(document.documentElement.lang) + (/\s$/.test(final) ? " " : "")) : final;
+          if (k < 1) requestAnimationFrame(tick);
+        }})(t0);
+      }});
+    }}, {{ threshold: .6 }});
+    document.querySelectorAll(".numbers strong").forEach(function (el) {{ io.observe(el); }});
+  }}
+  // Boutons aimantés : suivent légèrement le pointeur (souris uniquement).
+  if (matchMedia("(hover: hover) and (pointer: fine)").matches) {{
+    document.querySelectorAll(".btn, .lang").forEach(function (b) {{
+      b.addEventListener("pointermove", function (e) {{
+        var r = b.getBoundingClientRect();
+        b.style.transform = "translate(" + (e.clientX - r.left - r.width / 2) * .25 + "px," + (e.clientY - r.top - r.height / 2) * .35 + "px)";
+      }});
+      b.addEventListener("pointerleave", function () {{ b.style.transform = ""; }});
+    }});
+  }}
+}})();
+</script>
 </body>
 </html>"##
     )
@@ -320,6 +352,32 @@ fn footer(lang: Lang, app: &str) -> String {
 }
 
 // ---------- Présentation ----------
+
+/// Découpe un texte en mots animables (`<span class="{class}" style="--i:n">`).
+fn words(text: &str, class: &str) -> String {
+    text.split(' ')
+        .enumerate()
+        .map(|(i, w)| format!(r#"<span class="{class}" style="--i:{i}"><span>{w}</span></span> "#))
+        .collect::<String>()
+        .trim_end()
+        .to_string()
+}
+
+/// Bandeau qui défile : les rubriques de l'app séparées par un point signal.
+fn ribbon(lang: Lang) -> String {
+    [
+        lang.t("Race Center", "Race Center"),
+        lang.t("Circuits en 3D", "3D circuits"),
+        lang.t("Télémétrie", "Telemetry"),
+        lang.t("Radios", "Team radio"),
+        lang.t("Stratégie", "Strategy"),
+        lang.t("Météo", "Weather"),
+        lang.t("75 ans d'archives", "75 years of history"),
+    ]
+    .iter()
+    .map(|w| format!("<span>{w}</span><i></i>"))
+    .collect()
+}
 
 fn render(lang: Lang, back: Option<&str>, origin: &str) -> String {
     let t = |f: &'static str, e: &'static str| lang.t(f, e);
@@ -456,7 +514,7 @@ fn render(lang: Lang, back: Option<&str>, origin: &str) -> String {
         r##"  <section class="hero">
     <div class="hero-text">
       <p class="eyebrow">{eyebrow}</p>
-      <h1>{h1}</h1>
+      <h1 class="mots">{h1}</h1>
       <p class="lead">{lead}</p>
       <div class="ctas">
         <a class="btn btn-big" href="{app}">{cta} <span aria-hidden="true">→</span></a>
@@ -473,6 +531,10 @@ fn render(lang: Lang, back: Option<&str>, origin: &str) -> String {
     <li><strong>880+</strong><span>{drivers}</span></li>
     <li><strong>3D</strong><span>{three_d}</span></li>
   </ul>
+
+  <div class="bande" aria-hidden="true"><div class="bande-piste">{ribbon}{ribbon}</div></div>
+
+  <section class="manifeste"><p>{manifesto}</p></section>
 
   <div id="fonctionnalites">{features}</div>
 
@@ -504,10 +566,21 @@ fn render(lang: Lang, back: Option<&str>, origin: &str) -> String {
     <a class="btn btn-big" href="{app}">{cta} <span aria-hidden="true">→</span></a>
   </section>"##,
         eyebrow = t("Application web gratuite", "Free web app"),
-        h1 = t(
-            "Toute la Formule 1 dans ta poche.",
-            "All of Formula 1 in your pocket."
+        h1 = words(
+            t(
+                "Toute la Formule 1 dans ta poche.",
+                "All of Formula 1 in your pocket."
+            ),
+            "mot"
         ),
+        manifesto = words(
+            t(
+                "Chaque tour, chaque arrêt, chaque radio. La course en direct, les circuits en 3D, 75 ans d'histoire. Tout tient dans ta poche.",
+                "Every lap, every stop, every radio call. The race live, the circuits in 3D, 75 years of history. All of it in your pocket."
+            ),
+            "lueur"
+        ),
+        ribbon = ribbon(lang),
         lead = t(
             "Race Center en temps réel, monoplaces et circuits en 3D, photos des pilotes et 75 ans d'archives. Rapide, clair, pensé pour le téléphone.",
             "A real-time Race Center, 3D cars and circuits, driver photos and 75 years of history. Fast, clear and built for your phone.",
@@ -822,7 +895,7 @@ fn credits_page(lang: Lang, origin: &str) -> String {
 }
 
 const CSS: &str = r#"
-:root{--bg:#0e0d0c;--surface:#161513;--surface-2:#201e1b;--line:rgba(242,237,227,.12);--text:#f2ede3;--muted:#8d877d;--red:#e8501a;--font:"Archivo",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--ease:cubic-bezier(.2,.7,.1,1);color-scheme:dark}
+:root{--bg:#0e0d0c;--surface:#161513;--surface-2:#201e1b;--line:rgba(242,237,227,.12);--text:#f2ede3;--muted:#8d877d;--red:#e10600;--font:"Archivo",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--ease:cubic-bezier(.2,.7,.1,1);color-scheme:dark}
 *,*::before,*::after{box-sizing:border-box;min-width:0}
 html,body{margin:0;max-width:100%;overflow-x:hidden}
 html{scroll-behavior:smooth;scroll-padding-top:72px}
@@ -939,6 +1012,40 @@ h1,h2{font-variation-settings:"wdth" 88;text-wrap:balance}
 .foot-legal{color:#6e6961}
 .doc p,.doc li{color:#d8d2c6}
 @media (prefers-reduced-motion:reduce){.grain{animation:none}.btn{transition:none}.btn:hover{transform:none}}
+
+/* Animations : mots qui montent, bandeau qui défile, manifeste qui s'allume au défilement. */
+.mots .mot{display:inline-block;overflow:hidden;vertical-align:top;padding-bottom:.06em}
+.mots .mot>span{display:inline-block;animation:mot .95s var(--ease) both;animation-delay:calc(var(--i)*80ms + .1s)}
+@keyframes mot{from{transform:translateY(105%) rotate(4deg)}}
+.hero .lead,.hero .ctas,.hero .note{animation:monte-in .9s var(--ease) both .55s}
+.hero .eyebrow{animation:monte-in .7s var(--ease) both}
+@keyframes monte-in{from{opacity:0;transform:translateY(18px)}}
+.eyebrow::before{animation:pouls 2.4s ease-in-out infinite}
+@keyframes pouls{50%{box-shadow:0 0 4px var(--red);transform:scale(.7)}}
+.phone{animation:flotte 7s ease-in-out infinite}
+@keyframes flotte{50%{transform:translateY(-10px) rotate(-.6deg)}}
+.bande{margin:20px calc(50% - 50vw) 0;border-block:1px solid var(--line);background:var(--surface);padding:18px 0;overflow:hidden;transform:rotate(-2deg) scale(1.04)}
+.bande-piste{display:flex;align-items:center;gap:34px;width:max-content;animation:bande 38s linear infinite}
+.bande-piste span{font-variation-settings:"wdth" 125;text-transform:uppercase;font-weight:800;font-size:clamp(26px,4.2vw,60px);letter-spacing:-.01em;white-space:nowrap}
+.bande-piste i{width:12px;height:12px;border-radius:50%;background:var(--red);box-shadow:0 0 16px var(--red);flex:none}
+@keyframes bande{to{transform:translateX(-50%)}}
+.manifeste{padding:clamp(70px,16vh,180px) 0}
+.manifeste p{max-width:1000px;margin:0 auto;font-size:clamp(28px,4.8vw,68px);line-height:1.08;font-weight:600;letter-spacing:-.015em;font-variation-settings:"wdth" 92;text-wrap:balance}
+.lueur{display:inline}
+@supports (animation-timeline: view()){
+  .lueur>span{animation:lueur linear both;animation-timeline:view();animation-range:entry 30% cover 45%}
+  .feature,.numbers li,.mini,.steps li,.final{animation:apparait linear both;animation-timeline:view();animation-range:entry 0% entry 40%}
+}
+@keyframes lueur{from{opacity:.12}to{opacity:1}}
+@keyframes apparait{from{opacity:0;transform:translateY(48px)}to{opacity:1;transform:none}}
+@supports (animation-timeline: scroll()){
+  body::after{content:"";position:fixed;top:0;left:0;right:0;height:2px;z-index:80;background:var(--red);transform-origin:0 50%;animation:avance linear both;animation-timeline:scroll(root)}
+}
+@keyframes avance{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@media (prefers-reduced-motion:reduce){
+  .mots .mot>span,.hero .lead,.hero .ctas,.hero .note,.hero .eyebrow,.eyebrow::before,.phone,.bande-piste,.lueur>span,.feature,.numbers li,.mini,.steps li,.final{animation:none}
+  body::after{display:none}
+}
 "#;
 
 #[cfg(test)]
