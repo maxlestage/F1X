@@ -163,6 +163,8 @@ struct SplashView: View {
     @State private var leave = false
     /// Moteur qui rugit et vibrations calées sur les feux et le départ.
     @State private var fx = StartFX()
+    /// Début de l'ouverture (compteur 0 → 100 %).
+    @State private var started = Date()
 
     var body: some View {
         GeometryReader { geo in
@@ -213,6 +215,28 @@ struct SplashView: View {
                     .clipped()
                     .transformEffect(CGAffineTransform(a: 1, b: 0, c: -0.45, d: 1, tx: 4, ty: 0))
                 }
+                // Compteur 0 → 100 % et petite légende, comme l'ouverture du site.
+                TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+                    let k = min(1, context.date.timeIntervalSince(started) / 1.5)
+                    let value = Int((1 - pow(1 - k, 3)) * 100)
+                    HStack(alignment: .firstTextBaseline, spacing: 2) {
+                        Text("\(value)")
+                            .font(.archivo(76, weight: 300, width: 62))
+                            .monospacedDigit()
+                            .foregroundStyle(.white.opacity(0.9))
+                        Text("%").font(.archivo(26, weight: 500)).foregroundStyle(Color.f1Red)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 30)
+                Text(L("FORMULE 1 · SAISON EN DIRECT", "FORMULA 1 · LIVE SEASON"))
+                    .font(.caption2.weight(.medium))
+                    .tracking(2)
+                    .foregroundStyle(.white.opacity(0.5))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 70)
             }
             .offset(x: leave ? w * 1.15 : 0)
             .opacity(leave ? 0 : 1)

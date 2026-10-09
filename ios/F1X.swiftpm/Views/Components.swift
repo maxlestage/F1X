@@ -44,30 +44,37 @@ struct CountdownView: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let s = max(0, Int(target.timeIntervalSince(context.date)))
-            HStack(spacing: 8) {
-                cell(String(s / 86400), "jours")
-                cell(String(format: "%02d", (s % 86400) / 3600), "heures")
+            HStack(spacing: 0) {
+                cell(String(s / 86400), L("jours", "days"), first: true)
+                cell(String(format: "%02d", (s % 86400) / 3600), L("heures", "hours"))
                 cell(String(format: "%02d", (s % 3600) / 60), "min")
                 cell(String(format: "%02d", s % 60), "sec")
             }
         }
     }
 
-    private func cell(_ value: String, _ label: String) -> some View {
-        VStack(spacing: 2) {
+    private func cell(_ value: String, _ label: String, first: Bool = false) -> some View {
+        VStack(spacing: 4) {
             Text(value)
-                .font(.title2.weight(.heavy).monospacedDigit())
+                .font(.archivo(44, weight: 300, width: 62))
+                .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
+                // Le chiffre qui change bascule.
+                .contentTransition(.numericText(countsDown: true))
+                .animation(.snappy(duration: 0.35), value: value)
             Text(label.uppercased())
-                .font(.caption2.weight(.semibold))
+                .font(.caption2.weight(.medium))
+                .tracking(1.6)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 10)
-        .background(Color.tile, in: RoundedRectangle(cornerRadius: 12))
+        .padding(.vertical, 4)
+        .overlay(alignment: .leading) {
+            if !first { Rectangle().fill(Color.hairline).frame(width: 1) }
+        }
     }
 }
 
@@ -93,6 +100,7 @@ struct SessionsList: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(.vertical, 10)
+                .rise(delay: 0.08 * Double(index))
                 if index < race.sessions.count - 1 { Divider() }
             }
         }
@@ -181,21 +189,27 @@ struct HeroCard<Content: View>: View {
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                LinearGradient(colors: [accent.opacity(0.3), .clear], startPoint: .topLeading, endPoint: .center),
-                in: RoundedRectangle(cornerRadius: 16)
+                LinearGradient(colors: [accent.opacity(0.22), .clear], startPoint: .topLeading, endPoint: .center),
+                in: RoundedRectangle(cornerRadius: 18)
             )
-            .background(Color.cardBackground, in: RoundedRectangle(cornerRadius: 16))
+            .background(HeroGlow(color: accent).clipShape(RoundedRectangle(cornerRadius: 18)))
+            .background(Color.cardBackground, in: RoundedRectangle(cornerRadius: 18))
+            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color.hairline))
             .shadow(color: .cardShadow, radius: 10, y: 3)
+            .revealOnScroll()
     }
 }
 
 struct Eyebrow: View {
     let text: String
     var body: some View {
-        Text(text.uppercased())
-            .font(.caption.weight(.bold))
-            .tracking(1)
-            .foregroundStyle(.secondary)
+        HStack(spacing: 8) {
+            PulsingDot()
+            Text(text.uppercased())
+                .font(.caption.weight(.semibold))
+                .tracking(1.6)
+                .foregroundStyle(.secondary)
+        }
     }
 }
 

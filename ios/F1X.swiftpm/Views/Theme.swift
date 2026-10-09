@@ -10,10 +10,12 @@ extension Color {
     }
 
     /// Fond des pages (gris clair le jour, noir la nuit) et des cartes posées dessus.
-    static let pageBackground = Color(uiColor: .systemGroupedBackground)
-    static let cardBackground = Color(uiColor: .secondarySystemGroupedBackground)
-    /// Tracés et repères bien contrastés (presque noir le jour, blanc la nuit).
-    static let ink = Color(light: Color(white: 0.12), dark: .white)
+    static let pageBackground = Color(light: Color(uiColor: .systemGroupedBackground), dark: Color(hex: 0x0E0D0C))
+    static let cardBackground = Color(light: Color(uiColor: .secondarySystemGroupedBackground), dark: Color(hex: 0x161513))
+    /// Filet très fin autour des cartes (crème la nuit).
+    static let hairline = Color(light: Color.black.opacity(0.06), dark: Color(hex: 0xF2EDE3).opacity(0.12))
+    /// Tracés et repères bien contrastés (presque noir le jour, crème la nuit).
+    static let ink = Color(light: Color(white: 0.12), dark: Color(hex: 0xF2EDE3))
     /// Pavés discrets (compte à rebours, météo).
     static let tile = Color(light: Color.black.opacity(0.06), dark: Color.black.opacity(0.35))
     /// Pastilles (« T12 », « Tour 3 »).

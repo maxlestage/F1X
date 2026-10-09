@@ -14,6 +14,8 @@ struct F1XApp: App {
         // Photos et réponses gardées en cache plus longtemps : défilement fluide, moins de réseau.
         URLCache.shared = URLCache(memoryCapacity: 64 << 20, diskCapacity: 400 << 20)
         WatchSync.shared.start()
+        AtelierFont.register()
+        AtelierFont.styleNavigationBars()
         AppLanguage.share()
     }
 
@@ -57,6 +59,8 @@ struct RootView: View {
                 stack(.standings) { StandingsView() }
                 stack(.explore) { ExplorerView() }
             }
+            // Grain de film très léger, comme le site.
+            GrainOverlay()
             if let intro {
                 SectionIntro(section: intro)
                     .id(intro)

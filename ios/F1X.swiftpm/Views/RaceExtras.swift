@@ -221,35 +221,47 @@ struct LapByLapSection: View {
     }
 }
 
-/// Tracé du circuit (contour), comme sur la page d'accueil du site.
+/// Tracé du circuit (contour), comme sur la page d'accueil du site : il se dessine,
+/// puis un point rouge en fait le tour.
 struct TrackOutline: View {
     let circuitId: String
     var height: CGFloat = 190
 
     @State private var map: TrackMap?
+    @State private var drawn: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack {
-            if let map {
+            if let map, map.points.count > 2 {
                 GeometryReader { geo in
                     let pad = 30.0
                     let w = map.width + 2 * pad, h = map.height + 2 * pad
                     let gw = Double(geo.size.width), gh = Double(geo.size.height)
                     let scale = min(gw / w, gh / h)
                     let ox = (gw - w * scale) / 2, oy = (gh - h * scale) / 2
-                    let pt = { (p: TrackPoint) in CGPoint(x: ox + (p.x + pad) * scale, y: oy + (p.y + pad) * scale) }
-                    Canvas { ctx, _ in
-                        var path = Path()
-                        for (i, p) in map.points.enumerated() {
-                            if i == 0 { path.move(to: pt(p)) } else { path.addLine(to: pt(p)) }
-                        }
-                        path.closeSubpath()
-                        ctx.stroke(path, with: .color(Color.ink.opacity(0.15)), style: StrokeStyle(lineWidth: 12, lineCap: .round, lineJoin: .round))
-                        ctx.stroke(path, with: .color(Color.ink), style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round))
-                        if let first = map.points.first {
-                            let c = pt(first)
-                            ctx.fill(Path(ellipseIn: CGRect(x: c.x - 6, y: c.y - 6, width: 12, height: 12)), with: .color(Color.cardBackground))
-                            ctx.fill(Path(ellipseIn: CGRect(x: c.x - 4.5, y: c.y - 4.5, width: 9, height: 9)), with: .color(Color.f1Red))
+                    let pts = map.points.map { CGPoint(x: ox + ($0.x + pad) * scale, y: oy + ($0.y + pad) * scale) }
+                    let path = Path { p in
+                        p.addLines(pts)
+                        p.closeSubpath()
+                    }
+                    ZStack(alignment: .topLeading) {
+                        path.stroke(Color.ink.opacity(0.13), style: StrokeStyle(lineWidth: 12, lineCap: .round, lineJoin: .round))
+                        TracedPath(path: path, progress: drawn)
+                            .stroke(Color.ink, style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round))
+                        // Ligne de départ.
+                        Circle().fill(Color.cardBackground).frame(width: 12, height: 12)
+                            .overlay(Circle().fill(Color.f1Red).frame(width: 9, height: 9))
+                            .position(pts[0])
+                        // Une voiture (point rouge lumineux) boucle le tour toutes les 9 s.
+                        if drawn >= 1 && !reduceMotion {
+                            TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+                                let t = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 9) / 9
+                                let i = min(pts.count - 1, Int(t * Double(pts.count)))
+                                Circle().fill(Color.f1Red).frame(width: 9, height: 9)
+                                    .shadow(color: .f1Red, radius: 6)
+                                    .position(pts[i])
+                            }
                         }
                     }
                 }
@@ -257,8 +269,24 @@ struct TrackOutline: View {
                 .accessibilityLabel(L("Tracé du circuit", "Circuit layout"))
             }
         }
-        .task(id: circuitId) { map = try? await ServerAPI.shared.track(circuitId) }
+        .task(id: circuitId) {
+            map = try? await ServerAPI.shared.track(circuitId)
+            if reduceMotion { drawn = 1; return }
+            drawn = 0
+            withAnimation(.easeInOut(duration: 1.8)) { drawn = 1 }
+        }
     }
+}
+
+/// Chemin tracé progressivement (0 → 1), animable.
+private struct TracedPath: Shape {
+    let path: Path
+    var progress: CGFloat
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+    func path(in rect: CGRect) -> Path { path.trimmedPath(from: 0, to: progress) }
 }
 
 /// Détail de chaque arrêt (OpenF1, courses depuis 2023) : voie des stands, immobilisation,
