@@ -19,6 +19,8 @@ struct Race: Decodable, Identifiable, Hashable, Sendable {
     let results: [RaceResult]?
     let sprintResults: [RaceResult]?
     let qualifyingResults: [QualifyingResult]?
+    /// Qualifs sprint : ajoutées par le serveur F1X depuis OpenF1 (absentes de Jolpica).
+    let sprintQualifyingResults: [QualifyingResult]?
     let pitStops: [PitStop]?
     let laps: [LapData]?
 
@@ -68,6 +70,7 @@ struct Race: Decodable, Identifiable, Hashable, Sendable {
         case results = "Results"
         case sprintResults = "SprintResults"
         case qualifyingResults = "QualifyingResults"
+        case sprintQualifyingResults = "SprintQualifyingResults"
         case pitStops = "PitStops"
         case laps = "Laps"
     }
@@ -310,6 +313,7 @@ extension Race {
              results: joined(results, other.results),
              sprintResults: joined(sprintResults, other.sprintResults),
              qualifyingResults: joined(qualifyingResults, other.qualifyingResults),
+             sprintQualifyingResults: joined(sprintQualifyingResults, other.sprintQualifyingResults),
              pitStops: joined(pitStops, other.pitStops),
              laps: joined(laps, other.laps))
     }

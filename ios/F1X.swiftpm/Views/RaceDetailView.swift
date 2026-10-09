@@ -6,6 +6,7 @@ struct RaceDetailView: View {
     @State private var results: [RaceResult] = []
     @State private var sprint: [RaceResult] = []
     @State private var qualifying: [QualifyingResult] = []
+    @State private var sprintQualifying: [QualifyingResult] = []
     @State private var pits: [PitStop] = []
     @State private var isLoading = true
 
@@ -89,18 +90,14 @@ struct RaceDetailView: View {
             if !qualifying.isEmpty {
                 FoldSection(L("Qualifications", "Qualifying")) {
                     ForEach(Array(qualifying.enumerated()), id: \.offset) { _, q in
-                        NavigationLink(value: q.driver) {
-                            StandingRow(
-                                position: q.position,
-                                teamId: q.constructor.constructorId,
-                                title: driverTitle(q.driver),
-                                subtitle: q.constructor.name
-                            ) {
-                                if let best = q.best {
-                                    PointsLabel(value: best.time, suffix: best.segment)
-                                }
-                            }
-                        }
+                        NavigationLink(value: q.driver) { QualifyingRow(result: q) }
+                    }
+                }
+            }
+            if !sprintQualifying.isEmpty {
+                FoldSection(L("Qualifs sprint", "Sprint qualifying")) {
+                    ForEach(Array(sprintQualifying.enumerated()), id: \.offset) { _, q in
+                        NavigationLink(value: q.driver) { QualifyingRow(result: q, sprint: true) }
                     }
                 }
             }
@@ -150,11 +147,13 @@ struct RaceDetailView: View {
         let round = race.roundNumber, season = race.season
         async let r = try? F1API.shared.results(season: season, round: round)
         async let s = try? F1API.shared.sprint(season: season, round: round)
-        async let q = try? F1API.shared.qualifying(season: season, round: round)
+        async let q = try? F1API.shared.qualifyingWeekend(season: season, round: round)
         async let p = try? F1API.shared.pitStops(season: season, round: round)
         results = await r ?? []
         sprint = await s ?? []
-        qualifying = await q ?? []
+        let quali = await q
+        qualifying = quali?.main ?? []
+        sprintQualifying = quali?.sprint ?? []
         pits = await p ?? []
     }
 }
