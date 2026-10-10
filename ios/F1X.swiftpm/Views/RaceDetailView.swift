@@ -53,6 +53,11 @@ struct RaceDetailView: View {
                 SessionsList(race: race)
             }
 
+            // Avant la course, l'ordre des qualifications (la grille) passe juste après le programme.
+            if !race.isOver() {
+                qualifyingSections
+            }
+
             if !race.isOver() {
                 Section {
                     WeatherCard(race: race)
@@ -87,19 +92,8 @@ struct RaceDetailView: View {
                 }
             }
 
-            if !qualifying.isEmpty {
-                FoldSection(L("Qualifications", "Qualifying")) {
-                    ForEach(Array(qualifying.enumerated()), id: \.offset) { _, q in
-                        NavigationLink(value: q.driver) { QualifyingRow(result: q) }
-                    }
-                }
-            }
-            if !sprintQualifying.isEmpty {
-                FoldSection(L("Qualifs sprint", "Sprint qualifying")) {
-                    ForEach(Array(sprintQualifying.enumerated()), id: \.offset) { _, q in
-                        NavigationLink(value: q.driver) { QualifyingRow(result: q, sprint: true) }
-                    }
-                }
+            if race.isOver() {
+                qualifyingSections
             }
 
             FastestLapsSection(results: results)
@@ -133,6 +127,23 @@ struct RaceDetailView: View {
         .refreshable {
             await F1API.shared.clearCache()
             await load()
+        }
+    }
+
+    @ViewBuilder private var qualifyingSections: some View {
+        if !qualifying.isEmpty {
+            FoldSection(L("Qualifications", "Qualifying")) {
+                ForEach(Array(qualifying.enumerated()), id: \.offset) { _, q in
+                    NavigationLink(value: q.driver) { QualifyingRow(result: q) }
+                }
+            }
+        }
+        if !sprintQualifying.isEmpty {
+            FoldSection(L("Qualifs sprint", "Sprint qualifying")) {
+                ForEach(Array(sprintQualifying.enumerated()), id: \.offset) { _, q in
+                    NavigationLink(value: q.driver) { QualifyingRow(result: q, sprint: true) }
+                }
+            }
         }
     }
 
