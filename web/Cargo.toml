@@ -2,7 +2,7 @@
 resolver = "3"
 members = ["server", "frontend", "protocol"]
 # `cargo build` à la racine (Heroku) ne construit que le serveur ;
-# son build.rs compile lui-même le frontend Yew en WebAssembly.
+# son build.rs compile lui-même le frontend active en WebAssembly.
 default-members = ["server"]
 
 [workspace.package]
