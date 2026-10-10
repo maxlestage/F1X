@@ -7,7 +7,7 @@ publish.workspace = true
 build = "build.rs"
 
 [dependencies]
-active = { path = "/home/user/Active/crates/active" }
+active.workspace = true
 axum = { version = "0.8", features = ["ws"] }
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 f1x-protocol.workspace = true
