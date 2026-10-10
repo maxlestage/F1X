@@ -2005,7 +2005,6 @@ fn race_ms(date: &str) -> f64 {
 /// Lien « Analyse OpenF1 » d'une page de Grand Prix : retrouve la réunion d'après la date
 /// de la course (`date` : « 2025-07-06 »).
 // Appelée par la page d'un Grand Prix (pages/race.rs).
-#[allow(dead_code)]
 pub fn meeting_link(year: u32, date: &str) -> Node {
     let meetings =
         use_json::<Value>((year >= 2023).then(|| format!("/api/of1/meetings?year={year}")));
@@ -2033,7 +2032,6 @@ pub fn meeting_link(year: u32, date: &str) -> Node {
 /// chaque pilote, les tours, positions, pneus, télémétrie, direction de course… affichés
 /// directement dans la page, un bouton par rubrique.
 // Appelée par la page d'un Grand Prix (pages/race.rs).
-#[allow(dead_code)]
 pub fn race_data_links(year: u32, date: &str) -> Node {
     let view = use_state(View::Driver);
     let sessions = use_json::<Value>(
@@ -2122,7 +2120,6 @@ struct ReplayRow {
 /// Replay automatique d'une course terminée (2023 et après) sur la page du Grand Prix :
 /// démarre tout seul à ×30, voitures à leurs positions réelles sur le circuit 3D.
 // Appelée par la page d'un Grand Prix (pages/race.rs).
-#[allow(dead_code)]
 pub fn race_replay(year: u32, date: &str) -> Node {
     use f1x_protocol::ClientMsg;
     let sessions =

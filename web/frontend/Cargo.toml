@@ -6,7 +6,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-active = { path = "/home/user/Active/crates/active", features = ["client"] }
+active = { workspace = true, features = ["client"] }
 f1x-protocol.workspace = true
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 gloo-net = { version = "0.7", default-features = false, features = ["http", "json", "websocket"] }

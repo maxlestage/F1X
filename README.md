@@ -8,9 +8,9 @@ des pilotes, palmarès des écuries et des circuits (avec leur **tracé GPS colo
 
 | | |
 |---|---|
-| 🏁 **Site de présentation** | `/presentation` — page vitrine FR/EN (HTML + CSS rendus par le serveur Rust, lisible sans JavaScript ; un petit script facultatif anime la page) avec captures réelles et bouton « Voir l'app web » |
+| 🏁 **Site de présentation** | `/presentation` — page vitrine FR/EN écrite avec [active](https://github.com/maxlestage/Active) et rendue par le serveur Rust (lisible sans JavaScript ; un petit script facultatif anime la page), avec captures réelles et bouton « Voir l'app web » |
 | 📱 **App iOS native** | SwiftUI, dans [`ios/F1X.swiftpm`](ios/) |
-| 🌐 **Site web mobile first** | 100 % Rust : front **Yew 0.23** (WebAssembly) + serveur **axum**, dans [`web/`](web/) |
+| 🌐 **Site web mobile first** | 100 % Rust : front **[active](https://github.com/maxlestage/Active)** (WebAssembly) + serveur **axum**, dans [`web/`](web/) |
 | ☁️ **Déploiement** | Heroku, pilotable 100 % depuis un téléphone |
 
 Données : API publique [Jolpica F1](https://github.com/jolpica/jolpica-f1) (successeur d'Ergast), sans clé.
@@ -19,7 +19,7 @@ Données : API publique [Jolpica F1](https://github.com/jolpica/jolpica-f1) (suc
 
 C'est une règle du projet, appliquée des deux côtés :
 
-- **Web (Yew)** : tout est empilé verticalement (pas de tableau, pas de carrousel), `overflow-x: hidden` puis `clip` (la barre du haut reste collée en haut),
+- **Web (active)** : tout est empilé verticalement (pas de tableau, pas de carrousel), `overflow-x: hidden` puis `clip` (la barre du haut reste collée en haut),
   `min-width: 0` partout, texte long qui passe à la ligne (`overflow-wrap: anywhere`), grilles en
   `minmax(0, 1fr)`. Vérifié automatiquement sur toutes les pages à 320, 375 et 430 px de large.
 - **iOS** : uniquement des `List` / `ScrollView(.vertical)`, aucune `ScrollView(.horizontal)` ni
@@ -64,16 +64,19 @@ puis redéploie.
 ```
 web/
 ├── Cargo.toml        # workspace
-├── frontend/         # Yew 0.23 + yew-router 0.20 → WebAssembly (application monopage)
+├── frontend/         # active (composants, état, routeur) → WebAssembly (application monopage)
 ├── protocol/         # messages WebSocket partagés front ↔ serveur
 └── server/           # axum : proxy /api avec cache + sert le front
     └── build.rs      # compile frontend/ en wasm + wasm-bindgen, embarqué dans le binaire
 ```
 
-- **Front** : tout en Rust avec [Yew](https://yew.rs) (composants, routeur, hooks, compte à rebours,
-  heures locales via l'API `Intl` du navigateur). Le seul JavaScript est le petit chargeur généré par
-  wasm-bindgen qui démarre le module WebAssembly.
-- **Serveur** : axum sert le shell HTML, le `.wasm` (≈ 200 Ko gzip) et une API JSON `/api/*` qui met
+- **Front** : tout en Rust avec [active](https://github.com/maxlestage/Active), la bibliothèque front-end
+  du projet (composants = fonctions Rust, états `use_state` / `memo`, routeur `location()`, mises à jour
+  fines du DOM sans DOM virtuel ; compte à rebours, heures locales via l'API `Intl` du navigateur). La
+  version d'active est épinglée dans `web/Cargo.toml` (`[workspace.dependencies]`). Le JavaScript se
+  limite au chargeur du module WebAssembly et à de petits scripts d'animation facultatifs
+  (`server/static/js/`).
+- **Serveur** : axum sert la page de l'app (écrite elle aussi avec active : `server/src/shell.rs`), le `.wasm` (≈ 590 Ko gzip) et une API JSON `/api/*` qui met
   en cache l'API Jolpica (et sert la dernière copie connue si elle tombe).
 - **Build** : un simple `cargo build` suffit — pas de trunk, pas de npm. `build.rs` installe la cible
   `wasm32-unknown-unknown` si besoin, compile le front et génère le glue avec
@@ -154,7 +157,7 @@ les textes sont écrits en paires : `t("Calendrier", "Calendar")`, `tr!("Saison 
 
 ### ⚡ Direct & replay en WebSocket (`/direct`)
 
-Une connexion WebSocket (`/ws`) relie le front Yew au serveur axum ; le protocole est un crate partagé
+Une connexion WebSocket (`/ws`) relie le front active au serveur axum ; le protocole est un crate partagé
 (`web/protocol`), donc typé des deux côtés. Chaque seconde le serveur pousse une photo complète de la
 course : classement, écarts (au leader et à la voiture de devant), dernier/meilleur tour, pneus (gomme +
 âge), arrêts et passages aux stands, drapeaux / voiture de sécurité, météo, messages de la direction de
