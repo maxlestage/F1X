@@ -9,6 +9,7 @@ mod news;
 mod openf1;
 mod photos;
 mod race;
+mod shell;
 mod track3d;
 mod wiki;
 
@@ -24,10 +25,9 @@ use tower_http::compression::CompressionLayer;
 
 use api::F1Api;
 
-/// Frontend Yew compilé en WebAssembly par `build.rs`.
+/// Frontend (active) compilé en WebAssembly par `build.rs`.
 const FRONTEND_JS: &str = include_str!(concat!(env!("OUT_DIR"), "/pkg/f1x_frontend.js"));
 const FRONTEND_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/pkg/f1x_frontend_bg.wasm"));
-const INDEX_HTML: &str = include_str!("../static/index.html");
 
 #[derive(Clone)]
 struct AppState {
@@ -215,7 +215,7 @@ fn app(state: AppState) -> Router {
         // d'un script (sinon le navigateur resterait bloqué sur l'écran de démarrage).
         .route("/pkg/{*rest}", get(|| async { StatusCode::NOT_FOUND }))
         .route("/static/{*rest}", get(|| async { StatusCode::NOT_FOUND }))
-        // Application monopage : toutes les autres URL servent le shell, le routeur Yew prend le relais.
+        // Application monopage : toutes les autres URL servent le shell, le routeur de l'app (active) prend le relais.
         .fallback(get(index))
         .layer(CompressionLayer::new())
         .with_state(state)
@@ -225,13 +225,7 @@ async fn index(headers: axum::http::HeaderMap) -> impl IntoResponse {
     // La page elle-même n'est jamais mise en cache : elle pointe toujours vers les bons fichiers.
     (
         [(header::CACHE_CONTROL, "no-cache")],
-        Html(
-            INDEX_HTML
-                .replace("{{APP}}", env!("F1X_APP_HASH"))
-                .replace("{{CSS}}", env!("F1X_CSS_HASH"))
-                .replace("{{ORIGIN}}", &assets::origin(&headers))
-                .replace("{{CAR}}", assets::car_hash()),
-        ),
+        Html(shell::render(&assets::origin(&headers))),
     )
 }
 

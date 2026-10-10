@@ -1,7 +1,7 @@
 //! Actualités F1 (flux RSS publics agrégés par le serveur).
 
+use active::prelude::*;
 use serde::Deserialize;
-use yew::prelude::*;
 
 use crate::api::use_json;
 use crate::components::*;
@@ -28,11 +28,45 @@ fn ago(iso: &str) -> String {
     }
 }
 
-#[function_component]
-pub fn NewsPage() -> Html {
+fn news_item(item: &Article) -> Element {
+    li().child(
+        a().class("news-item")
+            .href(item.link.clone())
+            .attr("target", "_blank")
+            .attr("rel", "noopener")
+            .child(item.image.as_ref().map(|img_src| {
+                img()
+                    .class("news-img")
+                    .attr("src", img_src.clone())
+                    .attr("alt", "")
+                    .attr("loading", "lazy")
+                    .attr("referrerpolicy", "no-referrer")
+            }))
+            .child(
+                span()
+                    .class("news-body")
+                    .child(span().class("news-meta").text(format!(
+                        "{} · {}",
+                        item.source,
+                        if item.date.is_empty() {
+                            String::new()
+                        } else {
+                            ago(&item.date)
+                        }
+                    )))
+                    .child(strong().class("news-title").text(item.title.clone()))
+                    .child(
+                        (!item.excerpt.is_empty())
+                            .then(|| span().class("news-excerpt").text(item.excerpt.clone())),
+                    ),
+            ),
+    )
+}
+
+pub fn news_page() -> Node {
     let lang = if is_fr() { "fr" } else { "en" };
     let news = use_json::<Vec<Article>>(Some(format!("/api/news/{lang}")));
-    let body = match &news {
+    let body = dynamic(move || match news.get() {
         None => loading(),
         Some(Err(_)) => empty_card(t(
             "Actualités momentanément indisponibles.",
@@ -41,29 +75,20 @@ pub fn NewsPage() -> Html {
         Some(Ok(list)) if list.is_empty() => {
             empty_card(t("Aucune actualité pour le moment.", "No news right now."))
         }
-        Some(Ok(list)) => html! {
-            <ol class="news">
-                { for list.iter().map(|a| html! {
-                    <li>
-                        <a class="news-item" href={a.link.clone()} target="_blank" rel="noopener">
-                            if let Some(img) = &a.image {
-                                <img class="news-img" src={img.clone()} alt="" loading="lazy" referrerpolicy="no-referrer" />
-                            }
-                            <span class="news-body">
-                                <span class="news-meta">{ format!("{} · {}", a.source, if a.date.is_empty() { String::new() } else { ago(&a.date) }) }</span>
-                                <strong class="news-title">{ &a.title }</strong>
-                                if !a.excerpt.is_empty() { <span class="news-excerpt">{ &a.excerpt }</span> }
-                            </span>
-                        </a>
-                    </li>
-                }) }
-            </ol>
-        },
-    };
-    html! {
-        <Layout title={t("Actualités", "News")} tab={Tab::Archives}>
-            <p class="section-intro">{ t("Les derniers titres de la presse F1 — touche un article pour le lire sur le site d'origine.", "Latest F1 headlines — tap an article to read it on the original site.") }</p>
-            { body }
-        </Layout>
-    }
+        Some(Ok(list)) => ol()
+            .class("news")
+            .children(list.iter().map(news_item))
+            .into(),
+    });
+    layout(
+        t("Actualités", "News"),
+        Some(Tab::Archives),
+        fragment([
+            Node::from(p().class("section-intro").text(t(
+                "Les derniers titres de la presse F1 — touche un article pour le lire sur le site d'origine.",
+                "Latest F1 headlines — tap an article to read it on the original site.",
+            ))),
+            body,
+        ]),
+    )
 }

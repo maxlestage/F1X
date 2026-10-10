@@ -1,4 +1,7 @@
-//! F1X — frontend 100 % Rust avec Yew, compilé en WebAssembly.
+//! F1X — frontend 100 % Rust avec active, compilé en WebAssembly.
+//!
+//! L'application est montée dans `#app` par [`active::mount_to`] ; le routeur d'active suit
+//! l'adresse (liens internes, retour arrière) et [`Route::parse`] choisit la page.
 
 mod api;
 mod components;
@@ -11,79 +14,86 @@ mod photo;
 mod pwa;
 mod util;
 
-use yew::prelude::*;
-use yew_router::prelude::*;
+use active::prelude::*;
 
 /// `season` vaut `"current"` pour la saison en cours, sinon l'année (`"1998"`).
-#[derive(Clone, Routable, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum Route {
-    #[at("/")]
     Home,
-    #[at("/direct")]
     Live,
-    #[at("/saison/:season")]
-    Season { season: String },
-    #[at("/saison/:season/course/:round")]
-    Race { season: String, round: u32 },
-    #[at("/saison/:season/pilotes")]
-    DriverStandings { season: String },
-    #[at("/saison/:season/ecuries")]
-    TeamStandings { season: String },
-    #[at("/pilote/:id")]
-    Driver { id: String },
-    #[at("/ecurie/:id")]
-    Team { id: String },
-    #[at("/circuit/:id")]
-    Circuit { id: String },
-    #[at("/archives")]
+    Season {
+        season: String,
+    },
+    Race {
+        season: String,
+        round: u32,
+    },
+    DriverStandings {
+        season: String,
+    },
+    TeamStandings {
+        season: String,
+    },
+    Driver {
+        id: String,
+    },
+    Team {
+        id: String,
+    },
+    Circuit {
+        id: String,
+    },
     Archives,
-    #[at("/archives/records")]
     Records,
-    #[at("/quiz")]
     Quiz,
-    #[at("/pronostics")]
     Predict,
-    #[at("/fantasy")]
     Fantasy,
-    #[at("/actus")]
     News,
-    #[at("/lexique")]
     Glossary,
-    #[at("/comparer")]
     Compare,
-    #[at("/comparer/:a/:b")]
-    CompareWith { a: String, b: String },
-    #[at("/archives/saisons")]
+    CompareWith {
+        a: String,
+        b: String,
+    },
     AllSeasons,
-    #[at("/archives/pilotes")]
     AllDrivers,
-    #[at("/archives/ecuries")]
     AllTeams,
-    #[at("/archives/circuits")]
     AllCircuits,
-    #[at("/donnees")]
     Data,
-    #[at("/donnees/:year")]
-    DataYear { year: u32 },
-    #[at("/donnees/reunion/:key")]
-    DataMeeting { key: u32 },
-    #[at("/donnees/session/:key")]
-    DataSession { key: u32 },
+    DataYear {
+        year: u32,
+    },
+    DataMeeting {
+        key: u32,
+    },
+    DataSession {
+        key: u32,
+    },
     // Anciennes adresses (saison en cours), conservées pour les liens existants.
-    #[at("/calendrier")]
     LegacyCalendar,
-    #[at("/course/:round")]
-    LegacyRace { round: u32 },
-    #[at("/pilotes")]
+    LegacyRace {
+        round: u32,
+    },
     LegacyDrivers,
-    #[at("/ecuries")]
     LegacyTeams,
-    #[not_found]
-    #[at("/404")]
+    /// Page rendue par le serveur (présentation, pages légales…) : chargée normalement.
+    Server,
     NotFound,
 }
 
 pub const CURRENT: &str = "current";
+
+/// Premiers segments des adresses que le serveur rend lui-même.
+const SERVER_PAGES: &[&str] = &[
+    "presentation",
+    "mentions-legales",
+    "confidentialite",
+    "credits",
+    "calendar.ics",
+    "api",
+    "static",
+    "pkg",
+];
 
 impl Route {
     pub fn season(season: &str) -> Self {
@@ -106,79 +116,168 @@ impl Route {
     pub fn circuit(id: &str) -> Self {
         Self::Circuit { id: id.to_string() }
     }
+
+    /// La page d'une adresse (`/saison/2024/course/3`).
+    pub fn parse(path: &str) -> Self {
+        let parts: Vec<String> = path
+            .split('/')
+            .filter(|p| !p.is_empty())
+            .map(|p| {
+                if !p.contains('%') {
+                    return p.to_string();
+                }
+                js_sys::decode_uri_component(p)
+                    .ok()
+                    .and_then(|s| s.as_string())
+                    .unwrap_or_else(|| p.to_string())
+            })
+            .collect();
+        let parts: Vec<&str> = parts.iter().map(String::as_str).collect();
+        let num = |s: &str, page: fn(u32) -> Route| s.parse().map_or(Route::NotFound, page);
+        let s = |v: &str| v.to_string();
+        match parts.as_slice() {
+            [] => Self::Home,
+            ["direct"] => Self::Live,
+            ["saison", season] => Self::Season { season: s(season) },
+            ["saison", season, "course", round] => match round.parse() {
+                Ok(round) => Self::Race {
+                    season: s(season),
+                    round,
+                },
+                Err(_) => Self::NotFound,
+            },
+            ["saison", season, "pilotes"] => Self::DriverStandings { season: s(season) },
+            ["saison", season, "ecuries"] => Self::TeamStandings { season: s(season) },
+            ["pilote", id] => Self::Driver { id: s(id) },
+            ["ecurie", id] => Self::Team { id: s(id) },
+            ["circuit", id] => Self::Circuit { id: s(id) },
+            ["archives"] => Self::Archives,
+            ["archives", "records"] => Self::Records,
+            ["archives", "saisons"] => Self::AllSeasons,
+            ["archives", "pilotes"] => Self::AllDrivers,
+            ["archives", "ecuries"] => Self::AllTeams,
+            ["archives", "circuits"] => Self::AllCircuits,
+            ["quiz"] => Self::Quiz,
+            ["pronostics"] => Self::Predict,
+            ["fantasy"] => Self::Fantasy,
+            ["actus"] => Self::News,
+            ["lexique"] => Self::Glossary,
+            ["comparer"] => Self::Compare,
+            ["comparer", a, b] => Self::CompareWith { a: s(a), b: s(b) },
+            ["donnees"] => Self::Data,
+            ["donnees", year] => num(year, |year| Route::DataYear { year }),
+            ["donnees", "reunion", key] => num(key, |key| Route::DataMeeting { key }),
+            ["donnees", "session", key] => num(key, |key| Route::DataSession { key }),
+            ["calendrier"] => Self::LegacyCalendar,
+            ["course", round] => num(round, |round| Route::LegacyRace { round }),
+            ["pilotes"] => Self::LegacyDrivers,
+            ["ecuries"] => Self::LegacyTeams,
+            [first, ..] if SERVER_PAGES.contains(first) => Self::Server,
+            _ => Self::NotFound,
+        }
+    }
+
+    /// L'adresse de la page, pour `a().href(…)` ou [`active::navigate`].
+    pub fn href(&self) -> String {
+        match self {
+            Self::Home => "/".into(),
+            Self::Live => "/direct".into(),
+            Self::Season { season } => format!("/saison/{season}"),
+            Self::Race { season, round } => format!("/saison/{season}/course/{round}"),
+            Self::DriverStandings { season } => format!("/saison/{season}/pilotes"),
+            Self::TeamStandings { season } => format!("/saison/{season}/ecuries"),
+            Self::Driver { id } => format!("/pilote/{id}"),
+            Self::Team { id } => format!("/ecurie/{id}"),
+            Self::Circuit { id } => format!("/circuit/{id}"),
+            Self::Archives => "/archives".into(),
+            Self::Records => "/archives/records".into(),
+            Self::Quiz => "/quiz".into(),
+            Self::Predict => "/pronostics".into(),
+            Self::Fantasy => "/fantasy".into(),
+            Self::News => "/actus".into(),
+            Self::Glossary => "/lexique".into(),
+            Self::Compare => "/comparer".into(),
+            Self::CompareWith { a, b } => format!("/comparer/{a}/{b}"),
+            Self::AllSeasons => "/archives/saisons".into(),
+            Self::AllDrivers => "/archives/pilotes".into(),
+            Self::AllTeams => "/archives/ecuries".into(),
+            Self::AllCircuits => "/archives/circuits".into(),
+            Self::Data => "/donnees".into(),
+            Self::DataYear { year } => format!("/donnees/{year}"),
+            Self::DataMeeting { key } => format!("/donnees/reunion/{key}"),
+            Self::DataSession { key } => format!("/donnees/session/{key}"),
+            Self::LegacyCalendar => "/calendrier".into(),
+            Self::LegacyRace { round } => format!("/course/{round}"),
+            Self::LegacyDrivers => "/pilotes".into(),
+            Self::LegacyTeams => "/ecuries".into(),
+            Self::Server | Self::NotFound => "/404".into(),
+        }
+    }
 }
 
-fn switch(route: Route) -> Html {
+/// Lien interne : `link(Route::Archives, "btn")` = `<a class="btn" href="/archives">`.
+/// Le routeur d'active l'ouvre sans recharger la page.
+pub fn link(route: Route, class: &'static str) -> Element {
+    let a = a().href(route.href());
+    if class.is_empty() { a } else { a.class(class) }
+}
+
+fn switch(route: Route) -> Node {
     use pages::*;
-    let cur = || AttrValue::from(CURRENT);
     match route {
-        Route::Home => html! { <Home /> },
-        Route::Live => html! { <LivePage /> },
-        Route::Season { season } => html! { <SeasonPage season={season} /> },
-        Route::LegacyCalendar => html! { <SeasonPage season={cur()} /> },
-        Route::Race { season, round } => html! { <RacePage season={season} {round} /> },
-        Route::LegacyRace { round } => html! { <RacePage season={cur()} {round} /> },
-        Route::DriverStandings { season } => {
-            html! { <StandingsPage season={season} kind={StandingsKind::Drivers} /> }
+        Route::Home => home(),
+        Route::Live => live_page(),
+        Route::Season { season } => season_page(&season),
+        Route::LegacyCalendar => season_page(CURRENT),
+        Route::Race { season, round } => race_page(&season, round),
+        Route::LegacyRace { round } => race_page(CURRENT, round),
+        Route::DriverStandings { season } => standings_page(&season, StandingsKind::Drivers),
+        Route::LegacyDrivers => standings_page(CURRENT, StandingsKind::Drivers),
+        Route::TeamStandings { season } => standings_page(&season, StandingsKind::Teams),
+        Route::LegacyTeams => standings_page(CURRENT, StandingsKind::Teams),
+        Route::Driver { id } => driver_page(&id),
+        Route::Team { id } => team_page(&id),
+        Route::Circuit { id } => circuit_page(&id),
+        Route::Archives => archives_page(),
+        Route::Records => records_page(),
+        Route::Compare => compare_page(None, None),
+        Route::CompareWith { a, b } => compare_page(Some(a), Some(b)),
+        Route::Quiz => quiz_page(),
+        Route::Predict => predict_page(),
+        Route::Fantasy => fantasy_page(),
+        Route::News => news_page(),
+        Route::Glossary => glossary_page(),
+        Route::AllSeasons => all_seasons_page(),
+        Route::AllDrivers => all_drivers_page(),
+        Route::AllTeams => all_teams_page(),
+        Route::AllCircuits => all_circuits_page(),
+        Route::Data => data_year_page(util::current_year()),
+        Route::DataYear { year } => data_year_page(year),
+        Route::DataMeeting { key } => data_meeting_page(key),
+        Route::DataSession { key } => data_session_page(key),
+        Route::Server => {
+            // Adresse du serveur atteinte par l'historique : on la charge pour de bon.
+            if let Some(w) = web_sys::window() {
+                let _ = w.location().reload();
+            }
+            components::loading()
         }
-        Route::LegacyDrivers => {
-            html! { <StandingsPage season={cur()} kind={StandingsKind::Drivers} /> }
-        }
-        Route::TeamStandings { season } => {
-            html! { <StandingsPage season={season} kind={StandingsKind::Teams} /> }
-        }
-        Route::LegacyTeams => {
-            html! { <StandingsPage season={cur()} kind={StandingsKind::Teams} /> }
-        }
-        Route::Driver { id } => html! { <DriverPage id={id} /> },
-        Route::Team { id } => html! { <TeamPage id={id} /> },
-        Route::Circuit { id } => html! { <CircuitPage id={id} /> },
-        Route::Archives => html! { <ArchivesPage /> },
-        Route::Records => html! { <RecordsPage /> },
-        Route::Compare => html! { <ComparePage /> },
-        Route::Quiz => html! { <QuizPage /> },
-        Route::Predict => html! { <PredictPage /> },
-        Route::Fantasy => html! { <FantasyPage /> },
-        Route::News => html! { <NewsPage /> },
-        Route::Glossary => html! { <GlossaryPage /> },
-        Route::CompareWith { a, b } => html! { <ComparePage a={a} b={b} /> },
-        Route::AllSeasons => html! { <AllSeasonsPage /> },
-        Route::AllDrivers => html! { <AllDriversPage /> },
-        Route::AllTeams => html! { <AllTeamsPage /> },
-        Route::AllCircuits => html! { <AllCircuitsPage /> },
-        Route::Data => html! { <DataYearPage year={util::current_year()} /> },
-        Route::DataYear { year } => html! { <DataYearPage {year} /> },
-        Route::DataMeeting { key } => html! { <DataMeetingPage key_={key} /> },
-        Route::DataSession { key } => html! { <DataSessionPage key_={key} /> },
-        Route::NotFound => html! { <NotFound /> },
+        Route::NotFound => not_found(),
     }
 }
 
-/// Bascule de langue partagée avec la barre du haut.
-#[derive(Clone, PartialEq)]
-pub struct LangToggle(pub Callback<()>);
-
-#[function_component]
-fn App() -> Html {
-    let lang = use_state(i18n::initial);
-    // Appliquée avant le rendu : toutes les pages lisent la langue courante.
-    i18n::apply(*lang);
-    let toggle = {
-        let lang = lang.clone();
-        LangToggle(Callback::from(move |_| {
-            let next = lang.other();
-            i18n::save(next);
-            lang.set(next);
-        }))
-    };
-    html! {
-        <ContextProvider<LangToggle> context={toggle}>
-            <BrowserRouter>
-                // La clé remonte les pages au changement de langue.
-                <Switch<Route> key={lang.code()} render={switch} />
-            </BrowserRouter>
-        </ContextProvider<LangToggle>>
-    }
+/// L'application : la page de l'adresse courante, reconstruite quand l'adresse ou la langue
+/// change (toutes les pages relisent alors la nouvelle langue).
+fn app() -> Node {
+    let path = location();
+    let lang = i18n::init();
+    fragment_dyn(move || {
+        let route = Route::parse(&path.get());
+        i18n::apply(lang.get());
+        // Les pages lisent leurs états dans des closures : leur construction ne doit pas
+        // abonner le routeur (seules l'adresse et la langue le reconstruisent).
+        vec![untrack(|| switch(route))]
+    })
 }
 
 /// En cas de panique Rust : message lisible + bouton « Recharger » au lieu d'un écran figé.
@@ -199,18 +298,40 @@ fn install_panic_hook() {
 
 fn main() {
     install_panic_hook();
-    let root = web_sys::window()
-        .and_then(|w| w.document())
-        .and_then(|d| d.get_element_by_id("app"))
-        .expect("élément #app introuvable");
-    root.set_inner_html(""); // retire l'écran de démarrage
-    yew::Renderer::<App>::with_root(root).render();
-    // Démarrage réussi : désactive le filet de sécurité de index.html.
+    // Remplace l'écran de démarrage de `#app`.
+    active::mount_to("#app", app());
+    // Démarrage réussi : désactive le filet de sécurité de la page.
     if let Some(window) = web_sys::window() {
         if let Ok(started) = js_sys::Reflect::get(&window, &"__f1xStarted".into()) {
             if let Some(f) = wasm_bindgen::JsCast::dyn_ref::<js_sys::Function>(&started) {
                 let _ = f.call0(&window);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Route;
+
+    #[test]
+    fn every_route_round_trips() {
+        for route in [
+            Route::Home,
+            Route::race("2024", 3),
+            Route::DriverStandings {
+                season: "current".into(),
+            },
+            Route::CompareWith {
+                a: "hamilton".into(),
+                b: "max_verstappen".into(),
+            },
+            Route::DataSession { key: 9158 },
+            Route::AllCircuits,
+        ] {
+            assert_eq!(Route::parse(&route.href()), route);
+        }
+        assert_eq!(Route::parse("/presentation"), Route::Server);
+        assert_eq!(Route::parse("/saison/2024/course/x"), Route::NotFound);
     }
 }

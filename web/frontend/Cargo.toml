@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+active = { workspace = true, features = ["client"] }
 f1x-protocol.workspace = true
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 gloo-net = { version = "0.7", default-features = false, features = ["http", "json", "websocket"] }
@@ -16,5 +17,3 @@ serde_json.workspace = true
 wasm-bindgen.workspace = true
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["Blob", "BlobPropertyBag", "console", "CssStyleDeclaration", "EventTarget", "HtmlCanvasElement", "Node", "Performance", "WebGl2RenderingContext", "WebGlBuffer", "WebGlFramebuffer", "WebGlTexture", "WebGlProgram", "WebGlShader", "WebGlUniformLocation", "WebGlVertexArrayObject", "WheelEvent", "Document", "DomRect", "HtmlAnchorElement", "Url", "Element", "Event", "HtmlElement", "HtmlInputElement", "HtmlSelectElement", "Location", "MediaQueryList", "Navigator", "PointerEvent", "Storage", "Window"] }
-yew = { version = "0.23", features = ["csr"] }
-yew-router = "0.20"

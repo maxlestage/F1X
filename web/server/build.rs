@@ -1,4 +1,4 @@
-//! Compile le frontend Yew (`../frontend`) en WebAssembly puis génère le glue JS avec
+//! Compile le frontend active (`../frontend`) en WebAssembly puis génère le glue JS avec
 //! wasm-bindgen. Les fichiers produits sont embarqués dans le binaire du serveur :
 //! un seul `cargo build` suffit (Heroku, Docker, local) — ni trunk ni npm.
 
@@ -59,7 +59,10 @@ fn main() {
     let status = cmd
         .status()
         .expect("impossible de lancer cargo pour le frontend");
-    assert!(status.success(), "la compilation du frontend Yew a échoué");
+    assert!(
+        status.success(),
+        "la compilation du frontend (active) a échoué"
+    );
 
     let wasm = target_dir
         .join(TARGET)

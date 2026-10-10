@@ -2,7 +2,7 @@
 resolver = "3"
 members = ["server", "frontend", "protocol"]
 # `cargo build` à la racine (Heroku) ne construit que le serveur ;
-# son build.rs compile lui-même le frontend Yew en WebAssembly.
+# son build.rs compile lui-même le frontend active en WebAssembly.
 default-members = ["server"]
 
 [workspace.package]
@@ -12,6 +12,8 @@ rust-version = "1.85"
 publish = false
 
 [workspace.dependencies]
+# Bibliothèque front-end (vues, état, routeur, SEO) : github.com/maxlestage/Active.
+active = { git = "https://github.com/maxlestage/Active", rev = "bb13dc197752665ab45d7bb12bb1b6f4e7194779" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 f1x-protocol = { path = "protocol" }

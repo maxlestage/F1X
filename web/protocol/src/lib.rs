@@ -1,4 +1,4 @@
-//! Protocole WebSocket de F1X (`/ws`), partagé par le serveur (axum) et le frontend (Yew).
+//! Protocole WebSocket de F1X (`/ws`), partagé par le serveur (axum) et le frontend (active).
 //! Tous les messages sont du JSON avec un champ `type`.
 
 use serde::{Deserialize, Serialize};
