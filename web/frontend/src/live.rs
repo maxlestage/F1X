@@ -4,11 +4,11 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+use active::{State, on_cleanup, use_state};
 use f1x_protocol::{ClientMsg, ServerMsg, Snapshot, TrackMap};
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt, future};
 use gloo_net::websocket::{Message, futures::WebSocket};
-use active::{State, on_cleanup, use_state};
 
 #[derive(Clone, Default, PartialEq)]
 pub struct LiveState {
@@ -98,9 +98,7 @@ impl LiveHandle {
         }
         self.link.update(|link| {
             match &cmd {
-                ClientMsg::Live | ClientMsg::Replay { .. } => {
-                    link.last_command = Some(cmd.clone())
-                }
+                ClientMsg::Live | ClientMsg::Replay { .. } => link.last_command = Some(cmd.clone()),
                 ClientMsg::Stop => link.last_command = None,
                 _ => {}
             }

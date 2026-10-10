@@ -279,17 +279,16 @@ pub fn season_select(season: &str, target: SeasonTarget, only: Option<Vec<String
         seasons.reverse();
         let selected = |o: Element, on: bool| if on { o.attr("selected", "") } else { o };
         let current = only.is_none().then(|| {
-            selected(
-                option().attr("value", CURRENT),
-                season == CURRENT,
-            )
-            .text(t("Saison en cours", "Current season"))
+            selected(option().attr("value", CURRENT), season == CURRENT)
+                .text(t("Saison en cours", "Current season"))
         });
         fragment([
             Node::from(current),
-            fragment(seasons.into_iter().map(|s| {
-                selected(option().attr("value", s.clone()), season == s).text(s)
-            })),
+            fragment(
+                seasons
+                    .into_iter()
+                    .map(|s| selected(option().attr("value", s.clone()), season == s).text(s)),
+            ),
         ])
     });
     label()
@@ -313,16 +312,15 @@ pub fn countdown(target_ms: f64) -> Node {
     let cell = |value: Box<dyn Fn(u64) -> String>, label: &str| {
         div()
             .class("cd-cell")
-            .child(
-                span()
-                    .class("cd-num")
-                    .text_dyn(move || value(secs())),
-            )
+            .child(span().class("cd-num").text_dyn(move || value(secs())))
             .child(span().class("cd-label").text(label.to_string()))
     };
     div()
         .class("countdown")
-        .child(cell(Box::new(|s| (s / 86400).to_string()), t("jours", "days")))
+        .child(cell(
+            Box::new(|s| (s / 86400).to_string()),
+            t("jours", "days"),
+        ))
         .child(cell(
             Box::new(|s| format!("{:02}", s % 86400 / 3600)),
             t("heures", "hours"),
@@ -339,7 +337,11 @@ pub fn sessions_list(race: &Race) -> Node {
         .children(race.sessions().into_iter().map(|(name, iso)| {
             li().class("session")
                 .class(when(name == "Course", "session-race"))
-                .child(span().class("session-name").text(session_label(name).to_string()))
+                .child(
+                    span()
+                        .class("session-name")
+                        .text(session_label(name).to_string()),
+                )
                 .child(
                     time()
                         .class("session-time")
@@ -479,12 +481,7 @@ pub fn result_row(r: &RaceResult) -> Node {
                             ])
                         })),
                 )
-                .child(
-                    span()
-                        .class("row-sub")
-                        .text(sub.join(" · "))
-                        .child(delta),
-                ),
+                .child(span().class("row-sub").text(sub.join(" · ")).child(delta)),
         )
         .child(scored.then(|| span().class("pts").text(format!("+{}", r.points))))
         .into()
@@ -523,7 +520,12 @@ fn quali_row(q: &QualifyingResult, prefix: &str) -> Node {
 }
 
 /// Lien de navigation en carte (flèche à droite), pour les listes d'archives.
-pub fn nav_row(route: Route, title: impl Into<Node>, sub: String, trailing: Option<String>) -> Node {
+pub fn nav_row(
+    route: Route,
+    title: impl Into<Node>,
+    sub: String,
+    trailing: Option<String>,
+) -> Node {
     li().class("row row-plain")
         .child(
             link(route, "row-main")
@@ -564,8 +566,10 @@ thread_local! {
 
 const ICON_HOME: &str = "M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z";
 const ICON_LIVE: &str = "M12 12h.01M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8";
-const ICON_CAL: &str = "M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z";
-const ICON_TROPHY: &str = "M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8 21h8M9 17h6v4H9z";
+const ICON_CAL: &str =
+    "M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z";
+const ICON_TROPHY: &str =
+    "M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8 21h8M9 17h6v4H9z";
 const ICON_ARCHIVE: &str = "M4 4h16v4H4zM5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4";
 
 /// Bouton « Exporter en CSV ».

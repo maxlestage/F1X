@@ -2715,7 +2715,11 @@ pub fn view_3d(
 
     let track_tools = is_track.then(|| {
         let cameras = [
-            (CamMode::Overview, "overview", t("🗺️ Vue d'ensemble", "🗺️ Overview")),
+            (
+                CamMode::Overview,
+                "overview",
+                t("🗺️ Vue d'ensemble", "🗺️ Overview"),
+            ),
             (CamMode::Chase, "chase", t("🏎️ Poursuite", "🏎️ Chase")),
             (CamMode::Cockpit, "cockpit", t("👀 Embarquée", "👀 Onboard")),
             (CamMode::Heli, "heli", t("🚁 Hélico", "🚁 Helicopter")),
@@ -2751,10 +2755,16 @@ pub fn view_3d(
             h::select()
                 .class("scene-select")
                 .attr("aria-label", t("Pilote suivi", "Followed driver"))
-                .on("change", move |e| follow.set(e.value().parse().unwrap_or(0)))
+                .on("change", move |e| {
+                    follow.set(e.value().parse().unwrap_or(0))
+                })
                 .children(codes.into_iter().enumerate().map(|(i, c)| {
                     let o = h::option().attr("value", i.to_string());
-                    let o = if i == current { o.attr("selected", "") } else { o };
+                    let o = if i == current {
+                        o.attr("selected", "")
+                    } else {
+                        o
+                    };
                     o.text(c)
                 }))
                 .into()
@@ -2829,7 +2839,10 @@ pub fn view_3d(
                     .into(),
                 h::button()
                     .class("scene-btn on")
-                    .attr("aria-label", t("Quitter le plein écran", "Exit full screen"))
+                    .attr(
+                        "aria-label",
+                        t("Quitter le plein écran", "Exit full screen"),
+                    )
                     .on_click(move |_| full.set(false))
                     .text("✕")
                     .into(),

@@ -7,9 +7,9 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+use active::prelude::*;
 use gloo_net::http::Request;
 use serde::Deserialize;
-use active::prelude::*;
 
 use crate::components::dynamic;
 use crate::i18n::t;
