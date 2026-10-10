@@ -1,8 +1,8 @@
 //! Application installable (PWA) et pied de page.
 
+use active::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
-use active::prelude::*;
 
 use crate::components::dynamic;
 use crate::i18n::{lang, t};

@@ -21,13 +21,28 @@ use active::prelude::*;
 pub enum Route {
     Home,
     Live,
-    Season { season: String },
-    Race { season: String, round: u32 },
-    DriverStandings { season: String },
-    TeamStandings { season: String },
-    Driver { id: String },
-    Team { id: String },
-    Circuit { id: String },
+    Season {
+        season: String,
+    },
+    Race {
+        season: String,
+        round: u32,
+    },
+    DriverStandings {
+        season: String,
+    },
+    TeamStandings {
+        season: String,
+    },
+    Driver {
+        id: String,
+    },
+    Team {
+        id: String,
+    },
+    Circuit {
+        id: String,
+    },
     Archives,
     Records,
     Quiz,
@@ -36,18 +51,29 @@ pub enum Route {
     News,
     Glossary,
     Compare,
-    CompareWith { a: String, b: String },
+    CompareWith {
+        a: String,
+        b: String,
+    },
     AllSeasons,
     AllDrivers,
     AllTeams,
     AllCircuits,
     Data,
-    DataYear { year: u32 },
-    DataMeeting { key: u32 },
-    DataSession { key: u32 },
+    DataYear {
+        year: u32,
+    },
+    DataMeeting {
+        key: u32,
+    },
+    DataSession {
+        key: u32,
+    },
     // Anciennes adresses (saison en cours), conservées pour les liens existants.
     LegacyCalendar,
-    LegacyRace { round: u32 },
+    LegacyRace {
+        round: u32,
+    },
     LegacyDrivers,
     LegacyTeams,
     /// Page rendue par le serveur (présentation, pages légales…) : chargée normalement.
