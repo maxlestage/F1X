@@ -52,7 +52,13 @@ actor F1API {
     }
 
     func qualifying(season: String = "current", round: Int) async throws -> [QualifyingResult] {
-        try await races("\(season)/\(round)/qualifying.json?limit=100").first?.qualifyingResults ?? []
+        try await qualifyingWeekend(season: season, round: round).main
+    }
+
+    /// Qualifications et qualifs sprint d'un Grand Prix (publiées dès la fin de la séance).
+    func qualifyingWeekend(season: String = "current", round: Int) async throws -> (main: [QualifyingResult], sprint: [QualifyingResult]) {
+        let race = try await races("\(season)/\(round)/qualifying.json?limit=100").first
+        return (race?.qualifyingResults ?? [], race?.sprintQualifyingResults ?? [])
     }
 
     func pitStops(season: String = "current", round: Int) async throws -> [PitStop] {

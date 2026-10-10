@@ -67,6 +67,11 @@ pub fn Home() -> Html {
                     </section>
                 }
 
+                // Ordre des qualifications (qualifs, sinon qualifs sprint) dès la fin de la séance.
+                if let Some(race) = next.filter(|r| r.start_ms() - now < 4.0 * 86_400_000.0) {
+                    <QualiOrder round={race.round_num()} />
+                }
+
                 if let Some(race) = next {
                     <super::WeekendWeather race={race.clone()} full={false} />
                 }
@@ -134,4 +139,64 @@ pub fn Home() -> Html {
     });
 
     html! { <Layout tab={Tab::Home}>{ body }</Layout> }
+}
+
+#[derive(Properties, PartialEq)]
+struct QualiOrderProps {
+    round: u32,
+}
+
+/// Ordre des qualifications du prochain Grand Prix : qualifs (grille du Grand Prix) et
+/// qualifs sprint, publiés par le serveur dès la fin de la séance. Rien tant qu'il n'y en a pas.
+#[function_component]
+fn QualiOrder(p: &QualiOrderProps) -> Html {
+    let data = use_f1(f1(format!("{CURRENT}/{}/qualifying.json", p.round), 100));
+    // Onglet choisi (sinon : les qualifs si elles ont eu lieu, sinon les qualifs sprint).
+    let sprint_tab = use_state(|| None::<bool>);
+    let all = use_state(|| false);
+    let race = data.done().and_then(|d| d.race());
+    let main = race
+        .and_then(|r| r.qualifying_results.clone())
+        .unwrap_or_default();
+    let sprint = race
+        .and_then(|r| r.sprint_qualifying_results.clone())
+        .unwrap_or_default();
+    if main.is_empty() && sprint.is_empty() {
+        return html! {};
+    }
+    let show_sprint = (*sprint_tab).unwrap_or(main.is_empty());
+    let list = if show_sprint { &sprint } else { &main };
+    let shown = if *all { list.len() } else { list.len().min(10) };
+    let tab = |on: bool, label: &'static str| {
+        let sprint_tab = sprint_tab.clone();
+        html! {
+            <button class={classes!("seg", (show_sprint == on).then_some("seg-active"))}
+                    onclick={Callback::from(move |_| sprint_tab.set(Some(on)))}>{ label }</button>
+        }
+    };
+    let toggle = {
+        let all = all.clone();
+        Callback::from(move |_| all.set(!*all))
+    };
+    html! {
+        <section class="card">
+            <div class="card-head">
+                <h2>{ t("Ordre des qualifications", "Qualifying order") }</h2>
+                <Link<Route> to={Route::race(CURRENT, p.round)} classes="link">{ t("Détails", "Details") }</Link<Route>>
+            </div>
+            if !main.is_empty() && !sprint.is_empty() {
+                <div class="segmented">{ tab(false, t("Qualifications", "Qualifying")) }{ tab(true, t("Qualifs sprint", "Sprint quali")) }</div>
+            } else {
+                <p class="eyebrow">{ if show_sprint { t("Qualifs sprint", "Sprint qualifying") } else { t("Qualifications", "Qualifying") } }</p>
+            }
+            <ol class="rows">
+                { for list.iter().take(shown).map(|q| if show_sprint { sprint_qualifying_row(q) } else { qualifying_row(q) }) }
+            </ol>
+            if list.len() > 10 {
+                <button class="btn btn-ghost btn-small" onclick={toggle}>
+                    { if *all { t("Voir le top 10", "Show top 10").to_string() } else { tr!("Voir les {} pilotes", "See all {} drivers", list.len()) } }
+                </button>
+            }
+        </section>
+    }
 }
