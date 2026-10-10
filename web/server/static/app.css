@@ -954,7 +954,7 @@ h2 { font-size: 1.3rem; font-weight: 700; }
 .outline-line { stroke-dasharray: 1; stroke-dashoffset: 1; animation: trace-circuit 1.8s var(--ease) forwards .2s; }
 @keyframes trace-circuit { to { stroke-dashoffset: 0; } }
 
-/* Apparition au défilement : voir « Le site entre en scène » plus bas (script de index.html). */
+/* Apparition au défilement : voir « Le site entre en scène » plus bas (script static/js/motion.js). */
 @supports (animation-timeline: scroll()) {
   body::after {
     content: ""; position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 80;
@@ -1034,7 +1034,7 @@ h2 { font-size: 1.3rem; font-weight: 700; }
 /* =====================================================================
    Le site entre en scène : tout ce qui arrive à l'écran apparaît en
    cascade, les chiffres comptent, les graphiques se tracent, l'écran
-   répond au toucher et le direct vit. (Moteur : script de index.html.)
+   répond au toucher et le direct vit. (Moteur : static/js/motion.js.)
    ===================================================================== */
 
 /* ---------- Révélation en cascade (attribut data-rv posé par le moteur) ---------- */
