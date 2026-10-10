@@ -5,7 +5,7 @@ use active::prelude::*;
 use f1x_protocol::TrackMap;
 
 use super::{apple_map, osm_embed, track_panel, track_unavailable, track_url};
-use crate::api::{Fetch, Json, all, f1, use_f1, use_json_dyn};
+use crate::api::{Fetch, Json, all, f1, use_f1, use_f1_dyn, use_json_dyn};
 use crate::components::*;
 use crate::i18n::t;
 use crate::models::{Circuit, Race};
@@ -129,12 +129,13 @@ struct Data {
     record: State<Record>,
 }
 
-/// Fiche circuit : localisation, prochain GP, record, statistiques et palmarès complet.
-pub fn circuit_page(id: &str) -> Node {
-    let id = id.to_string();
-    let races = use_f1(all(format!("circuits/{id}/races.json")));
-    let winners = use_f1(f1(format!("circuits/{id}/results/1.json"), 100));
-    let fastest = use_f1(f1(format!("circuits/{id}/fastest/1/results.json"), 100));
+/// Fiche circuit : localisation, prochain GP, record, statistiques et palmarès complet. La
+/// page reste affichée quand on passe à un autre circuit : seules ses données changent.
+pub fn circuit_page(id: State<String>) -> Node {
+    let races = use_f1_dyn(move || all(format!("circuits/{}/races.json", id.get())));
+    let winners = use_f1_dyn(move || f1(format!("circuits/{}/results/1.json", id.get()), 100));
+    let fastest =
+        use_f1_dyn(move || f1(format!("circuits/{}/fastest/1/results.json", id.get()), 100));
     let current = use_f1(f1("current.json", 100));
     // Tracé GPS : circuits utilisés depuis 2023 (données OpenF1), y compris celui du Grand
     // Prix à venir (tracé embarqué par le serveur ou essais déjà courus).
@@ -148,10 +149,12 @@ pub fn circuit_page(id: &str) -> Node {
         })
     });
     let attempt = use_state(0u32);
-    let track = {
-        let id = id.clone();
-        use_json_dyn::<TrackMap>(move || recent.get().then(|| track_url(&id, attempt.get())))
-    };
+    effect(move || {
+        id.with(|_| ());
+        untrack(|| attempt.set(0));
+    });
+    let track =
+        use_json_dyn::<TrackMap>(move || recent.get().then(|| track_url(&id.get(), attempt.get())));
     // Les infos du circuit viennent de la liste de ses Grands Prix (une requête de moins).
     let circuit =
         memo(move || races.with(|f| f.done().and_then(|d| d.race()).map(|r| r.circuit.clone())));
@@ -173,13 +176,10 @@ pub fn circuit_page(id: &str) -> Node {
         if missing.get() {
             return super::not_found();
         }
-        let content = {
-            let id = id.clone();
-            dynamic(move || match circuit.get() {
-                Some(c) => circuit_content(&id, c, data),
-                None => fetch_view(races, |_| Node::Empty),
-            })
-        };
+        let content = dynamic(move || match circuit.get() {
+            Some(c) => circuit_content(&untrack(|| id.get()), c, data),
+            None => fetch_view(races, |_| Node::Empty),
+        });
         layout_dyn(
             move || {
                 circuit
