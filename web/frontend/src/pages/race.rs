@@ -136,15 +136,8 @@ pub fn race_page(params: State<(String, u32)>) -> Node {
         show_laps,
     };
 
-    // Calendrier chargé sans cette manche : page introuvable (lu dans le calendrier lui-même,
-    // jamais dans une manche pas encore mise à jour).
-    let missing = memo(move || {
-        let round = round();
-        schedule.with(|f| {
-            f.done()
-                .is_some_and(|d| !d.races().iter().any(|r| r.round_num() == round))
-        })
-    });
+    // Calendrier chargé sans cette manche : page introuvable.
+    let missing = memo(move || schedule.with(|f| f.done().is_some()) && race.with(Option::is_none));
     // Chargement (`Some(None)`) ou erreur du calendrier ; rien une fois chargé.
     let schedule_state = memo(move || {
         schedule.with(|f| match f {
