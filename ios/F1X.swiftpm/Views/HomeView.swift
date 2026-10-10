@@ -8,6 +8,9 @@ struct HomeView: View {
         var teams: [ConstructorStanding]
         var season: String
         var races: [Race] = []
+        /// Qualifications et qualifs sprint du prochain Grand Prix (vides avant les séances).
+        var quali: [QualifyingResult] = []
+        var sprintQuali: [QualifyingResult] = []
     }
 
     @State private var state: Loadable<Content> = .loading
@@ -19,7 +22,7 @@ struct HomeView: View {
                     if let race = data.next {
                         NextRaceCard(race: race)
                         // Ordre des qualifications dès la fin de la séance (qualifs, qualifs sprint).
-                        QualiOrderCard(race: race)
+                        QualiOrderCard(race: race, main: data.quali, sprint: data.sprintQuali)
                         ReminderToggle(races: data.races)
                         WeekendActivityToggle(races: data.races, last: data.last)
                         WeatherCard(race: race, full: false)
@@ -97,13 +100,21 @@ struct HomeView: View {
             async let drivers = try? F1API.shared.driverStandings()
             async let teams = try? F1API.shared.constructorStandings()
             let races = try await schedule
+            let next = races.first { !$0.isOver() }
+            // Ordre des qualifications : cherché seulement pendant le week-end du Grand Prix.
+            var quali: (main: [QualifyingResult], sprint: [QualifyingResult])?
+            if let next, let start = next.start, Date.now > start.addingTimeInterval(-4 * 86400) {
+                quali = try? await F1API.shared.qualifyingWeekend(season: next.season, round: next.roundNumber)
+            }
             let content = Content(
-                next: races.first { !$0.isOver() },
+                next: next,
                 last: await last,
                 drivers: await drivers ?? [],
                 teams: await teams ?? [],
                 season: races.first?.season ?? "",
-                races: races
+                races: races,
+                quali: quali?.main ?? [],
+                sprintQuali: quali?.sprint ?? []
             )
             state = .loaded(content)
             await SessionReminders.schedule(races: races)
@@ -174,11 +185,13 @@ private struct NextRaceCard: View {
 
 /// Ordre des qualifications du prochain Grand Prix : qualifs (grille du Grand Prix) et
 /// qualifs sprint. N'apparaît qu'une fois une séance de qualifications terminée.
+/// Les données viennent du chargement de l'accueil : une carte vide n'est jamais affichée,
+/// donc elle ne pourrait pas se charger elle-même.
 private struct QualiOrderCard: View {
     let race: Race
+    let main: [QualifyingResult]
+    let sprint: [QualifyingResult]
 
-    @State private var main: [QualifyingResult] = []
-    @State private var sprint: [QualifyingResult] = []
     /// Onglet choisi (sinon : les qualifs si elles ont eu lieu, sinon les qualifs sprint).
     @State private var showSprint: Bool?
     @State private var all = false
@@ -186,46 +199,35 @@ private struct QualiOrderCard: View {
     var body: some View {
         let sprintShown = showSprint ?? main.isEmpty
         let list = sprintShown ? sprint : main
-        Group {
-            if !list.isEmpty {
-                SectionCard(title: L("Ordre des qualifications", "Qualifying order")) {
-                    if !main.isEmpty && !sprint.isEmpty {
-                        Picker("", selection: Binding(get: { sprintShown }, set: { value in withAnimation(.snappy) { showSprint = value } })) {
-                            Text(L("Qualifications", "Qualifying")).tag(false)
-                            Text(L("Qualifs sprint", "Sprint quali")).tag(true)
-                        }
-                        .pickerStyle(.segmented)
-                    } else {
-                        Eyebrow(text: sprintShown ? L("Qualifs sprint", "Sprint qualifying") : L("Qualifications", "Qualifying"))
+        if !list.isEmpty {
+            SectionCard(title: L("Ordre des qualifications", "Qualifying order")) {
+                if !main.isEmpty && !sprint.isEmpty {
+                    Picker("", selection: Binding(get: { sprintShown }, set: { value in withAnimation(.snappy) { showSprint = value } })) {
+                        Text(L("Qualifications", "Qualifying")).tag(false)
+                        Text(L("Qualifs sprint", "Sprint quali")).tag(true)
                     }
-                    ForEach(Array(list.prefix(all ? list.count : 10).enumerated()), id: \.offset) { _, q in
-                        NavigationLink(value: q.driver) { QualifyingRow(result: q, sprint: sprintShown) }
-                            .buttonStyle(.plain)
+                    .pickerStyle(.segmented)
+                } else {
+                    Eyebrow(text: sprintShown ? L("Qualifs sprint", "Sprint qualifying") : L("Qualifications", "Qualifying"))
+                }
+                ForEach(Array(list.prefix(all ? list.count : 10).enumerated()), id: \.offset) { _, q in
+                    NavigationLink(value: q.driver) { QualifyingRow(result: q, sprint: sprintShown) }
+                        .buttonStyle(.plain)
+                }
+                HStack {
+                    if list.count > 10 {
+                        Button(all ? L("Voir le top 10", "Show top 10") : L("Voir les \(list.count) pilotes", "See all \(list.count) drivers")) {
+                            withAnimation(.snappy) { all.toggle() }
+                        }
+                        .font(.subheadline.weight(.semibold))
                     }
-                    HStack {
-                        if list.count > 10 {
-                            Button(all ? L("Voir le top 10", "Show top 10") : L("Voir les \(list.count) pilotes", "See all \(list.count) drivers")) {
-                                withAnimation(.snappy) { all.toggle() }
-                            }
-                            .font(.subheadline.weight(.semibold))
-                        }
-                        Spacer()
-                        NavigationLink(value: race) {
-                            Text(L("Détails", "Details")).font(.subheadline.weight(.semibold))
-                        }
+                    Spacer()
+                    NavigationLink(value: race) {
+                        Text(L("Détails", "Details")).font(.subheadline.weight(.semibold))
                     }
                 }
             }
         }
-        .task(id: race.id) { await load() }
-        .autoRefresh { await load() }
-    }
-
-    private func load() async {
-        guard let start = race.start, Date.now > start.addingTimeInterval(-4 * 86400) else { return }
-        guard let q = try? await F1API.shared.qualifyingWeekend(season: race.season, round: race.roundNumber) else { return }
-        main = q.main
-        sprint = q.sprint
     }
 }
 
