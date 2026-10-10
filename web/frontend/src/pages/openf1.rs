@@ -391,8 +391,9 @@ impl LineChart {
 
 // ---------- Années et réunions ----------
 
-pub fn data_year_page(year: u32) -> Node {
-    let meetings = use_json::<Value>(of1("meetings", &format!("year={year}")));
+/// Réunions d'une année. La page reste affichée quand on choisit une autre année.
+pub fn data_year_page(year: State<u32>) -> Node {
+    let meetings = use_json_dyn::<Value>(move || of1("meetings", &format!("year={}", year.get())));
     let years: Vec<u32> = (2023..=current_year()).rev().collect();
     let body = dynamic(move || {
         let meetings = meetings.get();
@@ -429,22 +430,29 @@ pub fn data_year_page(year: u32) -> Node {
                 )))
                 .child(div().class("year-pills").children(years.iter().map(|&y| {
                     link(Route::DataYear { year: y }, "pill")
-                        .class(when(y == year, "pill-on"))
+                        .class_if("pill-on", move || year.get() == y)
                         .text(y.to_string())
                 }))),
             section()
                 .class("card")
-                .child(h2().text(tr!("Grands Prix {}", "{} Grands Prix", year)))
+                .child(h2().text_dyn(move || {
+                    tr!("Grands Prix {}", "{} Grands Prix", year.get())
+                }))
                 .child(body),
         ]),
     )
 }
 
-pub fn data_meeting_page(key: u32) -> Node {
-    let meeting = use_json::<Value>(of1("meetings", &format!("meeting_key={key}")));
-    let sessions = use_json::<Value>(of1("sessions", &format!("meeting_key={key}")));
-    let grid = use_json::<Value>(of1("starting_grid", &format!("meeting_key={key}")));
-    let drivers = use_json::<Value>(of1("drivers", &format!("meeting_key={key}")));
+/// Une réunion (week-end) : ses séances et sa grille. La page reste affichée quand on passe à
+/// une autre réunion.
+pub fn data_meeting_page(key: State<u32>) -> Node {
+    let of1_key = move |endpoint: &'static str| {
+        use_json_dyn::<Value>(move || of1(endpoint, &format!("meeting_key={}", key.get())))
+    };
+    let meeting = of1_key("meetings");
+    let sessions = of1_key("sessions");
+    let grid = of1_key("starting_grid");
+    let drivers = of1_key("drivers");
     let m = memo(move || meeting.with(first));
     let names = memo(move || Rc::new(driver_map(&drivers.with(list))));
     let hero = section()
@@ -587,10 +595,15 @@ fn view_content(view: View, key: u32, names: State<Rc<Names>>) -> Node {
     }
 }
 
-pub fn data_session_page(key: u32) -> Node {
+/// Une séance, rubrique par rubrique. La page (et la rubrique ouverte) reste affichée quand on
+/// passe à une autre séance.
+pub fn data_session_page(key: State<u32>) -> Node {
     let view = use_state(View::Results);
-    let session = use_json::<Value>(of1("sessions", &format!("session_key={key}")));
-    let drivers = use_json::<Value>(of1("drivers", &format!("session_key={key}")));
+    let of1_key = move |endpoint: &'static str| {
+        use_json_dyn::<Value>(move || of1(endpoint, &format!("session_key={}", key.get())))
+    };
+    let session = of1_key("sessions");
+    let drivers = of1_key("drivers");
     let sess = memo(move || session.with(first));
     let names = memo(move || Rc::new(driver_map(&drivers.with(list))));
     let tab = |v: View, label: &'static str| {
@@ -644,7 +657,7 @@ pub fn data_session_page(key: u32) -> Node {
         fragment([
             Node::from(hero),
             tabs.into(),
-            dynamic(move || view_content(view.get(), key, names)),
+            dynamic(move || view_content(view.get(), key.get(), names)),
         ]),
     )
 }

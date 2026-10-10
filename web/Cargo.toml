@@ -13,7 +13,7 @@ publish = false
 
 [workspace.dependencies]
 # Bibliothèque front-end (vues, état, routeur, SEO) : github.com/maxlestage/Active.
-active = { git = "https://github.com/maxlestage/Active", rev = "bb13dc197752665ab45d7bb12bb1b6f4e7194779" }
+active = { git = "https://github.com/maxlestage/Active", rev = "a6eccd0cab7918218270e7e45a569aace05d1295" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 f1x-protocol = { path = "protocol" }

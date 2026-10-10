@@ -1,7 +1,7 @@
 use active::prelude::*;
 
 use super::season_label;
-use crate::api::{f1, use_f1};
+use crate::api::{f1, use_f1_dyn};
 use crate::components::*;
 use crate::i18n::t;
 use crate::models::RaceResult;
@@ -9,15 +9,17 @@ use crate::tr;
 use crate::util::{flag_country, local_date, now_ms};
 use crate::{Route, link};
 
-/// Calendrier d'une saison, avec le vainqueur de chaque Grand Prix disputé.
-pub fn season_page(season: &str) -> Node {
-    let season = season.to_string();
-    let schedule = use_f1(f1(format!("{season}.json"), 100));
-    let winners = use_f1(f1(format!("{season}/results/1.json"), 100));
+// `link` : liens vers les Grands Prix de la saison affichée.
+
+/// Calendrier d'une saison, avec le vainqueur de chaque Grand Prix disputé. La page reste
+/// affichée quand on choisit une autre saison : seules les données de la saison changent.
+pub fn season_page(season: State<String>) -> Node {
+    let schedule = use_f1_dyn(move || f1(format!("{}.json", season.get()), 100));
+    let winners = use_f1_dyn(move || f1(format!("{}/results/1.json", season.get()), 100));
 
     let body = {
-        let season = season.clone();
         fetch_view(schedule, move |data| {
+            let season = untrack(|| season.get());
             let races = data.races();
             let now = now_ms();
             let next_round = races
@@ -120,11 +122,17 @@ pub fn season_page(season: &str) -> Node {
         })
     };
 
-    layout(
-        &tr!("Calendrier · {}", "Calendar · {}", season_label(&season)),
+    layout_dyn(
+        move || {
+            tr!(
+                "Calendrier · {}",
+                "Calendar · {}",
+                season_label(&season.get())
+            )
+        },
         Some(Tab::Calendar),
         fragment([
-            season_select(&season, SeasonTarget::Calendar, None),
+            season_select(move || season.get(), || SeasonTarget::Calendar, None),
             // Abonnement au calendrier de la saison (iPhone, Mac, Google Agenda, Outlook…).
             a().class("link cal-sub")
                 .href(crate::util::webcal_url())
@@ -136,22 +144,24 @@ pub fn season_page(season: &str) -> Node {
             div()
                 .class("segmented")
                 .child(
-                    link(
-                        Route::DriverStandings {
-                            season: season.clone(),
-                        },
-                        "seg",
-                    )
-                    .text(t("Classement pilotes", "Driver standings")),
+                    a().class("seg")
+                        .attr_dyn("href", move || {
+                            Route::DriverStandings {
+                                season: season.get(),
+                            }
+                            .href()
+                        })
+                        .text(t("Classement pilotes", "Driver standings")),
                 )
                 .child(
-                    link(
-                        Route::TeamStandings {
-                            season: season.clone(),
-                        },
-                        "seg",
-                    )
-                    .text(t("Classement écuries", "Team standings")),
+                    a().class("seg")
+                        .attr_dyn("href", move || {
+                            Route::TeamStandings {
+                                season: season.get(),
+                            }
+                            .href()
+                        })
+                        .text(t("Classement écuries", "Team standings")),
                 )
                 .into(),
             body,
@@ -178,17 +188,22 @@ pub enum StandingsKind {
     Teams,
 }
 
-pub fn standings_page(season: &str, kind: StandingsKind) -> Node {
-    let season = season.to_string();
-    let file = match kind {
-        StandingsKind::Drivers => "driverStandings",
-        StandingsKind::Teams => "constructorStandings",
-    };
-    let fetch = use_f1(f1(format!("{season}/{file}.json"), 100));
+/// Classement pilotes ou écuries d'une saison (`params` : saison, genre). La page reste
+/// affichée quand on change de saison ou de classement.
+pub fn standings_page(params: State<(String, StandingsKind)>) -> Node {
+    let season = move || params.with(|(season, _)| season.clone());
+    let kind = move || params.with(|(_, kind)| *kind);
+    let fetch = use_f1_dyn(move || {
+        let file = match kind() {
+            StandingsKind::Drivers => "driverStandings",
+            StandingsKind::Teams => "constructorStandings",
+        };
+        f1(format!("{}/{file}.json", season()), 100)
+    });
 
     let body = {
-        let season = season.clone();
         fetch_view(fetch, move |data| {
+            let (season, kind) = untrack(|| params.get());
             let list = data.standings();
             let after = list
                 .and_then(|l| l.round.clone())
@@ -274,36 +289,40 @@ pub fn standings_page(season: &str, kind: StandingsKind) -> Node {
         })
     };
 
-    let (title, target) = match kind {
-        StandingsKind::Drivers => (t("Pilotes", "Drivers"), SeasonTarget::DriverStandings),
-        StandingsKind::Teams => (t("Écuries", "Teams"), SeasonTarget::TeamStandings),
+    let title = move || match kind() {
+        StandingsKind::Drivers => t("Pilotes", "Drivers"),
+        StandingsKind::Teams => t("Écuries", "Teams"),
     };
-    let seg = |k: StandingsKind, route: Route, label: &'static str| {
-        link(route, "seg")
-            .class(when(kind == k, "seg-active"))
+    let seg = |k: StandingsKind, label: &'static str| {
+        a().class("seg")
+            .class_if("seg-active", move || kind() == k)
+            .attr_dyn("href", move || {
+                let season = season();
+                match k {
+                    StandingsKind::Drivers => Route::DriverStandings { season },
+                    StandingsKind::Teams => Route::TeamStandings { season },
+                }
+                .href()
+            })
             .text(label)
     };
-    layout(
-        &format!("{title} · {}", season_label(&season)),
+    layout_dyn(
+        move || format!("{} · {}", title(), season_label(&season())),
         Some(Tab::Standings),
         fragment([
-            season_select(&season, target, None),
+            // Le choix d'une saison reste sur le même classement.
+            season_select(
+                season,
+                move || match kind() {
+                    StandingsKind::Drivers => SeasonTarget::DriverStandings,
+                    StandingsKind::Teams => SeasonTarget::TeamStandings,
+                },
+                None,
+            ),
             div()
                 .class("segmented")
-                .child(seg(
-                    StandingsKind::Drivers,
-                    Route::DriverStandings {
-                        season: season.clone(),
-                    },
-                    t("Pilotes", "Drivers"),
-                ))
-                .child(seg(
-                    StandingsKind::Teams,
-                    Route::TeamStandings {
-                        season: season.clone(),
-                    },
-                    t("Écuries", "Teams"),
-                ))
+                .child(seg(StandingsKind::Drivers, t("Pilotes", "Drivers")))
+                .child(seg(StandingsKind::Teams, t("Écuries", "Teams")))
                 .into(),
             body,
         ]),
