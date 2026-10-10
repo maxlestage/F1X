@@ -1,179 +1,406 @@
-use web_sys::HtmlSelectElement;
-use yew::prelude::*;
-use yew_router::prelude::*;
+//! Fiche écurie.
 
-use super::IdProps;
-use crate::Route;
-use crate::api::{f1, use_f1, use_json};
+use std::rc::Rc;
+
+use active::prelude::*;
+
+use super::stats::{Champion, team_titles};
+use crate::api::{Fetch, Json, f1, use_f1, use_f1_dyn, use_json};
 use crate::components::*;
 use crate::i18n::t;
-use crate::models::Driver;
+use crate::models::{Constructor, Driver, MrData};
 use crate::tr;
 use crate::util::{flag_country, flag_nationality, team_style};
+use crate::{Route, link};
+
+/// Requêtes de la fiche qui arrivent après les informations de l'écurie.
+#[derive(Clone, Copy)]
+struct Live {
+    champions: State<Json<Vec<Champion>>>,
+    wins: State<Fetch>,
+    seconds: State<Fetch>,
+    thirds: State<Fetch>,
+    poles: State<Fetch>,
+    seasons: State<Fetch>,
+    chosen: State<Option<String>>,
+    season: State<Option<String>>,
+    /// Une saison est connue (la carte « Saison par saison » peut s'afficher).
+    has_season: State<bool>,
+    standing: State<Fetch>,
+    results: State<Fetch>,
+}
+
+/// Valeur d'une statistique, relue quand ses données arrivent.
+type Value = Rc<dyn Fn() -> String>;
 
 /// Fiche écurie : palmarès complet et détail saison par saison.
-#[function_component]
-pub fn TeamPage(props: &IdProps) -> Html {
-    let id = props.id.to_string();
-    let p = |suffix: &str| format!("constructors/{id}{suffix}.json");
+pub fn team_page(id: &str) -> Node {
+    let id = id.to_string();
+    let path = |suffix: &str| format!("constructors/{id}{suffix}.json");
 
-    let info = use_f1(f1(p(""), 1));
-    let champions = use_json::<Vec<super::stats::Champion>>(Some("/api/champions".into()));
-    let wins = use_f1(f1(p("/results/1"), 1));
-    let seconds = use_f1(f1(p("/results/2"), 1));
-    let thirds = use_f1(f1(p("/results/3"), 1));
+    let info = use_f1(f1(path(""), 1));
+    let champions = use_json::<Vec<Champion>>(Some("/api/champions".into()));
+    let wins = use_f1(f1(path("/results/1"), 1));
+    let seconds = use_f1(f1(path("/results/2"), 1));
+    let thirds = use_f1(f1(path("/results/3"), 1));
     // Poles = départs en tête de grille (fonctionne pour toutes les époques).
-    let poles = use_f1(f1(p("/grid/1/results"), 1));
-    let seasons = use_f1(f1(p("/seasons"), 100));
+    let poles = use_f1(f1(path("/grid/1/results"), 1));
+    let seasons = use_f1(f1(path("/seasons"), 100));
 
-    let season_list: Vec<String> = seasons
-        .done()
-        .map(|d| d.seasons().iter().map(|s| s.season.clone()).collect())
-        .unwrap_or_default();
-    let chosen = use_state(|| None::<String>);
-    let season = (*chosen).clone().or_else(|| season_list.last().cloned());
-    let base = |file: &str| {
-        season
-            .as_ref()
-            .map(|s| format!("{s}/constructors/{id}/{file}.json"))
+    // Saison choisie dans la liste, sinon la dernière saison de l'écurie.
+    let chosen = use_state(None::<String>);
+    let season = memo(move || {
+        chosen.get().or_else(|| {
+            seasons.with(|f| {
+                f.done()
+                    .and_then(|d| d.seasons().last().map(|s| s.season.clone()))
+            })
+        })
+    });
+    let base = |file: &'static str, limit: u32| {
+        let id = id.clone();
+        move || {
+            season
+                .get()
+                .and_then(|s| f1(format!("{s}/constructors/{id}/{file}.json"), limit))
+        }
     };
-    let standing = use_f1(base("constructorStandings").and_then(|p| f1(p, 1)));
-    let results = use_f1(base("results").and_then(|p| f1(p, 100)));
+    let has_season = memo(move || season.with(Option::is_some));
+    let standing = use_f1_dyn(base("constructorStandings", 1));
+    let results = use_f1_dyn(base("results", 100));
 
-    let Some(team) = info.done().and_then(|d| d.constructors().first().cloned()) else {
-        return match info.done() {
-            Some(_) => html! { <super::NotFound /> },
-            None => {
-                html! { <Layout title={t("Écurie", "Team")} tab={Tab::Standings}>{ fetch_view(&info, |_| html! {}) }</Layout> }
+    let live = Live {
+        champions,
+        wins,
+        seconds,
+        thirds,
+        poles,
+        seasons,
+        chosen,
+        season,
+        has_season,
+        standing,
+        results,
+    };
+    // Informations chargées mais vides : écurie inconnue.
+    let missing =
+        memo(move || info.with(|f| f.done().is_some_and(|d| d.constructors().is_empty())));
+
+    // Le titre suit le chargement : la mise en page n'est pas reconstruite à l'arrivée des données.
+    let title = move || {
+        info.with(|f| {
+            f.done()
+                .and_then(|d| d.constructors().first().map(|c| c.name.clone()))
+        })
+        .unwrap_or_else(|| t("Écurie", "Team").into())
+    };
+    let page = move || {
+        layout_dyn(
+            title,
+            Some(Tab::Standings),
+            fetch_view(info, move |data| body(data, live)),
+        )
+    };
+    dynamic(move || {
+        if missing.get() {
+            untrack(super::not_found)
+        } else {
+            untrack(page)
+        }
+    })
+}
+
+/// Contenu de la fiche, construit une seule fois quand l'écurie est chargée ; les compteurs,
+/// les titres et la saison choisie suivent leurs propres requêtes.
+fn body(data: &MrData, live: Live) -> Node {
+    let Some(team) = data.constructors().first().cloned() else {
+        return Node::Empty;
+    };
+    let Live {
+        champions,
+        wins,
+        seconds,
+        thirds,
+        poles,
+        seasons,
+        has_season,
+        ..
+    } = live;
+
+    // « Française · 1950 – 2026 », la période une fois les saisons chargées.
+    let period = text_dyn(move || {
+        seasons.with(|f| {
+            let list = f.done().map(|d| d.seasons()).unwrap_or_default();
+            match (list.first(), list.last()) {
+                (Some(first), Some(last)) => format!(" · {} – {}", first.season, last.season),
+                _ => String::new(),
             }
-        };
-    };
-
-    let podiums = [&wins, &seconds, &thirds]
-        .iter()
-        .map(|f| f.done().map(|d| d.total()))
-        .sum::<Option<u32>>()
-        .map(|n| n.to_string())
-        .unwrap_or_else(|| "–".into());
-    let onchange = {
-        let chosen = chosen.clone();
-        Callback::from(move |e: Event| {
-            chosen.set(Some(e.target_unchecked_into::<HtmlSelectElement>().value()))
+        })
+    });
+    let podiums: Value = Rc::new(move || {
+        [wins, seconds, thirds]
+            .iter()
+            .map(|f| f.with(|f| f.done().map(|d| d.total())))
+            .sum::<Option<u32>>()
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| "–".into())
+    });
+    let titles = {
+        let id = team.constructor_id.clone();
+        dynamic(move || {
+            let Some(Ok(c)) = champions.get() else {
+                return Node::Empty;
+            };
+            match team_titles(&c, &id).as_slice() {
+                titles @ [_, ..] => p()
+                    .class("titles")
+                    .text(tr!(
+                        "🏆 Champion constructeurs ×{} : {}",
+                        "🏆 Constructors' champion ×{}: {}",
+                        titles.len(),
+                        titles.join(", ")
+                    ))
+                    .into(),
+                [] => Node::Empty,
+            }
         })
     };
-    let season_standing = standing
-        .done()
-        .and_then(|d| d.standings())
-        .and_then(|l| l.constructor_standings.clone())
-        .and_then(|v| v.into_iter().next());
+
+    let hero = section()
+        .class("card hero")
+        .style(team_style(&team.constructor_id))
+        .child(
+            p().class("eyebrow")
+                .text(team.nationality.clone().unwrap_or_default())
+                .child(period),
+        )
+        .child(h2().class("hero-title").text(format!(
+            "{} {}",
+            flag_nationality(team.nationality.as_deref()),
+            team.name
+        )))
+        .child(live_stat_grid(vec![
+            (
+                t("Victoires", "Wins"),
+                Rc::new(move || wins.with(total_of)) as Value,
+            ),
+            ("Podiums", podiums),
+            ("Poles", Rc::new(move || poles.with(total_of))),
+        ]))
+        .child(titles)
+        .child(fav_button("team", &team.constructor_id))
+        .child(team.url.as_ref().map(|url| {
+            a().class("link")
+                .href(url.clone())
+                .attr("target", "_blank")
+                .attr("rel", "noopener")
+                .text(t("Wikipédia ↗", "Wikipedia ↗"))
+        }));
+
+    // La carte « Saison par saison » apparaît quand la liste des saisons arrive, une seule fois.
+    let season_part = {
+        let team = team.clone();
+        dynamic(move || {
+            if has_season.get() {
+                untrack(|| season_card(&team, live))
+            } else {
+                Node::Empty
+            }
+        })
+    };
+
+    fragment([
+        Node::from(hero),
+        team.url
+            .as_ref()
+            .map(|url| wiki_bio(url, t("À propos", "About")))
+            .into(),
+        crate::gl3d::car_card(&team.constructor_id, &team.name),
+        season_part,
+    ])
+}
+
+/// Grille de statistiques (comme `stat_grid`) dont les valeurs arrivent après coup : « – »
+/// pendant le chargement, puis le chiffre, écrit sur place (le moteur d'animation le fait
+/// alors compter, comme les autres chiffres).
+fn live_stat_grid(items: Vec<(&'static str, Value)>) -> Node {
+    dl().class("stats")
+        .children(items.into_iter().map(|(label, value)| {
+            let long = value.clone();
+            div().child(dt().text(label)).child(
+                dd().class_if("dd-long", move || long().chars().count() > 5)
+                    .text_dyn(move || value()),
+            )
+        }))
+        .into()
+}
+
+/// Carte « Saison par saison » : la liste des saisons est construite une fois, le classement,
+/// les pilotes, les résultats et le lien suivent la saison choisie.
+fn season_card(team: &Constructor, live: Live) -> Node {
+    let Live {
+        seasons,
+        chosen,
+        season,
+        standing,
+        results,
+        ..
+    } = live;
+    let season_list: Vec<String> = seasons.with(|f| {
+        f.done()
+            .map(|d| d.seasons().iter().map(|s| s.season.clone()).collect())
+            .unwrap_or_default()
+    });
+    let initial = chosen.get().or_else(|| season_list.last().cloned());
+
+    let options = season_list.iter().rev().map(|s| {
+        let o = option().attr("value", s.clone());
+        let o = if initial.as_deref() == Some(s.as_str()) {
+            o.attr("selected", "")
+        } else {
+            o
+        };
+        o.text(s.clone())
+    });
+
+    let season_standing = dynamic(move || {
+        let s = standing.with(|f| {
+            f.done()
+                .and_then(|d| d.standings())
+                .and_then(|l| l.constructor_standings.as_ref()?.first().cloned())
+        });
+        s.map(|s| {
+            stat_grid(vec![
+                (t("Classement", "Standings"), format!("P{}", s.rank())),
+                ("Points", s.points.clone()),
+                (t("Victoires", "Wins"), s.wins.clone()),
+            ])
+        })
+        .into()
+    });
+
     // Pilotes de la saison, déduits des résultats (une requête de moins).
-    let mut season_drivers: Vec<Driver> = Vec::new();
-    for r in results
-        .done()
-        .map(|d| d.races())
-        .unwrap_or_default()
-        .iter()
-        .flat_map(|r| r.results.iter().flatten())
-    {
-        if !season_drivers
-            .iter()
-            .any(|d| d.driver_id == r.driver.driver_id)
-        {
-            season_drivers.push(r.driver.clone());
-        }
-    }
-    let first_season = season_list.first().cloned().unwrap_or_default();
-    let last_season = season_list.last().cloned().unwrap_or_default();
-
-    html! {
-        <Layout title={team.name.clone()} tab={Tab::Standings}>
-            <section class="card hero" style={team_style(&team.constructor_id)}>
-                <p class="eyebrow">
-                    { team.nationality.clone().unwrap_or_default() }
-                    if !first_season.is_empty() { { format!(" · {first_season} – {last_season}") } }
-                </p>
-                <h2 class="hero-title">{ format!("{} {}", flag_nationality(team.nationality.as_deref()), team.name) }</h2>
-                { stat_grid(vec![
-                    (t("Victoires", "Wins"), total_of(&wins)),
-                    ("Podiums", podiums),
-                    ("Poles", total_of(&poles)),
-                ]) }
-                if let Some(Ok(c)) = &champions {
-                    if let titles @ [_, ..] = super::stats::team_titles(c, &team.constructor_id).as_slice() {
-                        <p class="titles">{ tr!("🏆 Champion constructeurs ×{} : {}", "🏆 Constructors' champion ×{}: {}", titles.len(), titles.join(", ")) }</p>
+    let drivers = {
+        let team_id = team.constructor_id.clone();
+        dynamic(move || {
+            let mut season_drivers: Vec<Driver> = Vec::new();
+            results.with(|f| {
+                for r in f
+                    .done()
+                    .map(|d| d.races())
+                    .unwrap_or_default()
+                    .iter()
+                    .flat_map(|r| r.results.iter().flatten())
+                {
+                    if !season_drivers
+                        .iter()
+                        .any(|d| d.driver_id == r.driver.driver_id)
+                    {
+                        season_drivers.push(r.driver.clone());
                     }
                 }
-                <FavButton kind="team" id={team.constructor_id.clone()} />
-                if let Some(url) = &team.url {
-                    <a class="link" href={url.clone()} target="_blank" rel="noopener">{ t("Wikipédia ↗", "Wikipedia ↗") }</a>
-                }
-            </section>
-
-            if let Some(url) = &team.url {
-                <crate::components::WikiBio url={url.clone()} title={t("À propos", "About")} />
+            });
+            if season_drivers.is_empty() {
+                return Node::Empty;
             }
+            fragment([
+                Node::from(h3().class("subhead").text(t("Pilotes", "Drivers"))),
+                ol().class("rows")
+                    .children(season_drivers.iter().map(|drv| {
+                        li().class("row").style(team_style(&team_id)).child(
+                            link(Route::driver(&drv.driver_id), "row-main").child(
+                                span()
+                                    .class("row-title")
+                                    .text(format!(
+                                        "{} {} ",
+                                        flag_nationality(drv.nationality.as_deref()),
+                                        drv.given_name
+                                    ))
+                                    .child(strong().text(drv.family_name.clone())),
+                            ),
+                        )
+                    }))
+                    .into(),
+            ])
+        })
+    };
 
-            { crate::gl3d::car_card(&team.constructor_id, &team.name) }
+    let race_rows = {
+        let team_id = team.constructor_id.clone();
+        fetch_view(results, move |d| {
+            ol().class("rows")
+                .children(d.races().iter().rev().map(|race| {
+                    let rows = race.results.clone().unwrap_or_default();
+                    let best = rows
+                        .iter()
+                        .filter_map(|r| r.position.parse::<u32>().ok())
+                        .min();
+                    let points: f64 = rows
+                        .iter()
+                        .filter_map(|r| r.points.parse::<f64>().ok())
+                        .sum();
+                    let sub = rows
+                        .iter()
+                        .map(|r| format!("{} {}", r.driver.family_name, r.position_text))
+                        .collect::<Vec<_>>()
+                        .join(" · ");
+                    li().class("row")
+                        .style(team_style(&team_id))
+                        .child(
+                            span()
+                                .class("pos pos-sm")
+                                .text(best.map(|b| b.to_string()).unwrap_or_else(|| "–".into())),
+                        )
+                        .child(
+                            link(Route::race(&race.season, race.round_num()), "row-main")
+                                .child(span().class("row-title").text(format!(
+                                    "{} {}",
+                                    flag_country(&race.circuit.location.country),
+                                    race.race_name
+                                )))
+                                .child(span().class("row-sub").text(sub)),
+                        )
+                        .child(
+                            (points > 0.0).then(|| span().class("pts").text(format!("+{points}"))),
+                        )
+                }))
+                .into()
+        })
+    };
 
-            if let Some(season) = &season {
-                <section class="card">
-                    <h2>{ t("Saison par saison", "Season by season") }</h2>
-                    <label class="select">
-                        <span class="select-label">{ t("Saison", "Season") }</span>
-                        <select {onchange} aria-label={t("Choisir une saison", "Choose a season")}>
-                            { for season_list.iter().rev().map(|s| html! {
-                                <option value={s.clone()} selected={s == season}>{ s }</option>
-                            }) }
-                        </select>
-                    </label>
-                    if let Some(s) = &season_standing {
-                        { stat_grid(vec![
-                            (t("Classement", "Standings"), format!("P{}", s.rank())),
-                            ("Points", s.points.clone()),
-                            (t("Victoires", "Wins"), s.wins.clone()),
-                        ]) }
-                    }
-                    if !season_drivers.is_empty() {
-                        <h3 class="subhead">{ t("Pilotes", "Drivers") }</h3>
-                        <ol class="rows">
-                            { for season_drivers.iter().map(|drv| html! {
-                                <li class="row" style={team_style(&team.constructor_id)}>
-                                    <Link<Route> to={Route::driver(&drv.driver_id)} classes="row-main">
-                                        <span class="row-title">
-                                            { flag_nationality(drv.nationality.as_deref()) }{ " " }
-                                            { &drv.given_name }{ " " }<strong>{ &drv.family_name }</strong>
-                                        </span>
-                                    </Link<Route>>
-                                </li>
-                            }) }
-                        </ol>
-                    }
-                    <h3 class="subhead">{ t("Résultats", "Results") }</h3>
-                    { fetch_view(&results, |d| html! {
-                        <ol class="rows">
-                            { for d.races().iter().rev().map(|race| {
-                                let rows = race.results.clone().unwrap_or_default();
-                                let best = rows.iter().filter_map(|r| r.position.parse::<u32>().ok()).min();
-                                let points: f64 = rows.iter().filter_map(|r| r.points.parse::<f64>().ok()).sum();
-                                let sub = rows.iter().map(|r| format!("{} {}", r.driver.family_name, r.position_text)).collect::<Vec<_>>().join(" · ");
-                                html! {
-                                    <li class="row" style={team_style(&team.constructor_id)}>
-                                        <span class="pos pos-sm">{ best.map(|b| b.to_string()).unwrap_or_else(|| "–".into()) }</span>
-                                        <Link<Route> to={Route::race(&race.season, race.round_num())} classes="row-main">
-                                            <span class="row-title">{ format!("{} {}", flag_country(&race.circuit.location.country), race.race_name) }</span>
-                                            <span class="row-sub">{ sub }</span>
-                                        </Link<Route>>
-                                        if points > 0.0 { <span class="pts">{ format!("+{points}") }</span> }
-                                    </li>
-                                }
-                            }) }
-                        </ol>
-                    }) }
-                    <Link<Route> to={Route::TeamStandings { season: season.clone() }} classes="btn btn-ghost">
-                        { tr!("Classement {season}", "{season} standings") }
-                    </Link<Route>>
-                </section>
-            }
-        </Layout>
-    }
+    let standings_link = dynamic(move || {
+        season
+            .get()
+            .map(|season| {
+                link(
+                    Route::TeamStandings {
+                        season: season.clone(),
+                    },
+                    "btn btn-ghost",
+                )
+                .text(tr!("Classement {season}", "{season} standings"))
+            })
+            .into()
+    });
+
+    section()
+        .class("card")
+        .child(h2().text(t("Saison par saison", "Season by season")))
+        .child(
+            label()
+                .class("select")
+                .child(span().class("select-label").text(t("Saison", "Season")))
+                .child(
+                    select()
+                        .attr("aria-label", t("Choisir une saison", "Choose a season"))
+                        .on("change", move |e| chosen.set(Some(e.value())))
+                        .children(options),
+                ),
+        )
+        .child(season_standing)
+        .child(drivers)
+        .child(h3().class("subhead").text(t("Résultats", "Results")))
+        .child(race_rows)
+        .child(standings_link)
+        .into()
 }

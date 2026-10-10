@@ -1,7 +1,6 @@
 //! Lexique de la F1 (français / anglais), avec recherche.
 
-use web_sys::HtmlInputElement;
-use yew::prelude::*;
+use active::prelude::*;
 
 use crate::components::*;
 use crate::i18n::{is_fr, t};
@@ -228,32 +227,62 @@ const ENTRIES: &[(&str, &str, &str, &str)] = &[
     ),
 ];
 
-#[function_component]
-pub fn GlossaryPage() -> Html {
-    let query = use_state(String::new);
-    let q = fold(&query);
-    let oninput = {
-        let query = query.clone();
-        Callback::from(move |e: InputEvent| {
-            query.set(e.target_unchecked_into::<HtmlInputElement>().value())
-        })
-    };
+pub fn glossary_page() -> Node {
+    let query = use_state(String::new());
     let fr = is_fr();
-    let list: Vec<(&str, &str)> = ENTRIES
-        .iter()
-        .map(|(tf, te, df, de)| if fr { (*tf, *df) } else { (*te, *de) })
-        .filter(|(term, def)| q.is_empty() || fold(term).contains(&q) || fold(def).contains(&q))
-        .collect();
-    html! {
-        <Layout title={t("Lexique", "Glossary")} tab={Tab::Archives}>
-            <input class="search" type="search" value={(*query).clone()} {oninput}
-                   placeholder={t("Rechercher (drapeau, undercut, DRS…)", "Search (flag, undercut, DRS…)")} aria-label={t("Rechercher", "Search")} />
-            <p class="section-intro">{ tr!("{} définitions", "{} definitions", list.len()) }</p>
-            <dl class="glossary">
-                { for list.iter().map(|(term, def)| html! {
-                    <div class="card"><dt>{ *term }</dt><dd>{ *def }</dd></div>
-                }) }
-            </dl>
-        </Layout>
-    }
+    let entry = move |i: usize| {
+        let (tf, te, df, de) = ENTRIES[i];
+        if fr { (tf, df) } else { (te, de) }
+    };
+    // Définitions qui correspondent à la recherche (leur rang dans `ENTRIES`).
+    let shown = memo(move || {
+        let q = query.with(|q| fold(q));
+        (0..ENTRIES.len())
+            .filter(|&i| {
+                let (term, def) = entry(i);
+                q.is_empty() || fold(term).contains(&q) || fold(def).contains(&q)
+            })
+            .collect::<Vec<_>>()
+    });
+    layout(
+        t("Lexique", "Glossary"),
+        Some(Tab::Archives),
+        fragment([
+            // Le champ reste hors des parties reconstruites : il garde le focus pendant la saisie.
+            Node::from(
+                input()
+                    .class("search")
+                    .attr("type", "search")
+                    .attr_dyn("value", move || query.get())
+                    .on_input(move |e| query.set(e.value()))
+                    .attr(
+                        "placeholder",
+                        t(
+                            "Rechercher (drapeau, undercut, DRS…)",
+                            "Search (flag, undercut, DRS…)",
+                        ),
+                    )
+                    .attr("aria-label", t("Rechercher", "Search")),
+            ),
+            p().class("section-intro")
+                .text_dyn(move || tr!("{} définitions", "{} definitions", shown.with(Vec::len)))
+                .into(),
+            // Une carte par définition, gardée tant qu'elle correspond : la saisie ne refait
+            // pas toute la liste.
+            dl().class("glossary")
+                .children_keyed(
+                    move || shown.get(),
+                    |i| *i,
+                    move |&i| {
+                        let (term, def) = entry(i);
+                        div()
+                            .class("card")
+                            .child(dt().text(term))
+                            .child(dd().text(def))
+                            .into()
+                    },
+                )
+                .into(),
+        ]),
+    )
 }
