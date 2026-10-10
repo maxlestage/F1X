@@ -1,4 +1,3 @@
-
 use active::prelude::*;
 
 use super::season_label;
@@ -35,7 +34,11 @@ pub fn season_page(season: &str) -> Node {
             // La course qui arrive, avec sa date, son heure et le compte à rebours, tout en haut.
             let next_card = races.iter().find(|r| !r.is_over(now)).map(|race| {
                 link(Route::race(&season, race.round_num()), "card next-race")
-                    .child(span().class("eyebrow").text(t("Prochaine course", "Next race")))
+                    .child(
+                        span()
+                            .class("eyebrow")
+                            .text(t("Prochaine course", "Next race")),
+                    )
                     .child(span().class("next-race-name").text(format!(
                         "{} {}",
                         flag_country(&race.circuit.location.country),
@@ -56,54 +59,53 @@ pub fn season_page(season: &str) -> Node {
                     )))
                     .child(race.has_time().then(|| countdown(race.start_ms())))
             });
-            let rows = races.iter().map(|race| {
-                let done = race.is_over(now);
-                let is_next = next_round.as_deref() == Some(race.round.as_str());
-                let round = race.round.clone();
-                // Le vainqueur arrive par une autre requête : seule cette ligne le suit.
-                let winner = text_dyn(move || {
-                    winners.with(|w| {
-                        w.done()
-                            .and_then(|d| d.races().iter().find(|r| r.round == round).cloned())
-                            .and_then(|r| r.winner().map(winner_label))
-                            .unwrap_or_default()
-                    })
-                });
-                li().child(
-                    link(Route::race(&season, race.round_num()), "race-item")
-                        .class(when(done && season == crate::CURRENT, "done"))
-                        .class(when(is_next, "next"))
-                        .child(span().class("race-round").text(format!("R{}", race.round)))
-                        .child(
-                            span()
-                                .class("race-main")
-                                .child(span().class("race-name").text(format!(
-                                    "{} {}",
-                                    flag_country(&race.circuit.location.country),
-                                    race.race_name
-                                )))
-                                // Une seule ligne : date, sprint, vainqueur.
-                                .child(
-                                    span()
-                                        .class("race-meta")
-                                        .text(local_date(&race.start_iso(), false))
-                                        .child(race.is_sprint_weekend().then(sprint_tag))
-                                        .child(winner),
-                                ),
-                        )
-                        .child(
-                            is_next.then(|| {
+            let rows =
+                races.iter().map(|race| {
+                    let done = race.is_over(now);
+                    let is_next = next_round.as_deref() == Some(race.round.as_str());
+                    let round = race.round.clone();
+                    // Le vainqueur arrive par une autre requête : seule cette ligne le suit.
+                    let winner = text_dyn(move || {
+                        winners.with(|w| {
+                            w.done()
+                                .and_then(|d| d.races().iter().find(|r| r.round == round).cloned())
+                                .and_then(|r| r.winner().map(winner_label))
+                                .unwrap_or_default()
+                        })
+                    });
+                    li().child(
+                        link(Route::race(&season, race.round_num()), "race-item")
+                            .class(when(done && season == crate::CURRENT, "done"))
+                            .class(when(is_next, "next"))
+                            .child(span().class("race-round").text(format!("R{}", race.round)))
+                            .child(
+                                span()
+                                    .class("race-main")
+                                    .child(span().class("race-name").text(format!(
+                                        "{} {}",
+                                        flag_country(&race.circuit.location.country),
+                                        race.race_name
+                                    )))
+                                    // Une seule ligne : date, sprint, vainqueur.
+                                    .child(
+                                        span()
+                                            .class("race-meta")
+                                            .text(local_date(&race.start_iso(), false))
+                                            .child(race.is_sprint_weekend().then(sprint_tag))
+                                            .child(winner),
+                                    ),
+                            )
+                            .child(is_next.then(|| {
                                 span().class("badge badge-live").text(t("Prochain", "Next"))
-                            }),
-                        )
-                        .child((done && season == crate::CURRENT).then(|| {
-                            span()
-                                .class("race-check")
-                                .attr("aria-label", t("Terminé", "Done"))
-                                .text("✓")
-                        })),
-                )
-            });
+                            }))
+                            .child((done && season == crate::CURRENT).then(|| {
+                                span()
+                                    .class("race-check")
+                                    .attr("aria-label", t("Terminé", "Done"))
+                                    .text("✓")
+                            })),
+                    )
+                });
             fragment([
                 Node::from(next_card),
                 p().class("section-intro")
@@ -277,7 +279,9 @@ pub fn standings_page(season: &str, kind: StandingsKind) -> Node {
         StandingsKind::Teams => (t("Écuries", "Teams"), SeasonTarget::TeamStandings),
     };
     let seg = |k: StandingsKind, route: Route, label: &'static str| {
-        link(route, "seg").class(when(kind == k, "seg-active")).text(label)
+        link(route, "seg")
+            .class(when(kind == k, "seg-active"))
+            .text(label)
     };
     layout(
         &format!("{title} · {}", season_label(&season)),

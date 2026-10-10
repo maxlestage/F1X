@@ -54,10 +54,7 @@ pub fn home() -> Node {
                 .into(),
             None => section()
                 .class("card")
-                .child(h2().text(tr!(
-                    "Saison {season} terminée",
-                    "Season {season} is over"
-                )))
+                .child(h2().text(tr!("Saison {season} terminée", "Season {season} is over")))
                 .child(p().class("muted").text(t(
                     "Rendez-vous la saison prochaine !",
                     "See you next season!",
@@ -78,13 +75,22 @@ pub fn home() -> Node {
             dynamic(move || top_teams(teams)),
             crate::pwa::install_card(),
             link(Route::Predict, "btn btn-ghost")
-                .text(t("🔮 Pronostiquer le prochain GP", "🔮 Predict the next GP"))
+                .text(t(
+                    "🔮 Pronostiquer le prochain GP",
+                    "🔮 Predict the next GP",
+                ))
                 .into(),
             link(Route::Live, "btn")
-                .text(t("● Direct & replays en temps réel", "● Live & real-time replays"))
+                .text(t(
+                    "● Direct & replays en temps réel",
+                    "● Live & real-time replays",
+                ))
                 .into(),
             link(Route::Archives, "btn btn-ghost")
-                .text(t("Explorer 75 ans d'archives →", "Explore 75 years of history →"))
+                .text(t(
+                    "Explorer 75 ans d'archives →",
+                    "Explore 75 years of history →",
+                ))
                 .into(),
         ])
     });
@@ -105,29 +111,41 @@ fn last_result(last: State<crate::api::Fetch>) -> Node {
             div()
                 .class("card-head")
                 .child(h2().text(t("Dernier résultat", "Latest result")))
-                .child(link(Route::race(CURRENT, race.round_num()), "link").text(t("Détails", "Details"))),
+                .child(
+                    link(Route::race(CURRENT, race.round_num()), "link")
+                        .text(t("Détails", "Details")),
+                ),
         )
         .child(p().class("muted").text(format!(
             "{} {}",
             flag_country(&race.circuit.location.country),
             race.race_name
         )))
-        .child(ol().class("podium").children(race.results.iter().flatten().take(3).map(|r| {
-            li().class("podium-step")
-                .style(team_style(&r.constructor.constructor_id))
-                .child(
-                    link(Route::driver(&r.driver.driver_id), "podium-link")
-                        .child(crate::photo::avatar(
-                            &r.driver.full_name(),
-                            r.driver.url.as_deref(),
-                            crate::util::team_color(&r.constructor.constructor_id),
-                            52,
-                        ))
-                        .child(span().class("podium-pos").text(r.position.clone()))
-                        .child(span().class("podium-name").text(r.driver.family_name.clone()))
-                        .child(span().class("podium-team").text(r.constructor.name.clone())),
-                )
-        })))
+        .child(
+            ol().class("podium")
+                .children(race.results.iter().flatten().take(3).map(|r| {
+                    li().class("podium-step")
+                        .style(team_style(&r.constructor.constructor_id))
+                        .child(
+                            link(Route::driver(&r.driver.driver_id), "podium-link")
+                                .child(crate::photo::avatar(
+                                    &r.driver.full_name(),
+                                    r.driver.url.as_deref(),
+                                    crate::util::team_color(&r.constructor.constructor_id),
+                                    52,
+                                ))
+                                .child(span().class("podium-pos").text(r.position.clone()))
+                                .child(
+                                    span()
+                                        .class("podium-name")
+                                        .text(r.driver.family_name.clone()),
+                                )
+                                .child(
+                                    span().class("podium-team").text(r.constructor.name.clone()),
+                                ),
+                        )
+                })),
+        )
         .into()
 }
 
@@ -210,7 +228,10 @@ fn top_drivers(drivers: State<crate::api::Fetch>) -> Node {
                     .text(t("Tout voir", "See all")),
                 ),
         )
-        .child(ol().class("rows").children(list.iter().take(5).map(driver_standing_row)))
+        .child(
+            ol().class("rows")
+                .children(list.iter().take(5).map(driver_standing_row)),
+        )
         .into()
 }
 
@@ -269,8 +290,16 @@ fn quali_order(round: u32) -> Node {
             return Node::Empty;
         }
         let show_sprint = sprint_tab.get().unwrap_or(main.is_empty());
-        let list = if show_sprint { sprint.clone() } else { main.clone() };
-        let shown = if all.get() { list.len() } else { list.len().min(10) };
+        let list = if show_sprint {
+            sprint.clone()
+        } else {
+            main.clone()
+        };
+        let shown = if all.get() {
+            list.len()
+        } else {
+            list.len().min(10)
+        };
         let tab = |on: bool, label: &'static str| {
             button()
                 .class("seg")
@@ -302,13 +331,16 @@ fn quali_order(round: u32) -> Node {
                     .child(link(Route::race(CURRENT, round), "link").text(t("Détails", "Details"))),
             )
             .child(tabs)
-            .child(ol().class("rows").children(list.iter().take(shown).map(|q| {
-                if show_sprint {
-                    sprint_qualifying_row(q)
-                } else {
-                    qualifying_row(q)
-                }
-            })))
+            .child(
+                ol().class("rows")
+                    .children(list.iter().take(shown).map(|q| {
+                        if show_sprint {
+                            sprint_qualifying_row(q)
+                        } else {
+                            qualifying_row(q)
+                        }
+                    })),
+            )
             .child((list.len() > 10).then(|| {
                 button()
                     .class("btn btn-ghost btn-small")
