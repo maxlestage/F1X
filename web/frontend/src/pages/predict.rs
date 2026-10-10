@@ -2,15 +2,15 @@
 //! Enregistrés sur l'appareil (aucun compte, aucun serveur).
 
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
+use active::prelude::*;
 use serde::{Deserialize, Serialize};
-use web_sys::HtmlSelectElement;
-use yew::prelude::*;
 
 use crate::api::{all, f1, use_f1};
 use crate::components::*;
 use crate::i18n::t;
-use crate::models::{Race, is_classified};
+use crate::models::{Driver, Race, is_classified};
 use crate::tr;
 use crate::util::{flag_country, load, local_date, now_ms, parse_ms, store};
 
@@ -103,172 +103,297 @@ fn score(p: &Prediction, race: &Race) -> Option<(u32, Vec<(String, bool)>)> {
     Some((pts, detail))
 }
 
-#[function_component]
-pub fn PredictPage() -> Html {
+pub fn predict_page() -> Node {
     let schedule = use_f1(f1("current.json", 100));
     let drivers = use_f1(f1("current/drivers.json", 100));
     let results = use_f1(all("current/results.json"));
-    let saved = use_state(|| load::<BTreeMap<String, Prediction>>(KEY).unwrap_or_default());
-    let draft = use_state(|| None::<Prediction>);
-    let flash = use_state(|| false);
+    let saved = use_state(load::<BTreeMap<String, Prediction>>(KEY).unwrap_or_default());
+    let draft = use_state(None::<Prediction>);
+    let flash = use_state(false);
 
-    let now = now_ms();
-    let races = schedule
-        .done()
-        .map(|d| d.races().to_vec())
-        .unwrap_or_default();
-    let next = races.iter().find(|r| !r.is_over(now)).cloned();
-    let season = races.first().map(|r| r.season.clone()).unwrap_or_default();
-    let mut list = drivers
-        .done()
-        .map(|d| d.drivers().to_vec())
-        .unwrap_or_default();
-    list.sort_by(|a, b| a.family_name.cmp(&b.family_name));
+    // Pilotes de la saison, par nom de famille (arrivent après le calendrier).
+    let list = memo(move || {
+        let mut list = drivers.with(|f| f.done().map(|d| d.drivers().to_vec()).unwrap_or_default());
+        list.sort_by(|a, b| a.family_name.cmp(&b.family_name));
+        list
+    });
 
-    let body = match &next {
-        None => fetch_view(&schedule, |_| {
-            empty_card(t(
+    // Reconstruit seulement à l'arrivée du calendrier : un choix ne touche que la valeur.
+    let body = fetch_view(schedule, move |data| {
+        let now = now_ms();
+        match data.races().iter().find(|r| !r.is_over(now)) {
+            None => empty_card(t(
                 "Pas de prochain Grand Prix cette saison.",
                 "No upcoming Grand Prix this season.",
-            ))
-        }),
-        Some(race) => {
-            let key = format!("{}-{}", race.season, race.round);
-            let deadline_iso = race
-                .qualifying
-                .as_ref()
-                .map(|q| q.iso())
-                .unwrap_or_else(|| race.start_iso());
-            let locked = now >= parse_ms(&deadline_iso);
-            let current = (*draft)
-                .clone()
-                .or_else(|| saved.get(&key).cloned())
-                .unwrap_or(Prediction {
-                    season: race.season.clone(),
-                    dnf: 2,
-                    ..Default::default()
-                });
-            let field = |label: &'static str, value: String, set: fn(&mut Prediction, String)| {
-                let draft = draft.clone();
-                let base = current.clone();
-                let onchange = Callback::from(move |e: Event| {
-                    let mut p = (*draft).clone().unwrap_or_else(|| base.clone());
-                    set(
-                        &mut p,
-                        e.target_unchecked_into::<HtmlSelectElement>().value(),
-                    );
-                    draft.set(Some(p));
-                });
-                html! {
-                    <label class="select">
-                        <span class="select-label predict-label">{ label }</span>
-                        <select {onchange} disabled={locked} aria-label={label}>
-                            <option value="" selected={value.is_empty()}>{ "—" }</option>
-                            { for list.iter().map(|d| html! {
-                                <option value={d.driver_id.clone()} selected={d.driver_id == value}>{ d.full_name() }</option>
-                            }) }
-                        </select>
-                    </label>
-                }
-            };
-            let save = {
-                let saved = saved.clone();
-                let draft = draft.clone();
-                let flash = flash.clone();
-                let key = key.clone();
-                let current = current.clone();
-                Callback::from(move |_| {
-                    let mut all = (*saved).clone();
-                    all.insert(key.clone(), current.clone());
-                    store(KEY, &all);
-                    saved.set(all);
-                    draft.set(None);
-                    flash.set(true);
-                })
-            };
-            let on_dnf = {
-                let draft = draft.clone();
-                let base = current.clone();
-                Callback::from(move |e: Event| {
-                    let mut p = (*draft).clone().unwrap_or_else(|| base.clone());
-                    p.dnf = e
-                        .target_unchecked_into::<HtmlSelectElement>()
-                        .value()
-                        .parse()
-                        .unwrap_or(0);
-                    draft.set(Some(p));
-                })
-            };
-            html! {
-                <section class="card hero">
-                    <p class="eyebrow">{ tr!("Manche {}", "Round {}", race.round) }</p>
-                    <h2 class="hero-title">{ format!("{} {}", flag_country(&race.circuit.location.country), race.race_name) }</h2>
-                    <p class="muted">{ if locked {
-                        t("🔒 Pronostics fermés (les qualifications ont commencé).", "🔒 Predictions closed (qualifying has started).").to_string()
-                    } else {
-                        tr!("Jusqu'au début des qualifications : {}", "Until qualifying starts: {}", local_date(&deadline_iso, true))
-                    } }</p>
-                    { field(t("Pole", "Pole"), current.pole.clone(), |p, v| p.pole = v) }
-                    { field(t("Vainqueur", "Winner"), current.winner.clone(), |p, v| p.winner = v) }
-                    { field(t("2e", "2nd"), current.second.clone(), |p, v| p.second = v) }
-                    { field(t("3e", "3rd"), current.third.clone(), |p, v| p.third = v) }
-                    { field(t("Meilleur tour", "Fastest lap"), current.fastest.clone(), |p, v| p.fastest = v) }
-                    <label class="select">
-                        <span class="select-label predict-label">{ t("Abandons", "Retirements") }</span>
-                        <select onchange={on_dnf} disabled={locked}>
-                            { for (0..=10u32).map(|n| html! { <option value={n.to_string()} selected={n == current.dnf}>{ n }</option> }) }
-                        </select>
-                    </label>
-                    if !locked {
-                        <button class="btn" onclick={save}>{ if *flash && draft.is_none() { t("Enregistré ✓", "Saved ✓") } else { t("Enregistrer mon pronostic", "Save my prediction") } }</button>
-                    }
-                </section>
-            }
+            )),
+            Some(race) => prediction_card(race, list, saved, draft, flash),
         }
-    };
+    });
 
     // Historique et points (saison en cours).
-    let finished: Vec<Race> = results
-        .done()
-        .map(|d| d.races().to_vec())
-        .unwrap_or_default();
-    let history: Vec<Scored> = finished
-        .iter()
-        .filter_map(|race| {
-            let p = saved.get(&format!("{}-{}", race.season, race.round))?;
-            let (pts, detail) = score(p, race)?;
-            Some((race.clone(), pts, detail))
+    let history = memo(move || {
+        results.with(|f| {
+            f.done()
+                .map(|d| {
+                    d.races()
+                        .iter()
+                        .filter_map(|race| {
+                            let key = format!("{}-{}", race.season, race.round);
+                            let p = saved.with(|s| s.get(&key).cloned())?;
+                            let (pts, detail) = score(&p, race)?;
+                            Some((race.clone(), pts, detail))
+                        })
+                        .collect::<Vec<Scored>>()
+                })
+                .unwrap_or_default()
         })
-        .collect();
-    let total: u32 = history.iter().map(|h| h.1).sum();
+    });
 
-    html! {
-        <Layout title={t("Pronostics", "Predictions")} tab={Tab::Archives}>
-            { body }
-            <section class="card">
-                <h2>{ tr!("Mes points {} : {total}", "My {} points: {total}", season) }</h2>
-                if history.is_empty() {
-                    <p class="muted">{ t("Tes pronostics notés apparaîtront ici après chaque course.", "Your scored predictions will show up here after each race.") }</p>
-                }
-                <ol class="rows">
-                    { for history.iter().rev().map(|(race, pts, detail)| html! {
-                        <li class="row row-plain">
-                            <span class="row-main">
-                                <span class="row-title">{ format!("{} {}", flag_country(&race.circuit.location.country), race.race_name) }</span>
-                                <span class="row-sub">{ detail.iter().map(|(l, ok)| format!("{} {l}", if *ok { "✅" } else { "❌" })).collect::<Vec<_>>().join(" · ") }</span>
-                            </span>
-                            <span class="pts">{ format!("+{pts}") }</span>
-                        </li>
-                    }) }
-                </ol>
-            </section>
-            <section class="card">
-                <h2>{ t("Barème", "Scoring") }</h2>
-                <p class="muted">{ t(
+    layout(
+        t("Pronostics", "Predictions"),
+        Some(Tab::Archives),
+        fragment([
+            body,
+            section()
+                .class("card")
+                .child(h2().text_dyn(move || {
+                    let season = schedule.with(|f| {
+                        f.done()
+                            .and_then(|d| d.races().first().map(|r| r.season.clone()))
+                            .unwrap_or_default()
+                    });
+                    let total: u32 = history.with(|h| h.iter().map(|h| h.1).sum());
+                    tr!("Mes points {} : {total}", "My {} points: {total}", season)
+                }))
+                .child(dynamic(move || {
+                    history
+                        .with(Vec::is_empty)
+                        .then(|| {
+                            p().class("muted").text(t(
+                                "Tes pronostics notés apparaîtront ici après chaque course.",
+                                "Your scored predictions will show up here after each race.",
+                            ))
+                        })
+                        .into()
+                }))
+                .child(ol().class("rows").children_dyn(move || {
+                    history.with(|h| h.iter().rev().map(history_row).collect())
+                }))
+                .into(),
+            section()
+                .class("card")
+                .child(h2().text(t("Barème", "Scoring")))
+                .child(p().class("muted").text(t(
                     "Pole 5 · Vainqueur 10 · 2e et 3e : 6 si exact, 2 si le pilote est sur le podium · Meilleur tour 5 · Abandons : 4 si exact, 2 à ±1. Pole = pilote parti en tête de la grille. Pronostics enregistrés sur ce téléphone.",
                     "Pole 5 · Winner 10 · 2nd and 3rd: 6 if exact, 2 if the driver is on the podium · Fastest lap 5 · Retirements: 4 if exact, 2 if ±1. Pole = driver starting first on the grid. Predictions are stored on this phone.",
-                ) }</p>
-            </section>
-        </Layout>
-    }
+                )))
+                .into(),
+        ]),
+    )
+}
+
+/// Le prochain Grand Prix et le formulaire de pronostic.
+fn prediction_card(
+    race: &Race,
+    list: State<Vec<Driver>>,
+    saved: State<BTreeMap<String, Prediction>>,
+    draft: State<Option<Prediction>>,
+    flash: State<bool>,
+) -> Node {
+    let key = format!("{}-{}", race.season, race.round);
+    let deadline_iso = race
+        .qualifying
+        .as_ref()
+        .map(|q| q.iso())
+        .unwrap_or_else(|| race.start_iso());
+    let deadline = parse_ms(&deadline_iso);
+    // Fermé dès le début des qualifications ; revérifié à chaque choix et à l'enregistrement.
+    let locked = use_state(now_ms() >= deadline);
+    let relock = move || {
+        if now_ms() >= deadline && !locked.get() {
+            locked.set(true);
+        }
+    };
+    let current: Rc<dyn Fn() -> Prediction> = {
+        let key = key.clone();
+        let season = race.season.clone();
+        Rc::new(move || {
+            draft
+                .get()
+                .or_else(|| saved.with(|s| s.get(&key).cloned()))
+                .unwrap_or(Prediction {
+                    season: season.clone(),
+                    dnf: 2,
+                    ..Default::default()
+                })
+        })
+    };
+    let field = |caption: &'static str,
+                 get: fn(&Prediction) -> &String,
+                 set: fn(&mut Prediction, String)| {
+        let on_change = {
+            let current = current.clone();
+            move |e: Event| {
+                let mut p = current();
+                set(&mut p, e.value());
+                draft.set(Some(p));
+                relock();
+            }
+        };
+        // Options reconstruites quand la liste des pilotes arrive, le choix courant marqué.
+        let options = {
+            let current = current.clone();
+            move || {
+                let value = untrack(|| get(&current()).clone());
+                let selected = |o: Element, on: bool| if on { o.attr("selected", "") } else { o };
+                std::iter::once(selected(option().attr("value", ""), value.is_empty()).text("—"))
+                    .chain(list.with(|l| {
+                        l.iter()
+                            .map(|d| {
+                                selected(
+                                    option().attr("value", d.driver_id.clone()),
+                                    d.driver_id == value,
+                                )
+                                .text(d.full_name())
+                            })
+                            .collect::<Vec<_>>()
+                    }))
+                    .map(Node::from)
+                    .collect()
+            }
+        };
+        label()
+            .class("select")
+            .child(span().class("select-label predict-label").text(caption))
+            .child(
+                select()
+                    .on("change", on_change)
+                    .bool_attr("disabled", move || locked.get())
+                    .attr("aria-label", caption)
+                    .children_dyn(options),
+            )
+    };
+    let on_dnf = {
+        let current = current.clone();
+        move |e: Event| {
+            let mut p = current();
+            p.dnf = e.value().parse().unwrap_or(0);
+            draft.set(Some(p));
+            relock();
+        }
+    };
+    let save = {
+        let current = current.clone();
+        move |_: Event| {
+            let prediction = current();
+            let mut all = saved.get();
+            all.insert(key.clone(), prediction);
+            store(KEY, &all);
+            saved.set(all);
+            draft.set(None);
+            flash.set(true);
+            relock();
+        }
+    };
+    let dnf = untrack(|| current().dnf);
+    section()
+        .class("card hero")
+        .child(
+            p().class("eyebrow")
+                .text(tr!("Manche {}", "Round {}", race.round)),
+        )
+        .child(h2().class("hero-title").text(format!(
+            "{} {}",
+            flag_country(&race.circuit.location.country),
+            race.race_name
+        )))
+        .child(p().class("muted").text_dyn(move || {
+            if locked.get() {
+                t(
+                    "🔒 Pronostics fermés (les qualifications ont commencé).",
+                    "🔒 Predictions closed (qualifying has started).",
+                )
+                .to_string()
+            } else {
+                tr!(
+                    "Jusqu'au début des qualifications : {}",
+                    "Until qualifying starts: {}",
+                    local_date(&deadline_iso, true)
+                )
+            }
+        }))
+        .child(field(t("Pole", "Pole"), |p| &p.pole, |p, v| p.pole = v))
+        .child(field(
+            t("Vainqueur", "Winner"),
+            |p| &p.winner,
+            |p, v| p.winner = v,
+        ))
+        .child(field(t("2e", "2nd"), |p| &p.second, |p, v| p.second = v))
+        .child(field(t("3e", "3rd"), |p| &p.third, |p, v| p.third = v))
+        .child(field(
+            t("Meilleur tour", "Fastest lap"),
+            |p| &p.fastest,
+            |p, v| p.fastest = v,
+        ))
+        .child(
+            label()
+                .class("select")
+                .child(
+                    span()
+                        .class("select-label predict-label")
+                        .text(t("Abandons", "Retirements")),
+                )
+                .child(
+                    select()
+                        .on("change", on_dnf)
+                        .bool_attr("disabled", move || locked.get())
+                        .children((0..=10u32).map(|n| {
+                            let o = option().attr("value", n.to_string());
+                            let o = if n == dnf { o.attr("selected", "") } else { o };
+                            o.text(n.to_string())
+                        })),
+                ),
+        )
+        .child(dynamic(move || {
+            (!locked.get())
+                .then(|| {
+                    button()
+                        .class("btn")
+                        .on_click(save.clone())
+                        .text_dyn(move || {
+                            if flash.get() && draft.with(Option::is_none) {
+                                t("Enregistré ✓", "Saved ✓")
+                            } else {
+                                t("Enregistrer mon pronostic", "Save my prediction")
+                            }
+                            .to_string()
+                        })
+                })
+                .into()
+        }))
+        .into()
+}
+
+fn history_row((race, pts, detail): &Scored) -> Node {
+    li().class("row row-plain")
+        .child(
+            span()
+                .class("row-main")
+                .child(span().class("row-title").text(format!(
+                    "{} {}",
+                    flag_country(&race.circuit.location.country),
+                    race.race_name
+                )))
+                .child(
+                    span().class("row-sub").text(
+                        detail
+                            .iter()
+                            .map(|(l, ok)| format!("{} {l}", if *ok { "✅" } else { "❌" }))
+                            .collect::<Vec<_>>()
+                            .join(" · "),
+                    ),
+                ),
+        )
+        .child(span().class("pts").text(format!("+{pts}")))
+        .into()
 }

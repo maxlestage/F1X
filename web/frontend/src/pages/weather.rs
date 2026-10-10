@@ -2,12 +2,14 @@
 //! conditions actuelles au circuit, prévisions jour par jour, détail de chaque séance,
 //! évolution autour du départ et impact sur la course.
 
+use std::rc::Rc;
+
+use active::prelude::*;
 use serde::Deserialize;
-use wasm_bindgen::JsValue;
-use yew::prelude::*;
+use wasm_bindgen::{JsCast, JsValue};
 
 use crate::api::use_json;
-use crate::components::{loading, stat_grid};
+use crate::components::{dynamic, loading, stat_grid};
 use crate::i18n::{lang, t};
 use crate::models::Race;
 use crate::tr;
@@ -253,7 +255,7 @@ fn hour_label(ms: f64) -> String {
 }
 
 /// Détail complet d'une heure (séance ou conditions actuelles).
-fn details(h: &Hour) -> Html {
+fn hour_details(h: &Hour) -> Node {
     stat_grid(vec![
         (t("Air", "Air"), deg(h.temp)),
         (t("Ressenti", "Feels like"), deg(h.feels)),
@@ -285,7 +287,7 @@ fn details(h: &Hour) -> Html {
 }
 
 /// Ligne résumée d'une heure.
-fn summary(h: &Hour) -> String {
+fn hour_summary(h: &Hour) -> String {
     let mut s = format!(
         "{} {} · 💧{} · 💨{}",
         icon(h.code),
@@ -381,164 +383,264 @@ fn impact(race_hours: &[Hour], quali: Option<&Hour>) -> Vec<String> {
 
 // ---------- Autour du départ : deux petits graphiques à axe unique ----------
 
-#[derive(Properties, PartialEq)]
-struct WindowProps {
-    /// (instant, température, probabilité de pluie)
-    points: Vec<(f64, Option<f64>, Option<f64>)>,
-    start_ms: f64,
-}
+/// (instant, température, probabilité de pluie)
+type WindowPoint = (f64, Option<f64>, Option<f64>);
 
 const TEMP_COLOUR: &str = "#e5483f";
 const RAIN_COLOUR: &str = "#3b9fd8";
 
 /// Évolution de 2 h avant à 3 h après le départ : température (ligne) puis pluie (barres),
 /// l'un sous l'autre sur le même axe des heures. Toucher un point affiche ses valeurs.
-#[function_component]
-fn RaceWindow(props: &WindowProps) -> Html {
-    let pick = use_state(|| None::<usize>);
-    let pts = &props.points;
-    let n = pts.len();
+///
+/// Les graphiques sont construits une fois : seuls la valeur lue et le repère vertical suivent
+/// le doigt (le tracé ne se redessine pas à chaque mouvement).
+fn race_window(points: Vec<WindowPoint>, start_ms: f64) -> Node {
+    let n = points.len();
     if n < 2 {
-        return html! {};
+        return Node::Empty;
     }
+    let pts = Rc::new(points);
+    let pick = use_state(None::<usize>);
+    // `pick` est réécrit à chaque mouvement : la vue ne suit que l'heure réellement choisie.
+    let picked = memo(move || pick.get());
     let (w, pad_l, pad_r) = (320.0f64, 30.0, 12.0);
-    let x = |i: usize| pad_l + (w - pad_l - pad_r) * i as f64 / (n - 1) as f64;
-    let temps: Vec<f64> = pts.iter().filter_map(|p| p.1).collect();
+    let x = move |i: usize| pad_l + (w - pad_l - pad_r) * i as f64 / (n - 1) as f64;
+    let temps: Vec<f64> = pts.iter().filter_map(|pt| pt.1).collect();
     let (lo, hi) = (
         temps.iter().copied().fold(f64::MAX, f64::min).floor() - 1.0,
         temps.iter().copied().fold(f64::MIN, f64::max).ceil() + 1.0,
     );
     let (th, tt) = (70.0, 10.0);
     let ty = |v: f64| tt + th - (v - lo) / (hi - lo).max(1.0) * th;
-    let line: String = pts
+    let temp_line: String = pts
         .iter()
         .enumerate()
-        .filter_map(|(i, p)| p.1.map(|v| format!("{:.1},{:.1}", x(i), ty(v))))
+        .filter_map(|(i, pt)| pt.1.map(|v| format!("{:.1},{:.1}", x(i), ty(v))))
         .collect::<Vec<_>>()
         .join(" ");
     let (rh, rt) = (56.0, 8.0);
     let bar_w = ((w - pad_l - pad_r) / n as f64 * 0.55).min(22.0);
     let start_i = pts
         .iter()
-        .position(|p| p.0 >= props.start_ms - 60_000.0)
+        .position(|pt| pt.0 >= start_ms - 60_000.0)
         .unwrap_or(0);
 
-    let onpointer = |count: usize| {
-        let pick = pick.clone();
-        Callback::from(move |e: PointerEvent| {
-            use wasm_bindgen::JsCast;
-            let Some(el) = e
-                .current_target()
-                .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
-            else {
-                return;
-            };
-            let r = el.get_bounding_client_rect();
-            if r.width() <= 0.0 {
-                return;
+    let onpointer = move |e: Event| {
+        let Some(pe) = e.raw().dyn_ref::<web_sys::PointerEvent>() else {
+            return;
+        };
+        let Some(el) = e.current_target() else {
+            return;
+        };
+        let r = el.get_bounding_client_rect();
+        if r.width() <= 0.0 {
+            return;
+        }
+        let vx = (pe.client_x() as f64 - r.left()) / r.width() * w;
+        let i = ((vx - pad_l) / (w - pad_l - pad_r) * (n - 1) as f64).round();
+        pick.set(Some(i.clamp(0.0, (n - 1) as f64) as usize));
+    };
+    let readout = {
+        let pts = Rc::clone(&pts);
+        move || match picked.get() {
+            Some(i) => {
+                let pt = pts[i];
+                tr!(
+                    "{} · {} · pluie {}",
+                    "{} · {} · rain {}",
+                    hour_label(pt.0),
+                    deg(pt.1),
+                    pct(pt.2)
+                )
             }
-            let vx = (e.client_x() as f64 - r.left()) / r.width() * w;
-            let i = ((vx - pad_l) / (w - pad_l - pad_r) * (count - 1) as f64).round();
-            pick.set(Some(i.clamp(0.0, (count - 1) as f64) as usize));
+            None => t(
+                "Touche un graphique pour lire les valeurs heure par heure.",
+                "Touch a chart to read hour-by-hour values.",
+            )
+            .into(),
+        }
+    };
+    // Repère de l'heure touchée.
+    let guide = move |height: f64| {
+        dynamic(move || {
+            picked
+                .get()
+                .map(|i| {
+                    line()
+                        .class("wx-guide")
+                        .attr("x1", format!("{:.1}", x(i)))
+                        .attr("x2", format!("{:.1}", x(i)))
+                        .attr("y1", "0")
+                        .attr("y2", format!("{height:.0}"))
+                })
+                .into()
         })
     };
-    let readout = match *pick {
-        Some(i) => {
-            let p = pts[i];
-            tr!(
-                "{} · {} · pluie {}",
-                "{} · {} · rain {}",
-                hour_label(p.0),
-                deg(p.1),
-                pct(p.2)
-            )
-        }
-        None => t(
-            "Touche un graphique pour lire les valeurs heure par heure.",
-            "Touch a chart to read hour-by-hour values.",
-        )
-        .into(),
-    };
-    let guide = |height: f64| match *pick {
-        Some(i) => {
-            html! { <line class="wx-guide" x1={format!("{:.1}", x(i))} x2={format!("{:.1}", x(i))} y1="0" y2={format!("{height:.0}")} /> }
-        }
-        None => html! {},
-    };
     let start_mark = |height: f64| {
-        html! {
-            <line class="wx-start" x1={format!("{:.1}", x(start_i))} x2={format!("{:.1}", x(start_i))} y1="0" y2={format!("{height:.0}")} />
-        }
+        line()
+            .class("wx-start")
+            .attr("x1", format!("{:.1}", x(start_i)))
+            .attr("x2", format!("{:.1}", x(start_i)))
+            .attr("y1", "0")
+            .attr("y2", format!("{height:.0}"))
     };
     let ticks = |y: f64| {
-        html! {
-            { for pts.iter().enumerate().map(|(i, p)| html! {
-                <text class="wx-tick" x={format!("{:.1}", x(i))} y={format!("{y:.0}")}
-                    text-anchor={if i == 0 { "start" } else if i + 1 == n { "end" } else { "middle" }}>
-                    { if i == start_i { t("Départ", "Start").to_string() } else { hour_label(p.0) } }
-                </text>
-            }) }
-        }
+        fragment(pts.iter().enumerate().map(|(i, pt)| {
+            text_svg()
+                .class("wx-tick")
+                .attr("x", format!("{:.1}", x(i)))
+                .attr("y", format!("{y:.0}"))
+                .attr(
+                    "text-anchor",
+                    if i == 0 {
+                        "start"
+                    } else if i + 1 == n {
+                        "end"
+                    } else {
+                        "middle"
+                    },
+                )
+                .text(if i == start_i {
+                    t("Départ", "Start").to_string()
+                } else {
+                    hour_label(pt.0)
+                })
+        }))
+    };
+    let grid_line = |class: &'static str, y: String| {
+        line()
+            .class(class)
+            .attr("x1", format!("{pad_l}"))
+            .attr("x2", format!("{:.0}", w - pad_r))
+            .attr("y1", y.clone())
+            .attr("y2", y)
     };
     let temp_h = tt + th + 22.0;
     let rain_h = rt + rh + 22.0;
-    html! {
-        <div class="wx-window">
-            <p class={classes!("chart-readout", pick.is_none().then_some("chart-readout-hint"))} aria-live="polite">{ readout }</p>
-            <p class="wx-title">{ t("Température de l'air (°C)", "Air temperature (°C)") }</p>
-            <svg class="wx-chart" viewBox={format!("0 0 {w:.0} {temp_h:.0}")} role="img"
-                aria-label={t("Température autour du départ", "Temperature around the start")}
-                onpointerdown={onpointer(n)} onpointermove={onpointer(n)}>
-                <line class="wx-grid" x1={format!("{pad_l}")} x2={format!("{:.0}", w - pad_r)} y1={format!("{:.1}", ty(hi))} y2={format!("{:.1}", ty(hi))} />
-                <line class="wx-grid" x1={format!("{pad_l}")} x2={format!("{:.0}", w - pad_r)} y1={format!("{:.1}", ty(lo))} y2={format!("{:.1}", ty(lo))} />
-                <text class="wx-tick" x="2" y={format!("{:.1}", ty(hi) + 4.0)}>{ format!("{hi:.0}°") }</text>
-                <text class="wx-tick" x="2" y={format!("{:.1}", ty(lo) + 4.0)}>{ format!("{lo:.0}°") }</text>
-                { start_mark(tt + th) }
-                { guide(tt + th) }
-                <polyline class="chart-line" pathLength="1" points={line} fill="none" stroke={TEMP_COLOUR} stroke-width="2" stroke-linejoin="round" />
-                { for pts.iter().enumerate().filter_map(|(i, p)| p.1.map(|v| html! {
-                    <circle cx={format!("{:.1}", x(i))} cy={format!("{:.1}", ty(v))} r="4" fill={TEMP_COLOUR} class="wx-dot" />
-                })) }
-                { ticks(temp_h - 4.0) }
-            </svg>
-            <p class="wx-title">{ t("Probabilité de pluie (%)", "Chance of rain (%)") }</p>
-            <svg class="wx-chart" viewBox={format!("0 0 {w:.0} {rain_h:.0}")} role="img"
-                aria-label={t("Probabilité de pluie autour du départ", "Chance of rain around the start")}
-                onpointerdown={onpointer(n)} onpointermove={onpointer(n)}>
-                <line class="wx-grid" x1={format!("{pad_l}")} x2={format!("{:.0}", w - pad_r)} y1={format!("{rt}")} y2={format!("{rt}")} />
-                <line class="wx-axis" x1={format!("{pad_l}")} x2={format!("{:.0}", w - pad_r)} y1={format!("{}", rt + rh)} y2={format!("{}", rt + rh)} />
-                <text class="wx-tick" x="2" y={format!("{}", rt + 4.0)}>{ "100" }</text>
-                <text class="wx-tick" x="2" y={format!("{}", rt + rh)}>{ "0" }</text>
-                { start_mark(rt + rh) }
-                { guide(rt + rh) }
-                { for pts.iter().enumerate().map(|(i, p)| {
-                    let v = p.2.unwrap_or(0.0).clamp(0.0, 100.0);
-                    let hgt = (v / 100.0 * rh).max(if v > 0.0 { 2.0 } else { 0.0 });
-                    html! {
-                        <rect x={format!("{:.1}", x(i) - bar_w / 2.0)} y={format!("{:.1}", rt + rh - hgt)}
-                            width={format!("{bar_w:.1}")} height={format!("{hgt:.1}")} rx="3" fill={RAIN_COLOUR} />
-                    }
-                }) }
-                { ticks(rain_h - 4.0) }
-            </svg>
-        </div>
-    }
+
+    let temp_chart = svg()
+        .class("wx-chart")
+        .attr("viewBox", format!("0 0 {w:.0} {temp_h:.0}"))
+        .attr("role", "img")
+        .attr(
+            "aria-label",
+            t(
+                "Température autour du départ",
+                "Temperature around the start",
+            ),
+        )
+        .on("pointerdown", onpointer)
+        .on("pointermove", onpointer)
+        .child(grid_line("wx-grid", format!("{:.1}", ty(hi))))
+        .child(grid_line("wx-grid", format!("{:.1}", ty(lo))))
+        .child(
+            text_svg()
+                .class("wx-tick")
+                .attr("x", "2")
+                .attr("y", format!("{:.1}", ty(hi) + 4.0))
+                .text(format!("{hi:.0}°")),
+        )
+        .child(
+            text_svg()
+                .class("wx-tick")
+                .attr("x", "2")
+                .attr("y", format!("{:.1}", ty(lo) + 4.0))
+                .text(format!("{lo:.0}°")),
+        )
+        .child(start_mark(tt + th))
+        .child(guide(tt + th))
+        .child(
+            polyline()
+                .class("chart-line")
+                .attr("pathLength", "1")
+                .attr("points", temp_line)
+                .attr("fill", "none")
+                .attr("stroke", TEMP_COLOUR)
+                .attr("stroke-width", "2")
+                .attr("stroke-linejoin", "round"),
+        )
+        .children(pts.iter().enumerate().filter_map(|(i, pt)| {
+            pt.1.map(|v| {
+                circle()
+                    .class("wx-dot")
+                    .attr("cx", format!("{:.1}", x(i)))
+                    .attr("cy", format!("{:.1}", ty(v)))
+                    .attr("r", "4")
+                    .attr("fill", TEMP_COLOUR)
+            })
+        }))
+        .child(ticks(temp_h - 4.0));
+
+    let rain_chart = svg()
+        .class("wx-chart")
+        .attr("viewBox", format!("0 0 {w:.0} {rain_h:.0}"))
+        .attr("role", "img")
+        .attr(
+            "aria-label",
+            t(
+                "Probabilité de pluie autour du départ",
+                "Chance of rain around the start",
+            ),
+        )
+        .on("pointerdown", onpointer)
+        .on("pointermove", onpointer)
+        .child(grid_line("wx-grid", format!("{rt}")))
+        .child(grid_line("wx-axis", format!("{}", rt + rh)))
+        .child(
+            text_svg()
+                .class("wx-tick")
+                .attr("x", "2")
+                .attr("y", format!("{}", rt + 4.0))
+                .text("100"),
+        )
+        .child(
+            text_svg()
+                .class("wx-tick")
+                .attr("x", "2")
+                .attr("y", format!("{}", rt + rh))
+                .text("0"),
+        )
+        .child(start_mark(rt + rh))
+        .child(guide(rt + rh))
+        .children(pts.iter().enumerate().map(|(i, pt)| {
+            let v = pt.2.unwrap_or(0.0).clamp(0.0, 100.0);
+            let hgt = (v / 100.0 * rh).max(if v > 0.0 { 2.0 } else { 0.0 });
+            rect()
+                .attr("x", format!("{:.1}", x(i) - bar_w / 2.0))
+                .attr("y", format!("{:.1}", rt + rh - hgt))
+                .attr("width", format!("{bar_w:.1}"))
+                .attr("height", format!("{hgt:.1}"))
+                .attr("rx", "3")
+                .attr("fill", RAIN_COLOUR)
+        }))
+        .child(ticks(rain_h - 4.0));
+
+    div()
+        .class("wx-window")
+        .child(
+            p().class("chart-readout")
+                .class_if("chart-readout-hint", move || picked.get().is_none())
+                .attr("aria-live", "polite")
+                .text_dyn(readout),
+        )
+        .child(
+            p().class("wx-title")
+                .text(t("Température de l'air (°C)", "Air temperature (°C)")),
+        )
+        .child(temp_chart)
+        .child(
+            p().class("wx-title")
+                .text(t("Probabilité de pluie (%)", "Chance of rain (%)")),
+        )
+        .child(rain_chart)
+        .into()
 }
 
 // ---------- Carte ----------
 
-#[derive(Properties, PartialEq)]
-pub struct WeatherProps {
-    pub race: Race,
-    /// Carte complète (actuel, jours, séances, graphiques) ou seulement la course.
-    #[prop_or(true)]
-    pub full: bool,
-}
-
 /// Prévisions pour chaque séance du week-end, disponibles jusqu'à ~16 jours à l'avance.
-#[function_component]
-pub fn WeekendWeather(props: &WeatherProps) -> Html {
-    let race = &props.race;
+/// `full` : carte complète (actuel, jours, séances, graphiques) ou seulement la course.
+pub fn weekend_weather(race: Race, full: bool) -> Node {
     let sessions = race.sessions();
     let now = now_ms();
     let first = sessions.first().map(|s| parse_ms(&s.1)).unwrap_or(f64::NAN);
@@ -547,165 +649,223 @@ pub fn WeekendWeather(props: &WeatherProps) -> Html {
     // Open-Meteo prévoit à 16 jours ; rien à afficher pour une course passée.
     let in_range = start + 3.0 * 3_600_000.0 > now && first - now < 15.0 * 86_400_000.0;
     let url = match (&loc.lat, &loc.long, in_range) {
-        (Some(lat), Some(lon), true) => Some(format!(
+        (Some(lat), Some(lon), true) => format!(
             "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}\
              &hourly={HOURLY}&daily={DAILY}&current={CURRENT}\
              &timezone=UTC&start_date={}&end_date={}",
             sessions.first().map(|s| &s.1[..10]).unwrap_or(&race.date),
             race.date
-        )),
-        _ => None,
+        ),
+        _ => return Node::Empty,
     };
-    let forecast = use_json::<Forecast>(url.clone());
-    if url.is_none() {
-        return html! {};
-    }
-    let shown: Vec<(&str, String)> = sessions
+    let forecast = use_json::<Forecast>(Some(url));
+    let shown: Rc<Vec<(&'static str, String)>> = Rc::new(
+        sessions
+            .iter()
+            .filter(|(n, _)| full || *n == "Course")
+            .map(|(n, iso)| (*n, iso.clone()))
+            .collect(),
+    );
+    let quali_iso = sessions
         .iter()
-        .filter(|(n, _)| props.full || *n == "Course")
-        .map(|(n, iso)| (*n, iso.clone()))
+        .find(|(n, _)| *n == "Qualifications")
+        .map(|(_, iso)| iso.clone());
+
+    // Seule l'arrivée des prévisions reconstruit le contenu de la carte.
+    let body = dynamic(move || match forecast.get() {
+        None => loading(),
+        Some(Err(_)) => p()
+            .class("muted")
+            .text(t("Prévisions indisponibles.", "Forecast unavailable."))
+            .into(),
+        Some(Ok(f)) => {
+            untrack(|| forecast_view(&f, full, now, start, &shown, quali_iso.as_deref()))
+        }
+    });
+
+    section()
+        .class("card")
+        .child(h2().text(t("Météo du week-end", "Weekend weather")))
+        .child(body)
+        .into()
+}
+
+/// Contenu de la carte une fois les prévisions arrivées.
+fn forecast_view(
+    f: &Forecast,
+    full: bool,
+    now: f64,
+    start: f64,
+    shown: &[(&'static str, String)],
+    quali_iso: Option<&str>,
+) -> Node {
+    let race_hours: Vec<Hour> = (0..3)
+        .filter_map(|h| f.hourly.at_ms(start + h as f64 * 3_600_000.0))
+        .collect();
+    let quali = quali_iso.and_then(|iso| f.hourly.at(iso));
+    let impact = impact(&race_hours, quali.as_ref());
+    let window: Vec<WindowPoint> = (-2..=3)
+        .filter_map(|h| f.hourly.at_ms(start + h as f64 * 3_600_000.0))
+        .map(|h| (h.ms, h.temp, h.rain_prob))
         .collect();
 
-    let body = match &forecast {
-        None => loading(),
-        Some(Err(_)) => {
-            html! { <p class="muted">{ t("Prévisions indisponibles.", "Forecast unavailable.") }</p> }
-        }
-        Some(Ok(f)) => {
-            let race_hours: Vec<Hour> = (0..3)
-                .filter_map(|h| f.hourly.at_ms(start + h as f64 * 3_600_000.0))
-                .collect();
-            let quali = sessions
-                .iter()
-                .find(|(n, _)| *n == "Qualifications")
-                .and_then(|(_, iso)| f.hourly.at(iso));
-            let impact = impact(&race_hours, quali.as_ref());
-            let window: Vec<(f64, Option<f64>, Option<f64>)> = (-2..=3)
-                .filter_map(|h| f.hourly.at_ms(start + h as f64 * 3_600_000.0))
-                .map(|h| (h.ms, h.temp, h.rain_prob))
-                .collect();
+    let current = f.current.as_ref().filter(|_| full).map(|c| {
+        let h = Hour {
+            ms: now,
+            temp: c.temperature_2m,
+            feels: c.apparent_temperature,
+            humidity: c.relative_humidity_2m,
+            code: c.weather_code,
+            cloud: c.cloud_cover,
+            pressure: c.pressure_msl,
+            wind: c.wind_speed_10m,
+            wind_dir: c.wind_direction_10m,
+            gusts: c.wind_gusts_10m,
+            rain_mm: c.precipitation,
+            radiation: f.hourly.at_ms(now).and_then(|h| h.radiation),
+            ..Hour::default()
+        };
+        div()
+            .class("wx-now")
+            .child(
+                p().class("wx-now-head")
+                    .child(
+                        span()
+                            .class("wx-now-icon")
+                            .attr("aria-hidden", "true")
+                            .text(icon(c.weather_code)),
+                    )
+                    .child(
+                        span()
+                            .child(strong().text(deg(c.temperature_2m)))
+                            .text(format!(" · {}", describe(c.weather_code)))
+                            .child(small().class("muted").text(tr!(
+                                " · maintenant au circuit ({})",
+                                " · now at the circuit ({})",
+                                local_time(&c.time)
+                            ))),
+                    ),
+            )
+            .child(hour_details(&h))
+    });
 
-            let current = f.current.as_ref().filter(|_| props.full).map(|c| {
-                let h = Hour {
-                    ms: now,
-                    temp: c.temperature_2m,
-                    feels: c.apparent_temperature,
-                    humidity: c.relative_humidity_2m,
-                    code: c.weather_code,
-                    cloud: c.cloud_cover,
-                    pressure: c.pressure_msl,
-                    wind: c.wind_speed_10m,
-                    wind_dir: c.wind_direction_10m,
-                    gusts: c.wind_gusts_10m,
-                    rain_mm: c.precipitation,
-                    radiation: f.hourly.at_ms(now).and_then(|h| h.radiation),
-                    ..Hour::default()
-                };
-                html! {
-                    <div class="wx-now">
-                        <p class="wx-now-head">
-                            <span class="wx-now-icon" aria-hidden="true">{ icon(c.weather_code) }</span>
-                            <span>
-                                <strong>{ deg(c.temperature_2m) }</strong>
-                                { format!(" · {}", describe(c.weather_code)) }
-                                <small class="muted">{ tr!(" · maintenant au circuit ({})", " · now at the circuit ({})", local_time(&c.time)) }</small>
-                            </span>
-                        </p>
-                        { details(&h) }
-                    </div>
-                }
-            });
+    let days = f.daily.as_ref().filter(|_| full).map(|d| {
+        ul().class("wx-days")
+            .children(d.time.iter().enumerate().map(|(i, day)| {
+                let sunrise = d
+                    .sunrise
+                    .get(i)
+                    .cloned()
+                    .flatten()
+                    .map(|s| local_time(&s))
+                    .unwrap_or_default();
+                let sunset = d
+                    .sunset
+                    .get(i)
+                    .cloned()
+                    .flatten()
+                    .map(|s| local_time(&s))
+                    .unwrap_or_default();
+                li().class("wx-day")
+                    .child(
+                        span()
+                            .class("wx-day-name")
+                            .text(icon(get(&d.weather_code, i)))
+                            .text(" ")
+                            .text(local_date(&format!("{day}T12:00:00Z"), false)),
+                    )
+                    .child(span().class("wx-day-temp").text(format!(
+                        "{} / {}",
+                        deg(get(&d.temperature_2m_min, i)),
+                        deg(get(&d.temperature_2m_max, i))
+                    )))
+                    .child(span().class("wx-day-more muted").text(format!(
+                        "💧 {} · {:.1} mm · {} {} · UV {} · 🌅 {sunrise} · 🌇 {sunset}",
+                        pct(get(&d.precipitation_probability_max, i)),
+                        get(&d.precipitation_sum, i).unwrap_or(0.0),
+                        t("rafales", "gusts"),
+                        kmh(get(&d.wind_gusts_10m_max, i)),
+                        get(&d.uv_index_max, i)
+                            .map(|v| format!("{v:.0}"))
+                            .unwrap_or_else(|| "–".into()),
+                    )))
+            }))
+    });
 
-            let days = f.daily.as_ref().filter(|_| props.full).map(|d| {
-                html! {
-                    <ul class="wx-days">
-                        { for d.time.iter().enumerate().map(|(i, day)| {
-                            let sunrise = d.sunrise.get(i).cloned().flatten().map(|s| local_time(&s)).unwrap_or_default();
-                            let sunset = d.sunset.get(i).cloned().flatten().map(|s| local_time(&s)).unwrap_or_default();
-                            html! {
-                                <li class="wx-day">
-                                    <span class="wx-day-name">
-                                        { icon(get(&d.weather_code, i)) }{ " " }
-                                        { local_date(&format!("{day}T12:00:00Z"), false) }
-                                    </span>
-                                    <span class="wx-day-temp">{ format!("{} / {}", deg(get(&d.temperature_2m_min, i)), deg(get(&d.temperature_2m_max, i))) }</span>
-                                    <span class="wx-day-more muted">
-                                        { format!(
-                                            "💧 {} · {:.1} mm · {} {} · UV {} · 🌅 {sunrise} · 🌇 {sunset}",
-                                            pct(get(&d.precipitation_probability_max, i)),
-                                            get(&d.precipitation_sum, i).unwrap_or(0.0),
-                                            t("rafales", "gusts"),
-                                            kmh(get(&d.wind_gusts_10m_max, i)),
-                                            get(&d.uv_index_max, i).map(|v| format!("{v:.0}")).unwrap_or_else(|| "–".into()),
-                                        ) }
-                                    </span>
-                                </li>
-                            }
-                        }) }
-                    </ul>
-                }
-            });
+    let session_rows = ul()
+        .class("sessions")
+        .children(shown.iter().map(|(name, iso)| {
+            let h = f.hourly.at(iso);
+            li().class("session-wx").child(
+                details()
+                    .child(
+                        summary()
+                            .class("session weather-row")
+                            .child(
+                                span()
+                                    .class("session-name")
+                                    .text(session_label(name).to_string())
+                                    .child(
+                                        small()
+                                            .class("muted")
+                                            .text(format!(" · {}", local_date(iso, true))),
+                                    ),
+                            )
+                            .child(
+                                span().class("session-time").text(match &h {
+                                    Some(h) => hour_summary(h),
+                                    None => t(
+                                        "prévision pas encore disponible",
+                                        "forecast not available yet",
+                                    )
+                                    .into(),
+                                }),
+                            ),
+                    )
+                    .child(h.as_ref().map(|h| {
+                        fragment([
+                            Node::from(p().class("muted").text(describe(h.code))),
+                            hour_details(h),
+                        ])
+                    })),
+            )
+        }));
 
-            html! {
-                <>
-                    { current.unwrap_or_default() }
-                    if props.full {
-                        <h3 class="wx-sub">{ t("Jour par jour", "Day by day") }</h3>
-                    }
-                    { days.unwrap_or_default() }
-                    if props.full {
-                        <h3 class="wx-sub">{ t("Séance par séance", "Session by session") }</h3>
-                    }
-                    <ul class="sessions">
-                        { for shown.iter().map(|(name, iso)| {
-                            let h = f.hourly.at(iso);
-                            html! {
-                                <li class="session-wx">
-                                    <details>
-                                        <summary class="session weather-row">
-                                            <span class="session-name">
-                                                { session_label(name) }
-                                                <small class="muted">{ format!(" · {}", local_date(iso, true)) }</small>
-                                            </span>
-                                            <span class="session-time">
-                                                { match &h {
-                                                    Some(h) => summary(h),
-                                                    None => t("prévision pas encore disponible", "forecast not available yet").into(),
-                                                } }
-                                            </span>
-                                        </summary>
-                                        if let Some(h) = &h {
-                                            <p class="muted">{ describe(h.code) }</p>
-                                            { details(h) }
-                                        }
-                                    </details>
-                                </li>
-                            }
-                        }) }
-                    </ul>
-                    if props.full && window.len() >= 3 {
-                        <h3 class="wx-sub">{ t("Autour du départ", "Around the start") }</h3>
-                        <RaceWindow points={window} start_ms={start} />
-                    }
-                    if !impact.is_empty() {
-                        <div class="impact">
-                            <strong>{ t("Impact sur la course", "Race impact") }</strong>
-                            { for impact.iter().map(|i| html! { <p>{ i }</p> }) }
-                        </div>
-                    }
-                    <p class="muted">{ t(
-                        "Touche une séance pour tout voir. 💧 = probabilité de pluie · 💨 = vent moyen. Piste estimée d'après l'air et l'ensoleillement. Prévisions Open-Meteo, à l'heure de chaque séance.",
-                        "Tap a session to see everything. 💧 = chance of rain · 💨 = mean wind. Track temperature estimated from air and sunshine. Open-Meteo forecast at each session's time.",
-                    ) }</p>
-                </>
-            }
-        }
-    };
-
-    html! {
-        <section class="card">
-            <h2>{ t("Météo du week-end", "Weekend weather") }</h2>
-            { body }
-        </section>
-    }
+    fragment([
+        Node::from(current),
+        full.then(|| h3().class("wx-sub").text(t("Jour par jour", "Day by day")))
+            .into(),
+        days.into(),
+        full.then(|| {
+            h3().class("wx-sub")
+                .text(t("Séance par séance", "Session by session"))
+        })
+        .into(),
+        session_rows.into(),
+        (full && window.len() >= 3)
+            .then(|| {
+                fragment([
+                    Node::from(
+                        h3().class("wx-sub")
+                            .text(t("Autour du départ", "Around the start")),
+                    ),
+                    race_window(window, start),
+                ])
+            })
+            .into(),
+        (!impact.is_empty())
+            .then(|| {
+                div()
+                    .class("impact")
+                    .child(strong().text(t("Impact sur la course", "Race impact")))
+                    .children(impact.into_iter().map(|text_line| p().text(text_line)))
+            })
+            .into(),
+        p().class("muted")
+            .text(t(
+                "Touche une séance pour tout voir. 💧 = probabilité de pluie · 💨 = vent moyen. Piste estimée d'après l'air et l'ensoleillement. Prévisions Open-Meteo, à l'heure de chaque séance.",
+                "Tap a session to see everything. 💧 = chance of rain · 💨 = mean wind. Track temperature estimated from air and sunshine. Open-Meteo forecast at each session's time.",
+            ))
+            .into(),
+    ])
 }
