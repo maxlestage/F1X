@@ -13,7 +13,7 @@ use active::prelude::*;
 use wasm_bindgen::JsCast;
 
 use super::season_label;
-use crate::api::{Fetch, all, f1, use_f1, use_f1_dyn};
+use crate::api::{Fetch, all, f1, use_f1_dyn};
 use crate::components::*;
 use crate::i18n::t;
 use crate::models::{
@@ -64,28 +64,37 @@ fn race_list<T: Clone + PartialEq + 'static>(
     })
 }
 
-pub fn race_page(season: &str, round: u32) -> Node {
-    let season = season.to_string();
-    let base = format!("{season}/{round}");
+/// Page d'un Grand Prix (`params` : saison, manche). Elle reste affichée quand on passe au
+/// Grand Prix précédent ou suivant : le calendrier n'est pas rechargé, seules les données de
+/// la manche le sont.
+pub fn race_page(params: State<(String, u32)>) -> Node {
+    // Mémorisées : passer à la manche suivante ne relance pas ce qui ne dépend que de la saison.
+    let season_memo = memo(move || params.with(|(season, _)| season.clone()));
+    let round_memo = memo(move || params.with(|(_, round)| *round));
+    let season = move || season_memo.get();
+    let round = move || round_memo.get();
+    let base = move || format!("{}/{}", season(), round());
     let now = now_ms();
     let show_laps = use_state(false);
 
-    let schedule = use_f1(f1(format!("{season}.json"), 100));
-    // La manche de la page, une fois le calendrier chargé (elle ne change plus ensuite) :
-    // les requêtes de la course partent de là.
+    let schedule = use_f1_dyn(move || f1(format!("{}.json", season()), 100));
+    // La manche de la page, une fois le calendrier chargé : les requêtes de la course
+    // partent de là.
     let race = memo(move || {
+        let round = round();
         schedule.with(|f| {
             f.done()
                 .and_then(|d| d.races().iter().find(|r| r.round_num() == round).cloned())
         })
     });
+    // La manche connue est celle de l'adresse (pas encore la précédente).
+    let current = move |r: &Race| r.round_num() == round();
     // Un fichier de la manche, demandé seulement quand `wanted` le permet pour la course.
     let file = |name: &'static str, wanted: fn(&Race, f64) -> bool| {
-        let base = base.clone();
         use_f1_dyn(move || {
-            let ok = race.with(|r| r.as_ref().is_some_and(|r| wanted(r, now)));
+            let ok = race.with(|r| r.as_ref().is_some_and(|r| current(r) && wanted(r, now)));
             if ok {
-                f1(format!("{base}/{name}.json"), 100)
+                f1(format!("{}/{name}.json", base()), 100)
             } else {
                 None
             }
@@ -102,10 +111,10 @@ pub fn race_page(season: &str, round: u32) -> Node {
         let ok = show_laps.get()
             && race.with(|r| {
                 r.as_ref()
-                    .is_some_and(|r| r.is_over(now) && year_of(r) >= 1996)
+                    .is_some_and(|r| current(r) && r.is_over(now) && year_of(r) >= 1996)
             });
         if ok {
-            all(format!("{base}/laps.json"))
+            all(format!("{}/laps.json", base()))
         } else {
             None
         }
@@ -127,8 +136,15 @@ pub fn race_page(season: &str, round: u32) -> Node {
         show_laps,
     };
 
-    // Calendrier chargé sans cette manche : page introuvable.
-    let missing = memo(move || schedule.with(|f| f.done().is_some()) && race.with(Option::is_none));
+    // Calendrier chargé sans cette manche : page introuvable (lu dans le calendrier lui-même,
+    // jamais dans une manche pas encore mise à jour).
+    let missing = memo(move || {
+        let round = round();
+        schedule.with(|f| {
+            f.done()
+                .is_some_and(|d| !d.races().iter().any(|r| r.round_num() == round))
+        })
+    });
     // Chargement (`Some(None)`) ou erreur du calendrier ; rien une fois chargé.
     let schedule_state = memo(move || {
         schedule.with(|f| match f {
@@ -137,20 +153,15 @@ pub fn race_page(season: &str, round: u32) -> Node {
             _ => None,
         })
     });
-    let title = {
-        let season = season.clone();
-        move || {
-            race.with(|r| r.as_ref().map(|r| r.race_name.clone()))
-                .unwrap_or_else(|| format!("Grand Prix · {}", season_label(&season)))
-        }
+    let title = move || {
+        race.with(|r| r.as_ref().map(|r| r.race_name.clone()))
+            .unwrap_or_else(|| format!("Grand Prix · {}", season_label(&season())))
     };
 
     dynamic(move || {
         if missing.get() {
             return untrack(super::not_found);
         }
-        let season = season.clone();
-        let title = title.clone();
         untrack(move || {
             let pending = dynamic(move || match schedule_state.get() {
                 Some(None) => loading(),
@@ -162,7 +173,7 @@ pub fn race_page(season: &str, round: u32) -> Node {
                 Some(r) => untrack(|| {
                     let total =
                         schedule.with(|f| f.done().map(|d| d.races().len() as u32).unwrap_or(0));
-                    race_body(r, &season, round, total, now, data)
+                    race_body(r, &season(), round(), total, now, data)
                 }),
                 None => Node::Empty,
             });
