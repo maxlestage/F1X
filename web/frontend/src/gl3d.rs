@@ -12,7 +12,6 @@ use web_sys::{
     Element, HtmlCanvasElement, HtmlElement, WebGl2RenderingContext as Gl, WebGlFramebuffer,
     WebGlProgram, WebGlTexture, WebGlUniformLocation, WebGlVertexArrayObject,
 };
-use yew::prelude::*;
 
 use crate::i18n::t;
 
@@ -1585,21 +1584,21 @@ pub fn livery(constructor_id: &str) -> Livery {
 /// Livrée (couleurs hexadécimales) passée au composant.
 #[derive(Clone, PartialEq)]
 pub struct Livery {
-    pub primary: AttrValue,
-    pub second: AttrValue,
-    pub accent: AttrValue,
+    pub primary: String,
+    pub second: String,
+    pub accent: String,
 }
 
 impl Livery {
     pub fn from_colour(hex: &str) -> Livery {
         let p = paint_of(parse_colour(hex));
         let to_hex = |c: [f32; 3]| {
-            AttrValue::from(format!(
+            format!(
                 "#{:02x}{:02x}{:02x}",
                 (c[0] * 255.0) as u8,
                 (c[1] * 255.0) as u8,
                 (c[2] * 255.0) as u8
-            ))
+            )
         };
         Livery {
             primary: to_hex(p.primary),
@@ -2427,13 +2426,6 @@ impl Drop for Viewer {
 
 // ---------- Composant ----------
 
-#[derive(Properties, PartialEq)]
-pub struct ViewProps {
-    pub scene: Scene,
-    #[prop_or_default]
-    pub markers: Option<Rc<Vec<Marker>>>,
-}
-
 /// Bloque le défilement de la page tant que la vue est en plein écran.
 fn lock_scroll(lock: bool) {
     if let Some(body) = web_sys::window()
@@ -2446,47 +2438,131 @@ fn lock_scroll(lock: bool) {
     }
 }
 
+/// Plateau de la saison (code, écurie, nom complet, étiquette « L. Hamilton »), d'après le
+/// classement des pilotes en cours.
+async fn load_field() -> Vec<(String, String, String, String)> {
+    let Ok(resp) = gloo_net::http::Request::get("/api/f1/current/driverStandings.json?limit=100")
+        .send()
+        .await
+    else {
+        return Vec::new();
+    };
+    let Ok(v) = resp.json::<serde_json::Value>().await else {
+        return Vec::new();
+    };
+    v.pointer("/MRData/StandingsTable/StandingsLists/0/DriverStandings")
+        .and_then(|l| l.as_array())
+        .map(|l| {
+            l.iter()
+                .filter_map(|d| {
+                    let drv = d.get("Driver")?;
+                    let code = drv
+                        .get("code")
+                        .and_then(|c| c.as_str())
+                        .map(str::to_string)
+                        .or_else(|| {
+                            drv.get("familyName")?
+                                .as_str()
+                                .map(|f| f.chars().take(3).collect::<String>().to_uppercase())
+                        })?;
+                    let team = d
+                        .pointer("/Constructors/0/constructorId")?
+                        .as_str()?
+                        .to_string();
+                    let given = drv.get("givenName").and_then(|n| n.as_str()).unwrap_or("");
+                    let family = drv.get("familyName").and_then(|n| n.as_str()).unwrap_or("");
+                    let name = format!("{given} {family}");
+                    // Étiquette au-dessus de la voiture : « L. Hamilton ».
+                    let short = match given.chars().next() {
+                        Some(i) => format!("{i}. {family}"),
+                        None => family.to_string(),
+                    };
+                    Some((code, team, name, short))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Vue 3D active, partagée entre les gestionnaires d'événements de la vue.
+type Shared = Rc<RefCell<Option<Viewer>>>;
+
+fn with_viewer(viewer: &Shared, f: impl FnOnce(&mut State)) {
+    if let Some(v) = viewer.borrow().as_ref() {
+        f(&mut v.state.borrow_mut());
+    }
+}
+
 /// Vue 3D interactive.
 /// - Dans la page : glisser horizontalement pour tourner (le défilement vertical reste libre).
 /// - En plein écran : un doigt pour tourner, deux doigts pour zoomer et déplacer,
 ///   double toucher pour recentrer. Molette / pincement du pavé tactile sur ordinateur.
-#[function_component]
-pub fn View3D(props: &ViewProps) -> Html {
-    let canvas = use_node_ref();
-    let labels = use_node_ref();
-    let hud = use_node_ref();
-    let viewer = use_mut_ref(|| None::<Viewer>);
-    let failed = use_state(|| false);
-    let mode = use_state(|| CamMode::Overview);
-    let follow = use_state(|| 0usize);
-    // Pilotes affichés (code, écurie) : plateau de la saison sur la fiche circuit.
-    let field = use_state(Vec::<(String, String, String, String)>::new);
-    let full = use_state(|| false);
-    let show_labels = use_state(|| true);
-    let speed = use_state(|| 1u32);
-    {
-        let (canvas, labels, hud, viewer, failed, field) = (
-            canvas.clone(),
-            labels.clone(),
-            hud.clone(),
-            viewer.clone(),
-            failed.clone(),
-            field.clone(),
-        );
-        use_effect_with(props.scene.clone(), move |scene| {
-            let made = canvas.cast::<HtmlCanvasElement>().and_then(|c| {
-                Viewer::new(
-                    c,
-                    labels.cast::<HtmlElement>(),
-                    hud.cast::<HtmlElement>(),
-                    scene,
-                )
-            });
+///
+/// `markers` : voitures à placer sur le circuit (direct), relu quand les états qu'il lit
+/// changent ; `|| None` s'il n'y en a pas.
+pub fn view_3d(
+    scene: Scene,
+    markers: impl Fn() -> Option<Rc<Vec<Marker>>> + 'static,
+) -> active::Node {
+    use active::html as h;
+    use active::{Event, Node, effect, fragment, memo, on_cleanup, untrack, use_state};
+
+    let markers = Rc::new(markers);
+    let viewer: Shared = Rc::default();
+    let failed = use_state(false);
+    let mode = use_state(CamMode::Overview);
+    let follow = use_state(0usize);
+    // Pilotes affichés (code, écurie, nom, étiquette) : plateau de la saison sur la fiche circuit.
+    let field = use_state(Vec::<(String, String, String, String)>::new());
+    let full = use_state(false);
+    let show_labels = use_state(true);
+    let speed = use_state(1u32);
+    let is_track = matches!(scene, Scene::Track { .. });
+
+    // Pilotes qu'on peut suivre : plateau simulé ou voitures en direct (noms complets dans le
+    // sélecteur, le code reste au-dessus des voitures). Ne change presque jamais, même quand
+    // les voitures avancent chaque seconde.
+    let driver_codes = {
+        let markers = markers.clone();
+        memo(move || {
+            if field.with(Vec::is_empty) {
+                markers()
+                    .map(|m| m.iter().map(|m| m.label.clone()).collect())
+                    .unwrap_or_default()
+            } else {
+                field.with(|f| f.iter().map(|(_, _, n, _)| n.clone()).collect::<Vec<_>>())
+            }
+        })
+    };
+
+    // Démarre la vue une fois le canevas dans la page ; elle s'arrête avec le composant.
+    let start = {
+        let viewer = viewer.clone();
+        let markers = markers.clone();
+        move |root: &web_sys::Element| {
+            let find = |sel: &str| root.query_selector(sel).ok().flatten();
+            let made = find(".scene-canvas")
+                .and_then(|c| c.dyn_into::<HtmlCanvasElement>().ok())
+                .and_then(|c| {
+                    Viewer::new(
+                        c,
+                        find(".scene-labels").and_then(|e| e.dyn_into::<HtmlElement>().ok()),
+                        find(".scene-hud").and_then(|e| e.dyn_into::<HtmlElement>().ok()),
+                        &scene,
+                    )
+                });
             if made.is_none() {
                 failed.set(true);
+                return;
             }
             *viewer.borrow_mut() = made;
-            if let Scene::Track { map, .. } = scene {
+            {
+                let viewer = viewer.clone();
+                on_cleanup(move || {
+                    viewer.borrow_mut().take();
+                });
+            }
+            if let Scene::Track { map, .. } = &scene {
                 // Décor du circuit : chargé en arrière-plan, remplace le tracé simplifié.
                 let viewer = viewer.clone();
                 let url = format!("/api/track3d/{}?v=8", map.circuit_id);
@@ -2501,74 +2577,23 @@ pub fn View3D(props: &ViewProps) -> Html {
                         return;
                     };
                     if let Some(data) = parse_car(&bytes) {
-                        if let Some(v) = viewer.borrow().as_ref() {
-                            v.state.borrow_mut().set_scenery(&data);
-                        }
+                        with_viewer(&viewer, |s| s.set_scenery(&data));
                     }
                 });
             }
-            if let Scene::Track { ghost: true, .. } = scene {
+            if let Scene::Track { ghost: true, .. } = &scene {
                 // Plateau complet : pilotes de la saison et leur écurie (classement en cours).
-                let (viewer, field) = (viewer.clone(), field.clone());
+                let viewer = viewer.clone();
                 wasm_bindgen_futures::spawn_local(async move {
-                    let Ok(resp) = gloo_net::http::Request::get(
-                        "/api/f1/current/driverStandings.json?limit=100",
-                    )
-                    .send()
-                    .await
-                    else {
-                        return;
-                    };
-                    let Ok(v) = resp.json::<serde_json::Value>().await else {
-                        return;
-                    };
-                    let list: Vec<(String, String, String, String)> = v
-                        .pointer("/MRData/StandingsTable/StandingsLists/0/DriverStandings")
-                        .and_then(|l| l.as_array())
-                        .map(|l| {
-                            l.iter()
-                                .filter_map(|d| {
-                                    let drv = d.get("Driver")?;
-                                    let code = drv
-                                        .get("code")
-                                        .and_then(|c| c.as_str())
-                                        .map(str::to_string)
-                                        .or_else(|| {
-                                            drv.get("familyName")?.as_str().map(|f| {
-                                                f.chars().take(3).collect::<String>().to_uppercase()
-                                            })
-                                        })?;
-                                    let team = d
-                                        .pointer("/Constructors/0/constructorId")?
-                                        .as_str()?
-                                        .to_string();
-                                    let given =
-                                        drv.get("givenName").and_then(|n| n.as_str()).unwrap_or("");
-                                    let family = drv
-                                        .get("familyName")
-                                        .and_then(|n| n.as_str())
-                                        .unwrap_or("");
-                                    let name = format!("{given} {family}");
-                                    // Étiquette au-dessus de la voiture : « L. Hamilton ».
-                                    let short = match given.chars().next() {
-                                        Some(i) => format!("{i}. {family}"),
-                                        None => family.to_string(),
-                                    };
-                                    Some((code, team, name, short))
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    if list.is_empty() {
+                    let list = load_field().await;
+                    if list.is_empty() || !field.is_alive() {
                         return;
                     }
-                    if let Some(v) = viewer.borrow().as_ref() {
-                        let labelled: Vec<(String, String, String)> = list
-                            .iter()
-                            .map(|(c, t, _, short)| (c.clone(), t.clone(), short.clone()))
-                            .collect();
-                        v.state.borrow_mut().set_field(&labelled);
-                    }
+                    let labelled: Vec<(String, String, String)> = list
+                        .iter()
+                        .map(|(c, t, _, short)| (c.clone(), t.clone(), short.clone()))
+                        .collect();
+                    with_viewer(&viewer, |s| s.set_field(&labelled));
                     field.set(list);
                 });
             }
@@ -2577,200 +2602,290 @@ pub fn View3D(props: &ViewProps) -> Html {
                 let viewer = viewer.clone();
                 wasm_bindgen_futures::spawn_local(async move {
                     if let Some(car) = load_car().await {
-                        if let Some(v) = viewer.borrow().as_ref() {
-                            v.state.borrow_mut().set_car(&car);
-                        }
+                        with_viewer(&viewer, |s| s.set_car(&car));
                     }
                 });
             }
-            move || {
-                viewer.borrow_mut().take();
+            // Voitures en direct, caméra et pilote suivi : appliqués dès qu'ils changent.
+            {
+                let (viewer, markers) = (viewer.clone(), markers.clone());
+                effect(move || {
+                    let list = markers();
+                    untrack(|| {
+                        with_viewer(&viewer, |s| {
+                            s.set_markers(list.as_deref().map(Vec::as_slice).unwrap_or(&[]))
+                        })
+                    });
+                });
             }
-        });
-    }
-    {
-        let viewer = viewer.clone();
-        use_effect_with(
-            (props.scene.clone(), props.markers.clone()),
-            move |(_, markers)| {
-                if let Some(v) = viewer.borrow().as_ref() {
-                    v.state
-                        .borrow_mut()
-                        .set_markers(markers.as_deref().map(Vec::as_slice).unwrap_or(&[]));
-                }
-            },
-        );
-    }
-    {
-        let viewer = viewer.clone();
-        use_effect_with((*mode, *follow), move |(mode, follow)| {
-            if let Some(v) = viewer.borrow().as_ref() {
-                let mut st = v.state.borrow_mut();
-                st.set_mode(*mode);
-                st.set_follow(*follow);
+            {
+                let viewer = viewer.clone();
+                effect(move || {
+                    let (mode, follow) = (mode.get(), follow.get());
+                    untrack(|| {
+                        with_viewer(&viewer, |s| {
+                            s.set_mode(mode);
+                            s.set_follow(follow);
+                        })
+                    });
+                });
             }
-        });
-    }
-    use_effect_with(*full, |on| {
-        lock_scroll(*on);
-        || lock_scroll(false)
-    });
-    let with = {
-        let viewer = viewer.clone();
-        move |f: Box<dyn Fn(&mut State)>| {
-            if let Some(v) = viewer.borrow().as_ref() {
-                f(&mut v.state.borrow_mut());
-            }
+            effect(move || {
+                let on = full.get();
+                untrack(|| lock_scroll(on));
+            });
+            on_cleanup(|| lock_scroll(false));
         }
     };
-    let onpointerdown = {
-        let with = with.clone();
-        Callback::from(move |e: PointerEvent| {
+
+    let pointer = |e: &Event| e.raw().dyn_ref::<web_sys::PointerEvent>().cloned();
+    let on_down = {
+        let viewer = viewer.clone();
+        move |e: Event| {
+            let Some(e) = pointer(&e) else { return };
             if let Some(el) = e.target().and_then(|t| t.dyn_into::<Element>().ok()) {
                 let _ = el.set_pointer_capture(e.pointer_id());
             }
             let (id, x, y) = (e.pointer_id(), e.client_x() as f64, e.client_y() as f64);
-            with(Box::new(move |s| s.pointer_down(id, x, y)));
-        })
+            with_viewer(&viewer, |s| s.pointer_down(id, x, y));
+        }
     };
-    let onpointermove = {
-        let with = with.clone();
-        Callback::from(move |e: PointerEvent| {
+    let on_move = {
+        let viewer = viewer.clone();
+        move |e: Event| {
+            let Some(e) = pointer(&e) else { return };
             let (id, x, y) = (e.pointer_id(), e.client_x() as f64, e.client_y() as f64);
-            with(Box::new(move |s| s.pointer_move(id, x, y)));
-        })
+            with_viewer(&viewer, |s| s.pointer_move(id, x, y));
+        }
     };
-    let onpointerup = {
-        let with = with.clone();
-        Callback::from(move |e: PointerEvent| {
-            let id = e.pointer_id();
-            with(Box::new(move |s| s.pointer_up(id)));
-        })
+    let on_up = {
+        let viewer = viewer.clone();
+        move |e: Event| {
+            if let Some(e) = pointer(&e) {
+                let id = e.pointer_id();
+                with_viewer(&viewer, |s| s.pointer_up(id));
+            }
+        }
     };
-    let onwheel = {
-        let with = with.clone();
-        let full = *full;
-        Callback::from(move |e: WheelEvent| {
+    let on_wheel = {
+        let viewer = viewer.clone();
+        move |e: Event| {
+            let Some(e) = e.raw().dyn_ref::<web_sys::WheelEvent>() else {
+                return;
+            };
             // Dans la page, la molette fait défiler ; elle zoome en plein écran (ou au pincement
             // du pavé tactile, signalé par ctrlKey).
-            if full || e.ctrl_key() {
+            if full.get() || e.ctrl_key() {
                 e.prevent_default();
                 let k = (e.delta_y() as f32 * 0.0015).exp();
-                with(Box::new(move |s| s.zoom_by(k)));
+                with_viewer(&viewer, |s| s.zoom_by(k));
             }
+        }
+    };
+
+    let canvas = h::canvas()
+        .class("scene-canvas")
+        .attr("role", "img")
+        .attr(
+            "aria-label",
+            if is_track {
+                t("Circuit en 3D", "3D circuit")
+            } else {
+                t("Monoplace en 3D", "3D car")
+            },
+        )
+        .on("pointerdown", on_down)
+        .on("pointermove", on_move)
+        .on("pointerup", on_up.clone())
+        .on("pointercancel", on_up)
+        .on("wheel", on_wheel);
+
+    let hint = crate::components::dynamic(move || {
+        if !full.get() {
+            return Node::Empty;
+        }
+        h::p()
+            .class("scene-hint")
+            .text(t(
+                "1 doigt : tourner · 2 doigts : zoomer et déplacer · double toucher : recentrer",
+                "1 finger: rotate · 2 fingers: zoom and move · double tap: recentre",
+            ))
+            .into()
+    });
+
+    let track_tools = is_track.then(|| {
+        let cameras = [
+            (CamMode::Overview, "overview", t("🗺️ Vue d'ensemble", "🗺️ Overview")),
+            (CamMode::Chase, "chase", t("🏎️ Poursuite", "🏎️ Chase")),
+            (CamMode::Cockpit, "cockpit", t("👀 Embarquée", "👀 Onboard")),
+            (CamMode::Heli, "heli", t("🚁 Hélico", "🚁 Helicopter")),
+            (CamMode::Tv, "tv", t("📺 TV", "📺 TV")),
+        ];
+        let camera = h::select()
+            .class("scene-select")
+            .attr("aria-label", t("Caméra", "Camera"))
+            .on("change", move |e| {
+                mode.set(match e.value().as_str() {
+                    "chase" => CamMode::Chase,
+                    "cockpit" => CamMode::Cockpit,
+                    "heli" => CamMode::Heli,
+                    "tv" => CamMode::Tv,
+                    _ => CamMode::Overview,
+                })
+            })
+            .children(cameras.into_iter().map(|(m, v, label)| {
+                let o = h::option().attr("value", v);
+                let o = if m == CamMode::Overview {
+                    o.attr("selected", "")
+                } else {
+                    o
+                };
+                o.text(label)
+            }));
+        let followed = crate::components::dynamic(move || {
+            let codes = driver_codes.get();
+            if mode.get() == CamMode::Overview || codes.is_empty() {
+                return Node::Empty;
+            }
+            let current = untrack(|| follow.get());
+            h::select()
+                .class("scene-select")
+                .attr("aria-label", t("Pilote suivi", "Followed driver"))
+                .on("change", move |e| follow.set(e.value().parse().unwrap_or(0)))
+                .children(codes.into_iter().enumerate().map(|(i, c)| {
+                    let o = h::option().attr("value", i.to_string());
+                    let o = if i == current { o.attr("selected", "") } else { o };
+                    o.text(c)
+                }))
+                .into()
+        });
+        let speed_button = {
+            let viewer = viewer.clone();
+            h::button()
+                .class("scene-btn")
+                .attr("aria-label", t("Vitesse de lecture", "Playback speed"))
+                .on_click(move |_| {
+                    let next = match speed.get() {
+                        1 => 2,
+                        2 => 4,
+                        _ => 1,
+                    };
+                    speed.set(next);
+                    with_viewer(&viewer, |s| s.speed = next as f32);
+                })
+                .text_dyn(move || format!("×{}", speed.get()))
+        };
+        fragment([
+            Node::from(camera),
+            followed,
+            speed_button.into(),
+            h::button()
+                .class("scene-btn")
+                .class_if("on", move || show_labels.get())
+                .attr_dyn("aria-pressed", move || show_labels.get().to_string())
+                .on_click(move |_| show_labels.update(|s| *s = !*s))
+                .text(t("Noms", "Names"))
+                .into(),
+        ])
+    });
+
+    let screen_tools = {
+        let viewer = viewer.clone();
+        crate::components::dynamic(move || {
+            if !full.get() {
+                return h::button()
+                    .class("scene-btn")
+                    .on_click(move |_| full.set(true))
+                    .text(t("⛶ Plein écran", "⛶ Full screen"))
+                    .into();
+            }
+            let zoom = |k: f32| {
+                let viewer = viewer.clone();
+                move |_: Event| with_viewer(&viewer, |s| s.zoom_by(k))
+            };
+            let recentre = {
+                let viewer = viewer.clone();
+                move |_: Event| with_viewer(&viewer, |s| s.reset())
+            };
+            fragment([
+                Node::from(
+                    h::button()
+                        .class("scene-btn")
+                        .attr("aria-label", t("Recentrer", "Recentre"))
+                        .on_click(recentre)
+                        .text("⟲"),
+                ),
+                h::button()
+                    .class("scene-btn")
+                    .attr("aria-label", t("Rapprocher", "Zoom in"))
+                    .on_click(zoom(0.8))
+                    .text("+")
+                    .into(),
+                h::button()
+                    .class("scene-btn")
+                    .attr("aria-label", t("Éloigner", "Zoom out"))
+                    .on_click(zoom(1.25))
+                    .text("−")
+                    .into(),
+                h::button()
+                    .class("scene-btn on")
+                    .attr("aria-label", t("Quitter le plein écran", "Exit full screen"))
+                    .on_click(move |_| full.set(false))
+                    .text("✕")
+                    .into(),
+            ])
         })
     };
-    let zoom = |k: f32| {
-        let with = with.clone();
-        Callback::from(move |_: MouseEvent| with(Box::new(move |s| s.zoom_by(k))))
-    };
-    let recentre = {
-        let with = with.clone();
-        Callback::from(move |_: MouseEvent| with(Box::new(|s| s.reset())))
-    };
-    let toggle_full = {
-        let full = full.clone();
-        Callback::from(move |_: MouseEvent| full.set(!*full))
-    };
-    let is_track = matches!(props.scene, Scene::Track { .. });
-    // Pilotes qu'on peut suivre : plateau simulé ou voitures en direct.
-    let driver_codes: Vec<String> = if field.is_empty() {
-        props
-            .markers
-            .as_deref()
-            .map(|m| m.iter().map(|m| m.label.clone()).collect())
-            .unwrap_or_default()
-    } else {
-        // Noms complets dans le sélecteur (le code reste au-dessus des voitures).
-        field.iter().map(|(_, _, n, _)| n.clone()).collect()
-    };
-    if *failed {
-        return html! {
-            <p class="muted">{ t("La 3D n'est pas disponible sur cet appareil (WebGL 2 requis).", "3D isn't available on this device (WebGL 2 required).") }</p>
-        };
-    }
-    html! {
-        <div class={classes!("scene", is_track.then_some("scene-track"), full.then_some("scene-full"), (!*show_labels).then_some("scene-nolabels"))}>
-            <canvas ref={canvas} class="scene-canvas" role="img"
-                aria-label={if is_track { t("Circuit en 3D", "3D circuit") } else { t("Monoplace en 3D", "3D car") }}
-                {onpointerdown} {onpointermove} onpointerup={onpointerup.clone()} onpointercancel={onpointerup} {onwheel} />
-            <div ref={labels} class="scene-labels" aria-hidden="true"></div>
-            <div ref={hud} class="scene-hud" aria-hidden="true"><div class="scene-fx"></div><div class="scene-speed"></div></div>
-            if *full {
-                <p class="scene-hint">{ t(
-                    "1 doigt : tourner · 2 doigts : zoomer et déplacer · double toucher : recentrer",
-                    "1 finger: rotate · 2 fingers: zoom and move · double tap: recentre",
-                ) }</p>
-            }
-            <div class="scene-tools">
-                if is_track {
-                    <select class="scene-select" aria-label={t("Caméra", "Camera")}
-                        onchange={let mode = mode.clone(); move |e: Event| {
-                            if let Some(sel) = e.target().and_then(|t| t.dyn_into::<web_sys::HtmlSelectElement>().ok()) {
-                                mode.set(match sel.value().as_str() {
-                                    "chase" => CamMode::Chase,
-                                    "cockpit" => CamMode::Cockpit,
-                                    "heli" => CamMode::Heli,
-                                    "tv" => CamMode::Tv,
-                                    _ => CamMode::Overview,
-                                });
-                            }
-                        }}>
-                        { for [(CamMode::Overview, "overview", t("🗺️ Vue d'ensemble", "🗺️ Overview")), (CamMode::Chase, "chase", t("🏎️ Poursuite", "🏎️ Chase")),
-                               (CamMode::Cockpit, "cockpit", t("👀 Embarquée", "👀 Onboard")), (CamMode::Heli, "heli", t("🚁 Hélico", "🚁 Helicopter")),
-                               (CamMode::Tv, "tv", t("📺 TV", "📺 TV"))].into_iter().map(|(m, v, label)| html! {
-                            <option value={v} selected={*mode == m}>{ label }</option>
-                        }) }
-                    </select>
-                    if *mode != CamMode::Overview && (!field.is_empty() || !driver_codes.is_empty()) {
-                        <select class="scene-select" aria-label={t("Pilote suivi", "Followed driver")}
-                            onchange={let follow = follow.clone(); move |e: Event| {
-                                if let Some(sel) = e.target().and_then(|t| t.dyn_into::<web_sys::HtmlSelectElement>().ok()) {
-                                    follow.set(sel.value().parse().unwrap_or(0));
-                                }
-                            }}>
-                            { for driver_codes.iter().enumerate().map(|(i, c)| html! {
-                                <option value={i.to_string()} selected={*follow == i}>{ c.clone() }</option>
-                            }) }
-                        </select>
-                    }
-                }
-                if is_track {
-                    <button class="scene-btn" aria-label={t("Vitesse de lecture", "Playback speed")}
-                        onclick={let with = with.clone(); let speed = speed.clone(); move |_| {
-                            let next = match *speed { 1 => 2, 2 => 4, _ => 1 };
-                            speed.set(next);
-                            with(Box::new(move |s| s.speed = next as f32));
-                        }}>{ format!("×{}", *speed) }</button>
-                    <button class={classes!("scene-btn", show_labels.then_some("on"))} aria-pressed={show_labels.to_string()}
-                        onclick={let s = show_labels.clone(); move |_| s.set(!*s)}>{ t("Noms", "Names") }</button>
-                }
-                if *full {
-                    <button class="scene-btn" aria-label={t("Recentrer", "Recentre")} onclick={recentre}>{ "⟲" }</button>
-                    <button class="scene-btn" aria-label={t("Rapprocher", "Zoom in")} onclick={zoom(0.8)}>{ "+" }</button>
-                    <button class="scene-btn" aria-label={t("Éloigner", "Zoom out")} onclick={zoom(1.25)}>{ "−" }</button>
-                    <button class="scene-btn on" aria-label={t("Quitter le plein écran", "Exit full screen")} onclick={toggle_full}>{ "✕" }</button>
-                } else {
-                    <button class="scene-btn" onclick={toggle_full}>{ t("⛶ Plein écran", "⛶ Full screen") }</button>
-                }
-            </div>
-        </div>
-    }
+
+    let view = h::div()
+        .class("scene")
+        .class(if is_track { "scene-track" } else { "" })
+        .class_if("scene-full", move || full.get())
+        .class_if("scene-nolabels", move || !show_labels.get())
+        // WebGL 2 indisponible : la vue laisse la place au message ci-dessous.
+        .attr_dyn("style", move || {
+            if failed.get() { "display:none" } else { "" }.to_string()
+        })
+        .child(canvas)
+        .child(h::div().class("scene-labels").attr("aria-hidden", "true"))
+        .child(
+            h::div()
+                .class("scene-hud")
+                .attr("aria-hidden", "true")
+                .child(h::div().class("scene-fx"))
+                .child(h::div().class("scene-speed")),
+        )
+        .child(hint)
+        .child(
+            h::div()
+                .class("scene-tools")
+                .child(track_tools)
+                .child(screen_tools),
+        )
+        .on_mount(start);
+    let unavailable = h::p()
+        .class("muted")
+        .bool_attr("hidden", move || !failed.get())
+        .text(t(
+            "La 3D n'est pas disponible sur cet appareil (WebGL 2 requis).",
+            "3D isn't available on this device (WebGL 2 required).",
+        ));
+    fragment([Node::from(view), unavailable.into()])
 }
 
 /// Carte « monoplace en 3D » aux couleurs d'une écurie.
-pub fn car_card(constructor_id: &str, team: &str) -> Html {
-    html! {
-        <section class="card">
-            <h2>{ t("La monoplace en 3D", "The car in 3D") }</h2>
-            <View3D scene={Scene::Car(livery(constructor_id))} />
-            <p class="muted">{ crate::tr!(
-                "Monoplace stylisée aux couleurs {} — modèle généré par le code, pas une reproduction officielle. Glisse pour la faire tourner, ou passe en plein écran pour zoomer et la déplacer à deux doigts.",
-                "Stylised car in {} colours — generated by code, not an official replica. Drag to spin it, or go full screen to zoom and move it with two fingers.",
-                team
-            ) }</p>
-        </section>
-    }
+pub fn car_card(constructor_id: &str, team: &str) -> active::Node {
+    use active::html as h;
+    h::section()
+        .class("card")
+        .child(h::h2().text(t("La monoplace en 3D", "The car in 3D")))
+        .child(view_3d(Scene::Car(livery(constructor_id)), || None))
+        .child(h::p().class("muted").text(crate::tr!(
+            "Monoplace stylisée aux couleurs {} — modèle généré par le code, pas une reproduction officielle. Glisse pour la faire tourner, ou passe en plein écran pour zoomer et la déplacer à deux doigts.",
+            "Stylised car in {} colours — generated by code, not an official replica. Drag to spin it, or go full screen to zoom and move it with two fingers.",
+            team
+        )))
+        .into()
 }
 
 #[cfg(test)]

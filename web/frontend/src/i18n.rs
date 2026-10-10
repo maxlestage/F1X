@@ -1,10 +1,13 @@
 //! Français / English.
 //!
 //! La langue courante vit dans un `thread_local` (le WebAssembly est mono-thread) ; changer de
-//! langue remonte les pages (clé sur le routeur), qui relisent donc toutes la nouvelle langue.
+//! langue ([`toggle`]) modifie l'état lu par le routeur, qui reconstruit la page : tout relit
+//! alors la nouvelle langue.
 //! Les textes sont écrits en paires : `t("Calendrier", "Calendar")`, `tr!("Saison {s}", "Season {s}")`.
 
 use std::cell::Cell;
+
+use active::State;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Lang {
@@ -38,6 +41,25 @@ impl Lang {
 
 thread_local! {
     static LANG: Cell<Lang> = const { Cell::new(Lang::Fr) };
+    /// État de la langue, lu par le routeur (créé par [`init`]).
+    static LANG_STATE: Cell<Option<State<Lang>>> = const { Cell::new(None) };
+}
+
+/// Crée l'état de la langue (langue enregistrée, sinon celle du navigateur).
+pub fn init() -> State<Lang> {
+    let state = active::use_state(initial());
+    LANG_STATE.with(|s| s.set(Some(state)));
+    state
+}
+
+/// Passe à l'autre langue et la mémorise : la page se reconstruit dans cette langue.
+pub fn toggle() {
+    let next = lang().other();
+    save(next);
+    apply(next);
+    if let Some(state) = LANG_STATE.with(Cell::get) {
+        state.set(next);
+    }
 }
 
 const STORAGE_KEY: &str = "f1x-lang";
