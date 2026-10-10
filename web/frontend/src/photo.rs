@@ -9,8 +9,9 @@ use std::collections::HashMap;
 
 use gloo_net::http::Request;
 use serde::Deserialize;
-use yew::prelude::*;
+use active::prelude::*;
 
+use crate::components::dynamic;
 use crate::i18n::t;
 
 #[derive(Clone, PartialEq, serde::Serialize, Deserialize)]
@@ -91,27 +92,20 @@ fn remember(url: String, photo: Option<Photo>) {
 }
 
 /// Photo libre associée à une page Wikipédia (`None` tant qu'elle charge ou s'il n'y en a pas).
-#[hook]
-pub fn use_wiki_photo(url: Option<String>) -> Option<Photo> {
+pub fn use_wiki_photo(url: Option<String>) -> State<Option<Photo>> {
     let cached = url.as_deref().and_then(lookup);
-    let state = use_state(|| cached.clone().flatten());
-    {
-        let state = state.clone();
-        use_effect_with(url, move |url| {
-            if let Some(url) = url.clone() {
-                match lookup(&url) {
-                    Some(hit) => state.set(hit),
-                    None => wasm_bindgen_futures::spawn_local(async move {
-                        if let Ok(photo) = fetch(&url).await {
-                            remember(url, photo.clone());
-                            state.set(photo);
-                        }
-                    }),
+    let state = use_state(cached.clone().flatten());
+    if let (Some(url), None) = (url, cached) {
+        wasm_bindgen_futures::spawn_local(async move {
+            if let Ok(photo) = fetch(&url).await {
+                remember(url, photo.clone());
+                if state.is_alive() {
+                    state.set(photo);
                 }
             }
         });
     }
-    (*state).clone()
+    state
 }
 
 fn initials(name: &str) -> String {
@@ -128,67 +122,78 @@ fn initials(name: &str) -> String {
     .to_uppercase()
 }
 
-#[derive(Properties, PartialEq)]
-pub struct AvatarProps {
-    pub name: AttrValue,
-    #[prop_or_default]
-    pub url: Option<AttrValue>,
-    /// Couleur d'écurie (CSS).
-    #[prop_or_else(|| AttrValue::from("#8a8a99"))]
-    pub colour: AttrValue,
-    #[prop_or(40)]
-    pub size: u32,
+/// La photo, sauf si elle n'a pas pu s'afficher (`failed`).
+fn usable(photo: State<Option<Photo>>, failed: State<Option<String>>) -> Option<Photo> {
+    photo
+        .get()
+        .filter(|p| failed.with(|f| f.as_deref() != Some(p.src.as_str())))
 }
 
-/// Avatar rond : photo libre si disponible, sinon initiales sur la couleur de l'écurie.
-#[function_component]
-pub fn Avatar(props: &AvatarProps) -> Html {
-    let photo = use_wiki_photo(props.url.as_ref().map(|u| u.to_string()));
-    let failed = use_state(|| None::<String>);
-    // Image injoignable : retour aux initiales plutôt qu'une icône cassée.
-    let photo = photo.filter(|p| failed.as_deref() != Some(p.src.as_str()));
-    let style = format!("--av:{};--size:{}px", props.colour, props.size);
-    html! {
-        <span class="avatar" style={style} aria-hidden="true">
-            if let Some(p) = photo {
-                <img src={p.src.clone()} alt="" loading="lazy" referrerpolicy="no-referrer"
-                    onerror={let failed = failed.clone(); move |_| failed.set(Some(p.src.clone()))} />
-            } else {
-                <span class="avatar-initials">{ initials(&props.name) }</span>
+/// Avatar rond : photo libre si disponible, sinon initiales sur la couleur de l'écurie
+/// (`colour`, CSS ; `size` en pixels, 40 d'habitude).
+pub fn avatar(name: &str, url: Option<&str>, colour: &str, size: u32) -> Node {
+    let photo = use_wiki_photo(url.map(str::to_string));
+    let failed = use_state(None::<String>);
+    let initials = initials(name);
+    span()
+        .class("avatar")
+        .style(format!("--av:{colour};--size:{size}px"))
+        .attr("aria-hidden", "true")
+        .child(dynamic(move || match usable(photo, failed) {
+            // Image injoignable : retour aux initiales plutôt qu'une icône cassée.
+            Some(p) => {
+                let src = p.src.clone();
+                img()
+                    .attr("src", p.src)
+                    .attr("alt", "")
+                    .attr("loading", "lazy")
+                    .attr("referrerpolicy", "no-referrer")
+                    .on("error", move |_| failed.set(Some(src.clone())))
+                    .into()
             }
-        </span>
-    }
+            None => span()
+                .class("avatar-initials")
+                .text(initials.clone())
+                .into(),
+        }))
+        .into()
 }
 
-#[derive(Properties, PartialEq)]
-pub struct PhotoProps {
-    pub url: AttrValue,
-    pub alt: AttrValue,
-    /// Image large (fiche pilote) ou plan / vue (circuit).
-    #[prop_or_default]
-    pub wide: bool,
-}
-
-/// Photo créditée (masquée s'il n'existe pas d'image libre).
-#[function_component]
-pub fn WikiPhoto(props: &PhotoProps) -> Html {
-    let photo = use_wiki_photo(Some(props.url.to_string()));
-    let failed = use_state(|| None::<String>);
-    let Some(p) = photo.filter(|p| failed.as_deref() != Some(p.src.as_str())) else {
-        return html! {};
-    };
-    let onerror = {
-        let (failed, src) = (failed.clone(), p.src.clone());
-        move |_| failed.set(Some(src.clone()))
-    };
-    html! {
-        <figure class={classes!("wiki-photo", props.wide.then_some("wiki-photo-wide"))}>
-            <img src={p.src.clone()} alt={props.alt.clone()} loading="lazy" referrerpolicy="no-referrer" {onerror} />
-            <figcaption>
-                <a href={p.credit} target="_blank" rel="noopener">{ t("Photo : Wikimedia Commons (auteur et licence) ↗", "Photo: Wikimedia Commons (author and licence) ↗") }</a>
-            </figcaption>
-        </figure>
-    }
+/// Photo créditée (masquée s'il n'existe pas d'image libre). `wide` : image large (fiche
+/// pilote) ou plan / vue (circuit).
+pub fn wiki_photo(url: &str, alt: &str, wide: bool) -> Node {
+    let photo = use_wiki_photo(Some(url.to_string()));
+    let failed = use_state(None::<String>);
+    let alt = alt.to_string();
+    dynamic(move || {
+        let Some(p) = usable(photo, failed) else {
+            return Node::Empty;
+        };
+        let src = p.src.clone();
+        figure()
+            .class("wiki-photo")
+            .class(crate::components::when(wide, "wiki-photo-wide"))
+            .child(
+                img()
+                    .attr("src", p.src)
+                    .attr("alt", alt.clone())
+                    .attr("loading", "lazy")
+                    .attr("referrerpolicy", "no-referrer")
+                    .on("error", move |_| failed.set(Some(src.clone()))),
+            )
+            .child(
+                figcaption().child(
+                    a().href(p.credit)
+                        .attr("target", "_blank")
+                        .attr("rel", "noopener")
+                        .text(t(
+                            "Photo : Wikimedia Commons (auteur et licence) ↗",
+                            "Photo: Wikimedia Commons (author and licence) ↗",
+                        )),
+                ),
+            )
+            .into()
+    })
 }
 
 #[cfg(test)]
