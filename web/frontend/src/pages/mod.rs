@@ -39,13 +39,11 @@ pub use team::*;
 pub use track::*;
 pub use weather::*;
 
-use yew::prelude::*;
-use yew_router::prelude::*;
+use active::prelude::*;
 
-use crate::Route;
-use crate::components::Layout;
+use crate::components::{Tab, layout};
 use crate::i18n::t;
-use crate::tr;
+use crate::{Route, link, tr};
 
 /// Libellé d'une saison pour les titres.
 pub fn season_label(season: &str) -> String {
@@ -56,15 +54,17 @@ pub fn season_label(season: &str) -> String {
     }
 }
 
-#[function_component]
-pub fn NotFound() -> Html {
-    html! {
-        <Layout title={t("Page introuvable", "Page not found")}>
-            <section class="card">
-                <h2>{ t("Hors piste", "Off track") }</h2>
-                <p class="muted">{ t("Cette page n'existe pas.", "This page doesn't exist.") }</p>
-                <Link<Route> to={Route::Home} classes="btn">{ t("Retour au stand", "Back to the pits") }</Link<Route>>
-            </section>
-        </Layout>
-    }
+pub fn not_found() -> Node {
+    layout(
+        t("Page introuvable", "Page not found"),
+        None::<Tab>,
+        section()
+            .class("card")
+            .child(h2().text(t("Hors piste", "Off track")))
+            .child(
+                p().class("muted")
+                    .text(t("Cette page n'existe pas.", "This page doesn't exist.")),
+            )
+            .child(link(Route::Home, "btn").text(t("Retour au stand", "Back to the pits"))),
+    )
 }
