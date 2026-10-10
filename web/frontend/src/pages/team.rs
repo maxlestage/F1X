@@ -5,7 +5,7 @@ use std::rc::Rc;
 use active::prelude::*;
 
 use super::stats::{Champion, team_titles};
-use crate::api::{Fetch, Json, f1, use_f1, use_f1_dyn, use_json};
+use crate::api::{Fetch, Json, f1, use_f1_dyn, use_json};
 use crate::components::*;
 use crate::i18n::t;
 use crate::models::{Constructor, Driver, MrData};
@@ -33,22 +33,29 @@ struct Live {
 /// Valeur d'une statistique, relue quand ses données arrivent.
 type Value = Rc<dyn Fn() -> String>;
 
-/// Fiche écurie : palmarès complet et détail saison par saison.
-pub fn team_page(id: &str) -> Node {
-    let id = id.to_string();
-    let path = |suffix: &str| format!("constructors/{id}{suffix}.json");
+/// Fiche écurie : palmarès complet et détail saison par saison. La page reste affichée quand
+/// on passe à une autre écurie : seules ses données changent.
+pub fn team_page(id: State<String>) -> Node {
+    let path = move |suffix: &'static str, limit: u32| {
+        use_f1_dyn(move || f1(format!("constructors/{}{suffix}.json", id.get()), limit))
+    };
 
-    let info = use_f1(f1(path(""), 1));
+    let info = path("", 1);
     let champions = use_json::<Vec<Champion>>(Some("/api/champions".into()));
-    let wins = use_f1(f1(path("/results/1"), 1));
-    let seconds = use_f1(f1(path("/results/2"), 1));
-    let thirds = use_f1(f1(path("/results/3"), 1));
+    let wins = path("/results/1", 1);
+    let seconds = path("/results/2", 1);
+    let thirds = path("/results/3", 1);
     // Poles = départs en tête de grille (fonctionne pour toutes les époques).
-    let poles = use_f1(f1(path("/grid/1/results"), 1));
-    let seasons = use_f1(f1(path("/seasons"), 100));
+    let poles = path("/grid/1/results", 1);
+    let seasons = path("/seasons", 100);
 
-    // Saison choisie dans la liste, sinon la dernière saison de l'écurie.
+    // Saison choisie dans la liste, sinon la dernière saison de l'écurie (choix oublié quand
+    // on passe à une autre écurie).
     let chosen = use_state(None::<String>);
+    effect(move || {
+        id.with(|_| ());
+        untrack(|| chosen.set(None));
+    });
     let season = memo(move || {
         chosen.get().or_else(|| {
             seasons.with(|f| {
@@ -58,11 +65,10 @@ pub fn team_page(id: &str) -> Node {
         })
     });
     let base = |file: &'static str, limit: u32| {
-        let id = id.clone();
         move || {
             season
                 .get()
-                .and_then(|s| f1(format!("{s}/constructors/{id}/{file}.json"), limit))
+                .and_then(|s| f1(format!("{s}/constructors/{}/{file}.json", id.get()), limit))
         }
     };
     let has_season = memo(move || season.with(Option::is_some));

@@ -5,7 +5,7 @@ use std::rc::Rc;
 use active::prelude::*;
 
 use super::stats::{Champion, driver_titles, entries};
-use crate::api::{Fetch, Json, all, f1, use_f1, use_f1_dyn, use_json};
+use crate::api::{Fetch, Json, all, f1, use_f1_dyn, use_json};
 use crate::components::*;
 use crate::i18n::t;
 use crate::models::{Constructor, MrData, Race, RaceResult};
@@ -22,16 +22,20 @@ struct Live {
     standing: State<Fetch>,
 }
 
-/// Fiche pilote : carrière complète (1950 → aujourd'hui) et détail saison par saison.
-pub fn driver_page(id: &str) -> Node {
-    let id = id.to_string();
-
+/// Fiche pilote : carrière complète (1950 → aujourd'hui) et détail saison par saison. La
+/// page reste affichée quand on passe à un autre pilote : seules ses données changent.
+pub fn driver_page(id: State<String>) -> Node {
     // Toute la carrière en une seule requête paginée : départs, victoires, podiums,
     // poles, meilleurs tours, saisons et écuries en sont déduits (économise le quota Jolpica).
-    let career = use_f1(all(format!("drivers/{id}/results.json")));
+    let career = use_f1_dyn(move || all(format!("drivers/{}/results.json", id.get())));
     let champions = use_json::<Vec<Champion>>(Some("/api/champions".into()));
-    // Saison choisie dans la liste, sinon la dernière saison du pilote.
+    // Saison choisie dans la liste, sinon la dernière saison du pilote (choix oublié quand
+    // on passe à un autre pilote).
     let chosen = use_state(None::<String>);
+    effect(move || {
+        id.with(|_| ());
+        untrack(|| chosen.set(None));
+    });
     let season = memo(move || {
         chosen.get().or_else(|| {
             career.with(|f| {
@@ -43,7 +47,7 @@ pub fn driver_page(id: &str) -> Node {
     let standing = use_f1_dyn(move || {
         season
             .get()
-            .and_then(|s| f1(format!("{s}/drivers/{id}/driverStandings.json"), 1))
+            .and_then(|s| f1(format!("{s}/drivers/{}/driverStandings.json", id.get()), 1))
     });
     let live = Live {
         champions,
@@ -268,17 +272,21 @@ fn season_card(races: Rc<Vec<Race>>, season_list: &[String], live: Live) -> Node
         .into()
     });
 
-    let rows = ol().class("rows").children_dyn(move || {
-        let Some(current) = season.get() else {
-            return Vec::new();
-        };
-        entries(&races)
-            .into_iter()
-            .rev()
-            .filter(|(race, _)| race.season == current)
-            .map(|(race, r)| race_row(race, r))
-            .collect()
-    });
+    // Gardées par position : changer de saison met les lignes à jour sur place.
+    let rows = ol().class("rows").children_indexed(
+        move || {
+            let Some(current) = season.get() else {
+                return Vec::new();
+            };
+            entries(&races)
+                .into_iter()
+                .rev()
+                .filter(|(race, _)| race.season == current)
+                .map(|(race, r)| (race.clone(), r.clone()))
+                .collect()
+        },
+        race_row,
+    );
 
     let standings_link = dynamic(move || {
         season
@@ -316,34 +324,54 @@ fn season_card(races: Rc<Vec<Race>>, season_list: &[String], live: Live) -> Node
 }
 
 /// Une course de la saison : position, Grand Prix, écurie, départ, temps ou abandon, points.
-fn race_row(race: &Race, r: &RaceResult) -> Node {
-    let outcome = r.outcome();
-    let mut sub = vec![
-        r.constructor.name.clone(),
-        tr!(
-            "départ P{}",
-            "started P{}",
-            r.grid.as_deref().unwrap_or("-")
-        ),
-    ];
-    if !outcome.is_empty() {
-        sub.push(outcome);
-    }
+/// La ligne suit `item` : elle est mise à jour sur place quand la saison change.
+fn race_row(item: State<(Race, RaceResult)>) -> Node {
+    let get = move |f: fn(&Race, &RaceResult) -> String| move || item.with(|(race, r)| f(race, r));
+    let sub = |_: &Race, r: &RaceResult| {
+        let outcome = r.outcome();
+        let mut sub = vec![
+            r.constructor.name.clone(),
+            tr!(
+                "départ P{}",
+                "started P{}",
+                r.grid.as_deref().unwrap_or("-")
+            ),
+        ];
+        if !outcome.is_empty() {
+            sub.push(outcome);
+        }
+        sub.join(" · ")
+    };
     li().class("row")
-        .style(team_style(&r.constructor.constructor_id))
-        .child(span().class("pos pos-sm").text(r.position_text.clone()))
-        .child(
-            link(Route::race(&race.season, race.round_num()), "row-main")
-                .child(span().class("row-title").text(format!(
-                    "{} {}",
-                    flag_country(&race.circuit.location.country),
-                    race.race_name
-                )))
-                .child(span().class("row-sub").text(sub.join(" · "))),
+        .attr_dyn(
+            "style",
+            get(|_, r| team_style(&r.constructor.constructor_id)),
         )
         .child(
-            (r.points.parse::<f64>().unwrap_or(0.0) > 0.0)
-                .then(|| span().class("pts").text(format!("+{}", r.points))),
+            span()
+                .class("pos pos-sm")
+                .text_dyn(get(|_, r| r.position_text.clone())),
         )
+        .child(
+            a().class("row-main")
+                .attr_dyn(
+                    "href",
+                    get(|race, _| Route::race(&race.season, race.round_num()).href()),
+                )
+                .child(span().class("row-title").text_dyn(get(|race, _| {
+                    format!(
+                        "{} {}",
+                        flag_country(&race.circuit.location.country),
+                        race.race_name
+                    )
+                })))
+                .child(span().class("row-sub").text_dyn(get(sub))),
+        )
+        .child(dynamic(move || {
+            let points = item.with(|(_, r)| r.points.clone());
+            (points.parse::<f64>().unwrap_or(0.0) > 0.0)
+                .then(|| span().class("pts").text(format!("+{points}")))
+                .into()
+        }))
         .into()
 }
