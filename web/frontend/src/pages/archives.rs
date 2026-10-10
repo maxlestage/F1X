@@ -42,7 +42,7 @@ pub fn archives_page() -> Node {
             ("Grands Prix", total(races)),
             (t("Pilotes", "Drivers"), total(drivers)),
         ]))
-        .child(season_select("", SeasonTarget::Calendar, None));
+        .child(season_select(String::new, || SeasonTarget::Calendar, None));
 
     let presentation = if crate::i18n::is_fr() {
         "/presentation?lang=fr"

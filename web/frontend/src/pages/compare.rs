@@ -6,7 +6,7 @@ use std::rc::Rc;
 use active::prelude::*;
 
 use super::stats::{Career, Champion, career, driver_titles, entries};
-use crate::api::{Fetch, Json, all, use_f1, use_json};
+use crate::api::{Fetch, Json, all, use_f1, use_f1_dyn, use_json};
 use crate::components::*;
 use crate::i18n::t;
 use crate::models::{Driver, MrData, Race, RaceResult};
@@ -178,24 +178,33 @@ fn export_on_click(filename: String, rows: impl Fn() -> Vec<Vec<String>> + 'stat
         .into()
 }
 
-pub fn compare_page(a: Option<String>, b: Option<String>) -> Node {
-    let a = a.filter(|id| id != NONE);
-    let b = b.filter(|id| id != NONE);
+/// Comparateur (`pair` : pilotes A et B de l'adresse). La page reste affichée quand on choisit
+/// un autre pilote : la liste des pilotes et les titres ne sont pas rechargés, et seule la
+/// carrière du pilote qui change l'est.
+pub fn compare_page(pair: State<(Option<String>, Option<String>)>) -> Node {
+    // Pilote A (`first`) ou B ; « _ » dans l'adresse : pas encore choisi.
+    let side = |first: bool| {
+        memo(move || {
+            pair.with(|(a, b)| if first { a } else { b }.clone())
+                .filter(|id| id != NONE)
+        })
+    };
+    let (a, b) = (side(true), side(false));
     let list = use_f1(all("drivers.json"));
     let champions = use_json::<Vec<Champion>>(Some("/api/champions".into()));
-    let results = |id: &Option<String>| {
-        use_f1(
-            id.as_ref()
-                .and_then(|id| all(format!("drivers/{id}/results.json"))),
-        )
+    let results = |id: State<Option<String>>| {
+        use_f1_dyn(move || {
+            id.get()
+                .and_then(|id| all(format!("drivers/{id}/results.json")))
+        })
     };
-    let races_a = results(&a);
-    let races_b = results(&b);
+    let races_a = results(a);
+    let races_b = results(b);
 
     // Pilotes choisis, retrouvés dans la liste quand elle arrive.
-    let find = |id: Option<String>| {
+    let find = |id: State<Option<String>>| {
         memo(move || -> Option<Driver> {
-            let id = id.as_deref()?;
+            let id = id.get()?;
             list.with(|f| {
                 f.done()?
                     .drivers()
@@ -205,15 +214,14 @@ pub fn compare_page(a: Option<String>, b: Option<String>) -> Node {
             })
         })
     };
-    let (da, db) = (find(a.clone()), find(b.clone()));
+    let (da, db) = (find(a), find(b));
     let pick = |side: u8| {
-        let a = a.clone().unwrap_or_else(|| NONE.into());
-        let b = b.clone().unwrap_or_else(|| NONE.into());
         move |id: String| {
+            let other = |s: State<Option<String>>| s.get().unwrap_or_else(|| NONE.into());
             let (na, nb) = if side == 0 {
-                (id, b.clone())
+                (id, other(b))
             } else {
-                (a.clone(), id)
+                (other(a), id)
             };
             active::navigate(&Route::CompareWith { a: na, b: nb }.href());
         }

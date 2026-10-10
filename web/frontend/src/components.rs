@@ -72,11 +72,18 @@ pub fn layout_dyn(
     let previous = LAST_TAB.with(|c| c.replace(tab));
     let intro = previous.is_some() && tab.is_some() && previous != tab;
     {
+        // Nouveau titre (autre page, autres paramètres, données arrivées) : titre de l'onglet
+        // mis à jour et retour en haut de la page.
         let title = title.clone();
-        effect(move || set_title(&title()));
-    }
-    if let Some(w) = web_sys::window() {
-        w.scroll_to_with_x_and_y(0.0, 0.0);
+        effect(move || {
+            let title = title();
+            untrack(|| {
+                set_title(&title);
+                if let Some(w) = web_sys::window() {
+                    w.scroll_to_with_x_and_y(0.0, 0.0);
+                }
+            });
+        });
     }
     let topbar_title = {
         let title = title.clone();
@@ -258,16 +265,21 @@ impl SeasonTarget {
 }
 
 /// Sélecteur de saison natif (liste déroulante verticale). `season` : saison affichée
-/// (`"current"` ou une année) ; `target` : page ouverte au changement ; `only` : liste
+/// (`"current"` ou une année), suivie quand elle change ; `target` : page ouverte au changement
+/// (lue au moment du choix) ; `only` : liste
 /// restreinte (ex. saisons d'un pilote), sinon toutes les saisons depuis 1950.
-pub fn season_select(season: &str, target: SeasonTarget, only: Option<Vec<String>>) -> Node {
+pub fn season_select(
+    season: impl Fn() -> String + 'static,
+    target: impl Fn() -> SeasonTarget + 'static,
+    only: Option<Vec<String>>,
+) -> Node {
     let fetch = use_f1(if only.is_none() {
         f1("seasons.json", 100)
     } else {
         None
     });
-    let season = season.to_string();
     let options = dynamic(move || {
+        let season = season();
         let mut seasons: Vec<String> = match &only {
             Some(list) => list.clone(),
             None => fetch.with(|f| {
@@ -297,7 +309,9 @@ pub fn season_select(season: &str, target: SeasonTarget, only: Option<Vec<String
         .child(
             select()
                 .attr("aria-label", t("Choisir une saison", "Choose a season"))
-                .on("change", move |e| navigate(&target.route(e.value()).href()))
+                .on("change", move |e| {
+                    navigate(&target().route(e.value()).href())
+                })
                 .child(options),
         )
         .into()

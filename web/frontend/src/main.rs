@@ -222,62 +222,178 @@ pub fn link(route: Route, class: &'static str) -> Element {
     if class.is_empty() { a } else { a.class(class) }
 }
 
-fn switch(route: Route) -> Node {
+/// Les écrans de l'app. Deux adresses du même écran (deux saisons du calendrier, deux Grands
+/// Prix, deux pilotes…) gardent l'écran affiché : seul ce qui dépend des paramètres change,
+/// comme un composant qui reçoit de nouvelles propriétés.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Page {
+    Home,
+    Live,
+    Season,
+    Race,
+    Standings,
+    Driver,
+    Team,
+    Circuit,
+    Archives,
+    Records,
+    Compare,
+    Quiz,
+    Predict,
+    Fantasy,
+    News,
+    Glossary,
+    AllSeasons,
+    AllDrivers,
+    AllTeams,
+    AllCircuits,
+    DataYear,
+    DataMeeting,
+    DataSession,
+    Server,
+    NotFound,
+}
+
+impl Route {
+    fn page(&self) -> Page {
+        match self {
+            Self::Home => Page::Home,
+            Self::Live => Page::Live,
+            Self::Season { .. } | Self::LegacyCalendar => Page::Season,
+            Self::Race { .. } | Self::LegacyRace { .. } => Page::Race,
+            Self::DriverStandings { .. }
+            | Self::TeamStandings { .. }
+            | Self::LegacyDrivers
+            | Self::LegacyTeams => Page::Standings,
+            Self::Driver { .. } => Page::Driver,
+            Self::Team { .. } => Page::Team,
+            Self::Circuit { .. } => Page::Circuit,
+            Self::Archives => Page::Archives,
+            Self::Records => Page::Records,
+            Self::Compare | Self::CompareWith { .. } => Page::Compare,
+            Self::Quiz => Page::Quiz,
+            Self::Predict => Page::Predict,
+            Self::Fantasy => Page::Fantasy,
+            Self::News => Page::News,
+            Self::Glossary => Page::Glossary,
+            Self::AllSeasons => Page::AllSeasons,
+            Self::AllDrivers => Page::AllDrivers,
+            Self::AllTeams => Page::AllTeams,
+            Self::AllCircuits => Page::AllCircuits,
+            Self::Data | Self::DataYear { .. } => Page::DataYear,
+            Self::DataMeeting { .. } => Page::DataMeeting,
+            Self::DataSession { .. } => Page::DataSession,
+            Self::Server => Page::Server,
+            Self::NotFound => Page::NotFound,
+        }
+    }
+
+    /// Saison de l'adresse (calendrier, Grand Prix, classements).
+    fn season_param(&self) -> String {
+        match self {
+            Self::Season { season }
+            | Self::Race { season, .. }
+            | Self::DriverStandings { season }
+            | Self::TeamStandings { season } => season.clone(),
+            _ => CURRENT.to_string(),
+        }
+    }
+
+    /// Identifiant de l'adresse (pilote, écurie, circuit).
+    fn id_param(&self) -> String {
+        match self {
+            Self::Driver { id } | Self::Team { id } | Self::Circuit { id } => id.clone(),
+            _ => String::new(),
+        }
+    }
+
+    /// Clé numérique de l'adresse (manche, année, réunion, séance).
+    fn number_param(&self) -> u32 {
+        match self {
+            Self::Race { round, .. } | Self::LegacyRace { round } => *round,
+            Self::DataYear { year } => *year,
+            Self::DataMeeting { key } | Self::DataSession { key } => *key,
+            Self::Data => util::current_year(),
+            _ => 0,
+        }
+    }
+}
+
+/// L'écran d'une adresse. `route` change quand on va vers une autre adresse du même écran :
+/// les paramètres sont passés aux écrans comme des états (des memos de `route`).
+fn screen(route: State<(Route, i18n::Lang)>) -> Node {
     use pages::*;
-    match route {
-        Route::Home => home(),
-        Route::Live => live_page(),
-        Route::Season { season } => season_page(&season),
-        Route::LegacyCalendar => season_page(CURRENT),
-        Route::Race { season, round } => race_page(&season, round),
-        Route::LegacyRace { round } => race_page(CURRENT, round),
-        Route::DriverStandings { season } => standings_page(&season, StandingsKind::Drivers),
-        Route::LegacyDrivers => standings_page(CURRENT, StandingsKind::Drivers),
-        Route::TeamStandings { season } => standings_page(&season, StandingsKind::Teams),
-        Route::LegacyTeams => standings_page(CURRENT, StandingsKind::Teams),
-        Route::Driver { id } => driver_page(&id),
-        Route::Team { id } => team_page(&id),
-        Route::Circuit { id } => circuit_page(&id),
-        Route::Archives => archives_page(),
-        Route::Records => records_page(),
-        Route::Compare => compare_page(None, None),
-        Route::CompareWith { a, b } => compare_page(Some(a), Some(b)),
-        Route::Quiz => quiz_page(),
-        Route::Predict => predict_page(),
-        Route::Fantasy => fantasy_page(),
-        Route::News => news_page(),
-        Route::Glossary => glossary_page(),
-        Route::AllSeasons => all_seasons_page(),
-        Route::AllDrivers => all_drivers_page(),
-        Route::AllTeams => all_teams_page(),
-        Route::AllCircuits => all_circuits_page(),
-        Route::Data => data_year_page(util::current_year()),
-        Route::DataYear { year } => data_year_page(year),
-        Route::DataMeeting { key } => data_meeting_page(key),
-        Route::DataSession { key } => data_session_page(key),
-        Route::Server => {
+    fn param<T: Clone + PartialEq + 'static>(
+        route: State<(Route, i18n::Lang)>,
+        f: fn(&Route) -> T,
+    ) -> State<T> {
+        memo(move || route.with(|(r, _)| f(r)))
+    }
+    let page = untrack(|| route.with(|(r, _)| r.page()));
+    match page {
+        Page::Home => home(),
+        Page::Live => live_page(),
+        Page::Season => season_page(param(route, Route::season_param)),
+        Page::Race => race_page(memo(move || {
+            route.with(|(r, _)| (r.season_param(), r.number_param()))
+        })),
+        Page::Standings => standings_page(memo(move || {
+            route.with(|(r, _)| {
+                let kind = match r {
+                    Route::TeamStandings { .. } | Route::LegacyTeams => StandingsKind::Teams,
+                    _ => StandingsKind::Drivers,
+                };
+                (r.season_param(), kind)
+            })
+        })),
+        Page::Driver => driver_page(param(route, Route::id_param)),
+        Page::Team => team_page(param(route, Route::id_param)),
+        Page::Circuit => circuit_page(param(route, Route::id_param)),
+        Page::Archives => archives_page(),
+        Page::Records => records_page(),
+        Page::Compare => compare_page(memo(move || {
+            route.with(|(r, _)| match r {
+                Route::CompareWith { a, b } => (Some(a.clone()), Some(b.clone())),
+                _ => (None, None),
+            })
+        })),
+        Page::Quiz => quiz_page(),
+        Page::Predict => predict_page(),
+        Page::Fantasy => fantasy_page(),
+        Page::News => news_page(),
+        Page::Glossary => glossary_page(),
+        Page::AllSeasons => all_seasons_page(),
+        Page::AllDrivers => all_drivers_page(),
+        Page::AllTeams => all_teams_page(),
+        Page::AllCircuits => all_circuits_page(),
+        Page::DataYear => data_year_page(param(route, Route::number_param)),
+        Page::DataMeeting => data_meeting_page(param(route, Route::number_param)),
+        Page::DataSession => data_session_page(param(route, Route::number_param)),
+        Page::Server => {
             // Adresse du serveur atteinte par l'historique : on la charge pour de bon.
             if let Some(w) = web_sys::window() {
                 let _ = w.location().reload();
             }
             components::loading()
         }
-        Route::NotFound => not_found(),
+        Page::NotFound => not_found(),
     }
 }
 
-/// L'application : la page de l'adresse courante, reconstruite quand l'adresse ou la langue
-/// change (toutes les pages relisent alors la nouvelle langue).
+/// L'application : l'écran de l'adresse courante. Il est reconstruit quand on change d'écran
+/// ou de langue (tout relit alors la nouvelle langue) ; une autre adresse du même écran le
+/// garde et ne met à jour que ce qui dépend de ses paramètres.
 fn app() -> Node {
     let path = location();
     let lang = i18n::init();
-    fragment_dyn(move || {
-        let route = Route::parse(&path.get());
-        i18n::apply(lang.get());
-        // Les pages lisent leurs états dans des closures : leur construction ne doit pas
-        // abonner le routeur (seules l'adresse et la langue le reconstruisent).
-        vec![untrack(|| switch(route))]
-    })
+    switch(
+        move || (Route::parse(&path.get()), lang.get()),
+        |(route, lang)| (route.page(), *lang),
+        |route| {
+            i18n::apply(untrack(|| route.with(|(_, lang)| *lang)));
+            screen(route)
+        },
+    )
 }
 
 /// En cas de panique Rust : message lisible + bouton « Recharger » au lieu d'un écran figé.
