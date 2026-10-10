@@ -400,6 +400,15 @@ pub fn result_row(r: &RaceResult) -> Html {
 }
 
 pub fn qualifying_row(q: &QualifyingResult) -> Html {
+    quali_row(q, "")
+}
+
+/// Ligne de qualifs sprint (segments SQ1, SQ2, SQ3).
+pub fn sprint_qualifying_row(q: &QualifyingResult) -> Html {
+    quali_row(q, "S")
+}
+
+fn quali_row(q: &QualifyingResult, prefix: &str) -> Html {
     html! {
         <li class="row" style={team_style(&q.constructor.constructor_id)}>
             <span class="pos">{ &q.position }</span>
@@ -408,7 +417,7 @@ pub fn qualifying_row(q: &QualifyingResult) -> Html {
                 <span class="row-sub">{ &q.constructor.name }</span>
             </Link<Route>>
             if let Some((seg, time)) = q.best() {
-                <span class="pts pts-time">{ time }<small>{ format!(" {seg}") }</small></span>
+                <span class="pts pts-time">{ time }<small>{ format!(" {prefix}{seg}") }</small></span>
             }
         </li>
     }

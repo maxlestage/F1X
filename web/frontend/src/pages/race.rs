@@ -91,6 +91,11 @@ pub fn RacePage(props: &RacePageProps) -> Html {
         .and_then(|d| d.race())
         .and_then(|r| r.qualifying_results.clone())
         .unwrap_or_default();
+    let sprint_quali = qualifying
+        .done()
+        .and_then(|d| d.race())
+        .and_then(|r| r.sprint_qualifying_results.clone())
+        .unwrap_or_default();
     let stops: Vec<PitStop> = pit_stops.done().map(MrData::pit_stops).unwrap_or_default();
     let statuses = status
         .done()
@@ -170,6 +175,9 @@ pub fn RacePage(props: &RacePageProps) -> Html {
             }
             if !quali_list.is_empty() {
                 <section class="card"><h2>{ t("Qualifications", "Qualifying") }</h2><ol class="rows">{ for quali_list.iter().map(qualifying_row) }</ol></section>
+            }
+            if !sprint_quali.is_empty() {
+                <section class="card"><h2>{ t("Qualifs sprint", "Sprint qualifying") }</h2><ol class="rows">{ for sprint_quali.iter().map(sprint_qualifying_row) }</ol></section>
             }
 
             if !fastest.is_empty() {

@@ -341,15 +341,20 @@ impl OpenF1 {
     /// Relais mis en cache d'un point d'accès OpenF1 (`endpoint?query`).
     pub async fn relay(&self, endpoint: &str, query: &str) -> Result<Arc<Value>, String> {
         let key = format!("{endpoint}?{query}");
-        // Données d'une session terminée : figées. Requêtes « latest » : rafraîchies souvent.
-        let ttl = if query.contains("latest") {
-            Duration::from_secs(60)
-        } else {
-            Duration::from_secs(6 * 3600)
+        // Données d'une session terminée : figées. Requêtes « latest » et réponses encore vides
+        // (séance pas encore publiée) : rafraîchies souvent ; calendrier des séances : 15 min.
+        let ttl = |v: &Value| {
+            if query.contains("latest") || v.as_array().is_some_and(|a| a.is_empty()) {
+                Duration::from_secs(90)
+            } else if matches!(endpoint, "sessions" | "meetings") {
+                Duration::from_secs(900)
+            } else {
+                Duration::from_secs(6 * 3600)
+            }
         };
         let stale = self.raw.read().await.get(&key).cloned();
         if let Some((at, v)) = &stale {
-            if at.elapsed() < ttl {
+            if at.elapsed() < ttl(v) {
                 return Ok(v.clone());
             }
         }
@@ -371,6 +376,28 @@ impl OpenF1 {
         }
         raw.insert(key, (Instant::now(), value.clone()));
         Ok(value)
+    }
+
+    /// Séance terminée d'un week-end (« Qualifying », « Sprint Qualifying »…), retrouvée par
+    /// l'année et la date de la course (séances des 4 jours qui la précèdent).
+    pub async fn weekend_session(&self, year: u32, race_date: &str, names: &[&str]) -> Option<u32> {
+        let day = parse_date(&format!("{race_date}T12:00:00Z"))?;
+        let list = self.relay("sessions", &format!("year={year}")).await.ok()?;
+        let now = Utc::now().timestamp_millis();
+        arr(&list)
+            .iter()
+            .filter(|x| names.contains(&s(x, "session_name").as_str()))
+            .filter(|x| {
+                !x.get("is_cancelled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+            })
+            .filter(|x| t(x, "date_end").is_some_and(|end| end < now))
+            .filter(|x| {
+                t(x, "date_start")
+                    .is_some_and(|start| start <= day + 86_400_000 && day - start < 4 * 86_400_000)
+            })
+            .find_map(|x| u(x, "session_key"))
     }
 
     /// Séance « Race » d'un Grand Prix, retrouvée par l'année et la date de la course.
