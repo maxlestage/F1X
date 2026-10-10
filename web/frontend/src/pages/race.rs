@@ -117,6 +117,18 @@ pub fn RacePage(props: &RacePageProps) -> Html {
             .unwrap_or(99)
     });
 
+    // Qualifications et qualifs sprint : après le programme avant la course, après les résultats ensuite.
+    let quali_cards = html! {
+        <>
+            if !quali_list.is_empty() {
+                <section class="card"><h2>{ t("Qualifications", "Qualifying") }</h2><ol class="rows">{ for quali_list.iter().map(qualifying_row) }</ol></section>
+            }
+            if !sprint_quali.is_empty() {
+                <section class="card"><h2>{ t("Qualifs sprint", "Sprint qualifying") }</h2><ol class="rows">{ for sprint_quali.iter().map(sprint_qualifying_row) }</ol></section>
+            }
+        </>
+    };
+
     let show_laps_cb = {
         let show_laps = show_laps.clone();
         Callback::from(move |_| show_laps.set(true))
@@ -156,6 +168,9 @@ pub fn RacePage(props: &RacePageProps) -> Html {
                 <SessionsList race={race.clone()} />
             </section>
 
+            // Avant la course, l'ordre des qualifications (la grille) suit directement le programme.
+            if !over { { quali_cards.clone() } }
+
             if !over { <super::WeekendWeather race={race.clone()} /> }
 
             if results.is_loading() { { loading() } }
@@ -173,12 +188,7 @@ pub fn RacePage(props: &RacePageProps) -> Html {
             if !sprint_list.is_empty() {
                 <section class="card"><h2>{ "Sprint" }</h2><ol class="rows">{ for sprint_list.iter().map(result_row) }</ol></section>
             }
-            if !quali_list.is_empty() {
-                <section class="card"><h2>{ t("Qualifications", "Qualifying") }</h2><ol class="rows">{ for quali_list.iter().map(qualifying_row) }</ol></section>
-            }
-            if !sprint_quali.is_empty() {
-                <section class="card"><h2>{ t("Qualifs sprint", "Sprint qualifying") }</h2><ol class="rows">{ for sprint_quali.iter().map(sprint_qualifying_row) }</ol></section>
-            }
+            if over { { quali_cards.clone() } }
 
             if !fastest.is_empty() {
                 <section class="card">
