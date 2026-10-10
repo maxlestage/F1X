@@ -1,6 +1,8 @@
-//! Site de présentation (`/presentation`) et pages légales : HTML + CSS rendus par le serveur,
-//! lisibles sans JavaScript (un petit script facultatif ne fait qu'animer). Bilingue : `?lang=fr|en`, sinon langue du navigateur (`Accept-Language`).
+//! Site de présentation (`/presentation`) et pages légales, écrits avec active : HTML + CSS
+//! rendus par le serveur, lisibles sans JavaScript (un petit script facultatif ne fait
+//! qu'animer). Bilingue : `?lang=fr|en`, sinon langue du navigateur (`Accept-Language`).
 
+use active::prelude::*;
 use axum::extract::Query;
 use axum::http::{HeaderMap, header};
 use axum::response::{Html, IntoResponse, Response};
@@ -62,14 +64,6 @@ fn pick_lang(q: &LangQuery, headers: &HeaderMap) -> Lang {
             }
         }
     }
-}
-
-/// Échappement HTML des valeurs venant de la configuration.
-fn esc(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
 }
 
 /// Captures d'écran réelles de l'app (générées avec Playwright), embarquées dans le binaire.
@@ -143,6 +137,41 @@ pub async fn credits(Query(q): Query<LangQuery>, headers: HeaderMap) -> Response
 
 // ---------- Gabarit commun ----------
 
+/// Balises du `<head>` communes à toutes les pages du site (thème, icônes, police).
+const HEAD: &str = concat!(
+    r##"<meta name="theme-color" content="#0b0b10"/><meta name="color-scheme" content="dark"/>"##,
+    r#"<link rel="manifest" href="/manifest.webmanifest"/>"#,
+    r#"<link rel="icon" href="/favicon.ico" sizes="48x48"/>"#,
+    r#"<link rel="icon" href="/static/icon.svg" type="image/svg+xml"/>"#,
+    r#"<link rel="icon" href="/static/img/favicon-32.png" type="image/png" sizes="32x32"/>"#,
+    r#"<link rel="apple-touch-icon" href="/apple-touch-icon.png"/>"#,
+    r#"<link rel="preconnect" href="https://fonts.googleapis.com"/>"#,
+    r#"<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin=""/>"#,
+);
+
+/// Police du site (Archivo, largeur et graisse variables).
+const FONT: &str =
+    "https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap";
+
+/// Animations d'entrée prévues dès le départ (sinon tout reste visible).
+const HEAD_SCRIPT: &str = include_str!("../static/js/presentation-head.js");
+/// Script facultatif de fin de page : défilement, révélations, curseur, chiffres qui comptent.
+const BODY_SCRIPT: &str = include_str!("../static/js/presentation.js");
+
+/// `<script>` en ligne (code de confiance, écrit dans le dépôt).
+fn script(code: &'static str) -> Element {
+    el("script").html(code)
+}
+
+/// Le logo « F1X » (lien vers la présentation).
+fn brand(code: &str) -> Element {
+    a().class("brand")
+        .href(format!("/presentation?lang={code}"))
+        .attr("aria-label", "F1X")
+        .child(span().text("F1"))
+        .child(span().class("x").text("X"))
+}
+
 struct Meta<'a> {
     /// Chemin de la page (sans `?lang=`), pour les liens absolus et la bascule de langue.
     path: &'a str,
@@ -150,10 +179,11 @@ struct Meta<'a> {
     desc: &'a str,
     /// Lien du bouton du haut (retour à l'app).
     app: &'a str,
-    back_q: &'a str,
+    /// Page de l'app d'où l'on vient (`&back=…` du lien de langue).
+    back: Option<&'a str>,
 }
 
-fn shell(lang: Lang, origin: &str, m: Meta, body: &str) -> String {
+fn shell(lang: Lang, origin: &str, m: Meta, body: impl Into<Node>) -> String {
     let t = |f, e| lang.t(f, e);
     let code = lang.code();
     let (other_code, other_label) = if lang == Lang::Fr {
@@ -171,189 +201,109 @@ fn shell(lang: Lang, origin: &str, m: Meta, body: &str) -> String {
         title,
         desc,
         app,
-        back_q,
+        back,
     } = m;
-    let footer = footer(lang, app);
-    let top_button = t("← Retour à l'app", "← Back to the app");
-    let og_alt = t(
-        "F1X, l'application Formule 1 : accueil et monoplace en 3D sur téléphone",
-        "F1X, the Formula 1 app: home screen and 3D car on a phone",
+    let url = |l: &str| format!("{origin}{path}?lang={l}");
+    let image = format!("{origin}/static/img/og-{code}.png");
+    let seo = Seo::new()
+        .title(title)
+        .description(desc)
+        .canonical(url(code))
+        .alternate("fr", url("fr"))
+        .alternate("en", url("en"))
+        .site_name("F1X")
+        .locale(locale)
+        .image(image.clone())
+        .meta_property("og:locale:alternate", alt_locale)
+        .meta_property("og:image:type", "image/png")
+        .meta_property("og:image:width", "1200")
+        .meta_property("og:image:height", "630")
+        .meta_property(
+            "og:image:alt",
+            t(
+                "F1X, l'application Formule 1 : accueil et monoplace en 3D sur téléphone",
+                "F1X, the Formula 1 app: home screen and 3D car on a phone",
+            ),
+        )
+        .meta_name("twitter:title", title)
+        .meta_name("twitter:description", desc)
+        .meta_name("twitter:image", image);
+    let back_q = back
+        .map(|b| format!("&back={}", b.replace('/', "%2F")))
+        .unwrap_or_default();
+    let top = header().class("top").child(brand(code)).child(
+        nav()
+            .class("top-links")
+            .child(
+                a().class("lang")
+                    .href(format!("{path}?lang={other_code}{back_q}"))
+                    .attr("hreflang", other_code)
+                    .text(other_label),
+            )
+            .child(
+                a().class("btn btn-small")
+                    .href(app.to_string())
+                    .text(t("← Retour à l'app", "← Back to the app")),
+            ),
     );
-    format!(
-        r##"<!doctype html>
-<html lang="{code}">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b0b10">
-<meta name="color-scheme" content="dark">
-<title>{title}</title>
-<meta name="description" content="{desc}">
-<link rel="canonical" href="{origin}{path}?lang={code}">
-<link rel="alternate" hreflang="fr" href="{origin}{path}?lang=fr">
-<link rel="alternate" hreflang="en" href="{origin}{path}?lang=en">
-<meta property="og:type" content="website">
-<meta property="og:site_name" content="F1X">
-<meta property="og:locale" content="{locale}">
-<meta property="og:locale:alternate" content="{alt_locale}">
-<meta property="og:url" content="{origin}{path}?lang={code}">
-<meta property="og:title" content="{title}">
-<meta property="og:description" content="{desc}">
-<meta property="og:image" content="{origin}/static/img/og-{code}.png">
-<meta property="og:image:type" content="image/png">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="{og_alt}">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="{title}">
-<meta name="twitter:description" content="{desc}">
-<meta name="twitter:image" content="{origin}/static/img/og-{code}.png">
-<link rel="manifest" href="/manifest.webmanifest">
-<link rel="icon" href="/favicon.ico" sizes="48x48">
-<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-<link rel="icon" href="/static/img/favicon-32.png" type="image/png" sizes="32x32">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap">
-<style>{CSS}</style>
-<script>
-// Animations d'entrée prévues dès le départ (sinon tout reste visible) ; filet de sécurité si le script de fin ne passe pas.
-(function () {{
-  var r = document.documentElement;
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches || !("IntersectionObserver" in window)) return;
-  r.classList.add("anime");
-  setTimeout(function () {{ if (!window.__f1xVu) r.classList.remove("anime"); }}, 3000);
-}})();
-</script>
-</head>
-<body>
-<div class="grain" aria-hidden="true"></div>
-<div class="curseur" aria-hidden="true"><span></span></div>
-<header class="top">
-  <a class="brand" href="/presentation?lang={code}" aria-label="F1X"><span>F1</span><span class="x">X</span></a>
-  <nav class="top-links">
-    <a class="lang" href="{path}?lang={other_code}{back_q}" hreflang="{other_code}">{other_label}</a>
-    <a class="btn btn-small" href="{app}">{top_button}</a>
-  </nav>
-</header>
-<main>
-{body}
-</main>
-{footer}
-<script>
-(function () {{
-  var root = document.documentElement, reduit = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  var souris = matchMedia("(hover: hover) and (pointer: fine)").matches;
-  // Barre du haut plus dense au défilement ; barre de progression si le CSS ne sait pas la lier au défilement.
-  var progres = !(window.CSS && CSS.supports && CSS.supports("animation-timeline: scroll()")), prevu = false;
-  addEventListener("scroll", function () {{
-    if (prevu) return;
-    prevu = true;
-    requestAnimationFrame(function () {{
-      prevu = false;
-      var y = scrollY, h = root.scrollHeight - innerHeight;
-      root.toggleAttribute("data-defile", y > 24);
-      if (progres) root.style.setProperty("--defile", h > 0 ? Math.min(1, y / h).toFixed(4) : 0);
-    }});
-  }}, {{ passive: true }});
-  // Blocs qui entrent en scène en arrivant à l'écran (en cascade s'ils arrivent ensemble).
-  window.__f1xVu = 1;
-  if (root.classList.contains("anime")) {{
-    var vus = new IntersectionObserver(function (es) {{
-      var k = 0;
-      es.forEach(function (e) {{
-        if (!e.isIntersecting) return;
-        vus.unobserve(e.target);
-        e.target.style.setProperty("--d", Math.min(k++, 6) * 90 + "ms");
-        e.target.classList.add("vu");
-      }});
-    }}, {{ rootMargin: "0px 0px -8% 0px" }});
-    document.querySelectorAll(".numbers li, .feature, .band, .final, .doc > *, .foot-grid > *, .foot-bottom, .foot-legal").forEach(function (el) {{ vus.observe(el); }});
-  }}
-  if (souris) {{
-    // Curseur anneau qui grossit sur ce qui se clique.
-    var c = document.querySelector(".curseur"), x = -100, y = -100, cx = x, cy = y;
-    addEventListener("mousemove", function (e) {{
-      x = e.clientX; y = e.clientY;
-      c.classList.toggle("actif", !!(e.target.closest && e.target.closest("a, button")));
-    }}, {{ passive: true }});
-    (function boucle() {{
-      cx += (x - cx) * (reduit ? 1 : .22); cy += (y - cy) * (reduit ? 1 : .22);
-      c.style.transform = "translate(" + cx + "px," + cy + "px)";
-      requestAnimationFrame(boucle);
-    }})();
-    if (!reduit) {{
-      // Projecteur sur les cartes et téléphone de l'accueil qui s'incline vers la souris.
-      document.addEventListener("pointermove", function (e) {{
-        var b = e.target.closest && e.target.closest(".mini, .numbers li, .steps li");
-        if (!b) return;
-        var r = b.getBoundingClientRect();
-        b.style.setProperty("--mx", Math.round(e.clientX - r.left) + "px");
-        b.style.setProperty("--my", Math.round(e.clientY - r.top) + "px");
-      }}, {{ passive: true }});
-      var tel = document.querySelector(".hero-shot");
-      if (tel) addEventListener("mousemove", function (e) {{
-        var kx = e.clientX / innerWidth - .5, ky = e.clientY / innerHeight - .5;
-        tel.style.setProperty("--ry", (kx * 14).toFixed(2) + "deg");
-        tel.style.setProperty("--rx", (-ky * 10).toFixed(2) + "deg");
-      }}, {{ passive: true }});
-    }}
-  }}
-  // Chiffres clés : comptent depuis 0 quand ils arrivent à l'écran (valeur finale déjà affichée sans script).
-  if (!matchMedia("(prefers-reduced-motion: reduce)").matches && "IntersectionObserver" in window) {{
-    var io = new IntersectionObserver(function (es) {{
-      es.forEach(function (e) {{
-        if (!e.isIntersecting) return;
-        io.unobserve(e.target);
-        var el = e.target, final = el.textContent, n = parseInt(final.replace(/\D/g, ""), 10);
-        if (!n) return;
-        var t0 = performance.now();
-        (function tick(t) {{
-          var k = Math.min(1, (t - t0) / 1400), v = Math.round(n * (1 - Math.pow(1 - k, 3)));
-          el.textContent = k < 1 ? final.replace(/[\d\s\u202f]+/, v.toLocaleString(document.documentElement.lang) + (/\s$/.test(final) ? " " : "")) : final;
-          if (k < 1) requestAnimationFrame(tick);
-        }})(t0);
-      }});
-    }}, {{ threshold: .6 }});
-    document.querySelectorAll(".numbers strong").forEach(function (el) {{ io.observe(el); }});
-  }}
-  // Boutons aimantés : suivent légèrement le pointeur (souris uniquement).
-  if (matchMedia("(hover: hover) and (pointer: fine)").matches) {{
-    document.querySelectorAll(".btn, .lang").forEach(function (b) {{
-      b.addEventListener("pointermove", function (e) {{
-        var r = b.getBoundingClientRect();
-        b.style.transform = "translate(" + (e.clientX - r.left - r.width / 2) * .25 + "px," + (e.clientY - r.top - r.height / 2) * .35 + "px)";
-      }});
-      b.addEventListener("pointerleave", function () {{ b.style.transform = ""; }});
-    }});
-  }}
-}})();
-</script>
-</body>
-</html>"##
-    )
+    let page = fragment([
+        Node::from(div().class("grain").attr("aria-hidden", "true")),
+        div()
+            .class("curseur")
+            .attr("aria-hidden", "true")
+            .child(span())
+            .into(),
+        top.into(),
+        main().child(body).into(),
+        footer_of(lang, app),
+        script(BODY_SCRIPT).into(),
+    ]);
+    Document::new(page)
+        .lang(code)
+        .viewport("width=device-width, initial-scale=1, viewport-fit=cover")
+        .seo(seo)
+        .head(HEAD)
+        .stylesheet(FONT)
+        .head(format!("<style>{CSS}</style>"))
+        .head(format!("<script>{HEAD_SCRIPT}</script>"))
+        .render()
 }
 
 /// Pied de page commun (site de présentation et pages légales).
-fn footer(lang: Lang, app: &str) -> String {
+fn footer_of(lang: Lang, app: &str) -> Node {
     let t = |f, e| lang.t(f, e);
     let code = lang.code();
     let year = chrono::Utc::now().year();
-    let list = |items: &[(&str, &str)]| -> String {
-        items
-            .iter()
-            .map(|(href, label)| format!(r#"<li><a href="{href}">{label}</a></li>"#))
-            .collect()
+    let list = |items: Vec<(String, &'static str)>| {
+        ul().children(
+            items
+                .into_iter()
+                .map(|(href, label)| li().child(a().href(href).text(label))),
+        )
     };
-    let app_links = list(&[
-        ("/", t("Accueil", "Home")),
-        ("/direct", t("Direct et replays", "Live & replays")),
-        ("/saison/current", t("Calendrier", "Calendar")),
-        ("/saison/current/pilotes", t("Classements", "Standings")),
-        ("/archives", t("Archives depuis 1950", "History since 1950")),
-    ]);
-    let discover = [
+    let column = |title: &'static str, items: Vec<(String, &'static str)>| {
+        nav()
+            .attr("aria-label", title)
+            .child(h3().text(title))
+            .child(list(items))
+    };
+    let app_links = vec![
+        ("/".to_string(), t("Accueil", "Home")),
+        (
+            "/direct".to_string(),
+            t("Direct et replays", "Live & replays"),
+        ),
+        ("/saison/current".to_string(), t("Calendrier", "Calendar")),
+        (
+            "/saison/current/pilotes".to_string(),
+            t("Classements", "Standings"),
+        ),
+        (
+            "/archives".to_string(),
+            t("Archives depuis 1950", "History since 1950"),
+        ),
+    ];
+    let discover = vec![
         (
             format!("/presentation?lang={code}#fonctionnalites"),
             t("Fonctionnalités", "Features"),
@@ -365,64 +315,79 @@ fn footer(lang: Lang, app: &str) -> String {
         ("/lexique".to_string(), t("Lexique de la F1", "F1 glossary")),
         ("/archives/records".to_string(), "Records"),
         ("/actus".to_string(), t("Actualités", "News")),
-    ]
-    .iter()
-    .map(|(href, label)| format!(r#"<li><a href="{href}">{label}</a></li>"#))
-    .collect::<String>();
-    let legal_links = list(&[
+    ];
+    let legal_links = vec![
         (
-            &format!("/mentions-legales?lang={code}"),
+            format!("/mentions-legales?lang={code}"),
             t("Mentions légales", "Legal notice"),
         ),
         (
-            &format!("/confidentialite?lang={code}"),
+            format!("/confidentialite?lang={code}"),
             t("Confidentialité", "Privacy"),
         ),
         (
-            &format!("/credits?lang={code}"),
+            format!("/credits?lang={code}"),
             t("Crédits et sources", "Credits & sources"),
         ),
-    ]);
-    format!(
-        r#"<footer class="foot">
-  <div class="foot-grid">
-    <div class="foot-brand">
-      <a class="brand" href="/presentation?lang={code}" aria-label="F1X"><span>F1</span><span class="x">X</span></a>
-      <p>{tagline}</p>
-      <a class="btn btn-small" href="{app}">{open} <span aria-hidden="true">→</span></a>
-    </div>
-    <nav aria-label="{h_app}"><h3>{h_app}</h3><ul>{app_links}</ul></nav>
-    <nav aria-label="{h_discover}"><h3>{h_discover}</h3><ul>{discover}</ul></nav>
-    <nav aria-label="{h_legal}"><h3>{h_legal}</h3><ul>{legal_links}</ul></nav>
-  </div>
-  <div class="foot-bottom">
-    <p>© {year} F1X — {by} Maxime Nathan Lestage. {rights}</p>
-    <p class="foot-lang"><a href="?lang=fr" hreflang="fr" lang="fr">Français</a><span aria-hidden="true">·</span><a href="?lang=en" hreflang="en" lang="en">English</a></p>
-  </div>
-  <p class="foot-legal">{disclaimer}</p>
-</footer>"#,
-        tagline = t(
-            "Toute la Formule 1 dans ta poche : direct, circuits en 3D, 75 ans d'archives.",
-            "All of Formula 1 in your pocket: live timing, 3D circuits, 75 years of history.",
-        ),
-        open = t("Ouvrir l'app", "Open the app"),
-        h_app = t("Application", "App"),
-        h_discover = t("Découvrir", "Discover"),
-        h_legal = t("Informations légales", "Legal"),
-        rights = t("Tous droits réservés.", "All rights reserved."),
-        by = t("conçu et développé par", "designed and built by"),
-        disclaimer = t(
+    ];
+    let other_lang = |l: &'static str, name: &'static str| {
+        a().href(format!("?lang={l}"))
+            .attr("hreflang", l)
+            .attr("lang", l)
+            .text(name)
+    };
+    footer()
+        .class("foot")
+        .child(
+            div()
+                .class("foot-grid")
+                .child(
+                    div()
+                        .class("foot-brand")
+                        .child(brand(code))
+                        .child(p().text(t(
+                            "Toute la Formule 1 dans ta poche : direct, circuits en 3D, 75 ans d'archives.",
+                            "All of Formula 1 in your pocket: live timing, 3D circuits, 75 years of history.",
+                        )))
+                        .child(
+                            a().class("btn btn-small")
+                                .href(app.to_string())
+                                .text(t("Ouvrir l'app", "Open the app"))
+                                .text(" ")
+                                .child(span().attr("aria-hidden", "true").text("→")),
+                        ),
+                )
+                .child(column(t("Application", "App"), app_links))
+                .child(column(t("Découvrir", "Discover"), discover))
+                .child(column(t("Informations légales", "Legal"), legal_links)),
+        )
+        .child(
+            div()
+                .class("foot-bottom")
+                .child(p().text(format!(
+                    "© {year} F1X — {} Maxime Nathan Lestage. {}",
+                    t("conçu et développé par", "designed and built by"),
+                    t("Tous droits réservés.", "All rights reserved."),
+                )))
+                .child(
+                    p().class("foot-lang")
+                        .child(other_lang("fr", "Français"))
+                        .child(span().attr("aria-hidden", "true").text("·"))
+                        .child(other_lang("en", "English")),
+                ),
+        )
+        .child(p().class("foot-legal").text(t(
             "F1X est un service indépendant et non officiel, sans lien avec Formula One Group, la FIA ou les écuries. F1, FORMULA ONE, FORMULA 1, GRAND PRIX et les marques associées appartiennent à Formula One Licensing B.V. Les noms d'écuries et de pilotes sont cités à titre informatif.",
             "F1X is an independent, unofficial service, not affiliated with Formula One Group, the FIA or the teams. F1, FORMULA ONE, FORMULA 1, GRAND PRIX and related marks are trademarks of Formula One Licensing B.V. Team and driver names are used for information purposes only.",
-        ),
-    )
+        )))
+        .into()
 }
 
 // ---------- Présentation ----------
 
 /// Découpe un texte en mots animables (`<span class="{class}" style="--i:n">`).
 /// La ponctuation isolée (« ? », « ! ») reste collée au mot d'avant (espace insécable).
-fn words(text: &str, class: &str) -> String {
+fn words(text: &str, class: &'static str) -> Vec<Node> {
     let mut list: Vec<String> = Vec::new();
     for w in text.split(' ') {
         match list.last_mut() {
@@ -433,16 +398,25 @@ fn words(text: &str, class: &str) -> String {
             _ => list.push(w.to_string()),
         }
     }
-    list.iter()
-        .enumerate()
-        .map(|(i, w)| format!(r#"<span class="{class}" style="--i:{i}"><span>{w}</span></span> "#))
-        .collect::<String>()
-        .trim_end()
-        .to_string()
+    let count = list.len();
+    let mut nodes = Vec::with_capacity(count * 2);
+    for (i, w) in list.into_iter().enumerate() {
+        nodes.push(
+            span()
+                .class(class)
+                .style(format!("--i:{i}"))
+                .child(span().text(w))
+                .into(),
+        );
+        if i + 1 < count {
+            nodes.push(Node::from(" "));
+        }
+    }
+    nodes
 }
 
 /// Bandeau qui défile : les rubriques de l'app séparées par un point signal.
-fn ribbon(lang: Lang) -> String {
+fn ribbon(lang: Lang) -> Vec<Node> {
     ribbon_of(&[
         lang.t("Race Center", "Race Center"),
         lang.t("Circuits en 3D", "3D circuits"),
@@ -455,7 +429,7 @@ fn ribbon(lang: Lang) -> String {
 }
 
 /// Second bandeau (sens inverse) : ce qu'on fait avec l'app.
-fn ribbon_fans(lang: Lang) -> String {
+fn ribbon_fans(lang: Lang) -> Vec<Node> {
     ribbon_of(&[
         lang.t("Direct", "Live"),
         lang.t("Replays ×60", "Replays ×60"),
@@ -468,290 +442,407 @@ fn ribbon_fans(lang: Lang) -> String {
     ])
 }
 
-fn ribbon_of(items: &[&str]) -> String {
+fn ribbon_of(items: &[&'static str]) -> Vec<Node> {
     items
         .iter()
-        .map(|w| format!("<span>{w}</span><i></i>"))
+        .flat_map(|w| [span().text(*w).into(), i().into()])
         .collect()
+}
+
+/// Bandeau (défilement en boucle : le contenu est répété deux fois).
+fn band(items: Vec<Node>, reverse: bool) -> Element {
+    div()
+        .class("bande")
+        .class(if reverse { "inverse" } else { "" })
+        .attr("aria-hidden", "true")
+        .child(div().class("bande-piste").child(items.clone()).child(items))
+}
+
+/// Bouton d'appel à l'action « Voir l'app web → ».
+fn cta(href: &str, label: &'static str) -> Element {
+    a().class("btn btn-big")
+        .href(href.to_string())
+        .text(label)
+        .text(" ")
+        .child(span().attr("aria-hidden", "true").text("→"))
+}
+
+struct Feature<'a> {
+    id: &'static str,
+    eyebrow: &'static str,
+    title: &'static str,
+    text: &'static str,
+    bullets: &'a [&'static str],
+    shots: Vec<Element>,
+    reverse: bool,
+}
+
+fn feature(f: Feature) -> Element {
+    section()
+        .class("feature")
+        .class(if f.reverse { "reverse" } else { "" })
+        .id(f.id)
+        .child(
+            div()
+                .class("feature-text")
+                .child(p().class("eyebrow").text(f.eyebrow))
+                .child(h2().class("mots").children(words(f.title, "mot")))
+                .child(p().text(f.text))
+                .child(
+                    ul().class("checks").children(
+                        f.bullets
+                            .iter()
+                            .enumerate()
+                            .map(|(i, b)| li().style(format!("--i:{i}")).text(*b)),
+                    ),
+                ),
+        )
+        .child(div().class("feature-shots").children(f.shots))
 }
 
 fn render(lang: Lang, back: Option<&str>, origin: &str) -> String {
     let t = |f: &'static str, e: &'static str| lang.t(f, e);
     let code = lang.code();
-    let img = |name: &str, alt: &str| {
-        format!(
-            r#"<figure class="phone"><img src="/presentation/shots/{name}-{code}.jpg" alt="{alt}" width="390" height="844" loading="lazy"></figure>"#
-        )
-    };
-
-    let feature = |id: &str,
-                   eyebrow: &str,
-                   title: &str,
-                   text: &str,
-                   bullets: &[&str],
-                   shots: &str,
-                   reverse: bool| {
-        let items: String = bullets
-            .iter()
-            .enumerate()
-            .map(|(i, b)| format!(r#"<li style="--i:{i}">{b}</li>"#))
-            .collect();
-        let title = words(title, "mot");
-        format!(
-            r#"<section class="feature{rev}" id="{id}"><div class="feature-text"><p class="eyebrow">{eyebrow}</p><h2 class="mots">{title}</h2><p>{text}</p><ul class="checks">{items}</ul></div><div class="feature-shots">{shots}</div></section>"#,
-            rev = if reverse { " reverse" } else { "" }
+    let shot = |name: &str, alt: &'static str| {
+        figure().class("phone").child(
+            img()
+                .attr("src", format!("/presentation/shots/{name}-{code}.jpg"))
+                .attr("alt", alt)
+                .attr("width", "390")
+                .attr("height", "844")
+                .attr("loading", "lazy"),
         )
     };
 
     let features = [
-        feature(
-            "race-center",
-            "Race Center",
-            t("La course comme si tu y étais.", "The race as if you were there."),
-            t(
+        Feature {
+            id: "race-center",
+            eyebrow: "Race Center",
+            title: t("La course comme si tu y étais.", "The race as if you were there."),
+            text: t(
                 "Rejoue n'importe quelle session depuis 2023 comme en direct, de ×1 à ×60, avec pause et retour en arrière. Tout arrive en temps réel par WebSocket.",
                 "Replay any session since 2023 as if it were live, from ×1 to ×60, with pause and rewind. Everything streams in real time over WebSocket.",
             ),
-            &[
+            bullets: &[
                 t("Classement, écarts avec la voiture devant et le leader", "Order, gaps to the car ahead and to the leader"),
                 t("Secteurs violet / vert / jaune, pneus et âge des gommes", "Purple / green / yellow sectors, tyres and tyre age"),
                 t("Carte en 2D ou en relief 3D : les voitures roulent sur le circuit", "2D or 3D relief map: watch the cars lap the circuit"),
                 t("« Et s'il s'arrêtait maintenant ? » : position de sortie des stands", "“What if they pit now?”: projected rejoin position"),
             ],
-            &(img("live", t("Race Center en replay", "Race Center replay")) + &img("strategy", t("Stratégie des pneus", "Tyre strategy"))),
-            false,
-        ),
-        feature(
-            "monoplaces-3d",
-            t("Nouveau · 3D", "New · 3D"),
-            t("Les monoplaces en 3D.", "The cars in 3D."),
-            t(
+            shots: vec![
+                shot("live", t("Race Center en replay", "Race Center replay")),
+                shot("strategy", t("Stratégie des pneus", "Tyre strategy")),
+            ],
+            reverse: false,
+        },
+        Feature {
+            id: "monoplaces-3d",
+            eyebrow: t("Nouveau · 3D", "New · 3D"),
+            title: t("Les monoplaces en 3D.", "The cars in 3D."),
+            text: t(
                 "Chaque écurie a sa monoplace en 3D, à ses couleurs. Fais-la tourner du doigt, zoome, admire les ailerons, le halo et les gommes.",
                 "Every team has its car in 3D, in its colours. Spin it with your finger, zoom in, check out the wings, the halo and the tyres.",
             ),
-            &[
+            bullets: &[
                 t("Rendu en temps réel (WebGL 2), fluide sur téléphone", "Real-time rendering (WebGL 2), smooth on phones"),
                 t("Sur chaque page écurie et pilote", "On every team and driver page"),
                 t("Modèle stylisé original, généré par le code", "Original stylised model, generated by code"),
             ],
-            &img("car3d", t("Monoplace en 3D aux couleurs de l'écurie", "3D car in team colours")),
-            true,
-        ),
-        feature(
-            "circuits",
-            "Circuits",
-            t("Chaque circuit, au GPS et en relief.", "Every circuit, from GPS, in 3D."),
-            t(
+            shots: vec![shot("car3d", t("Monoplace en 3D aux couleurs de l'écurie", "3D car in team colours"))],
+            reverse: true,
+        },
+        Feature {
+            id: "circuits",
+            eyebrow: "Circuits",
+            title: t("Chaque circuit, au GPS et en relief.", "Every circuit, from GPS, in 3D."),
+            text: t(
                 "Le tracé est reconstitué à partir des positions réelles d'une voiture sur son meilleur tour, avec l'altitude. Survole-le en 3D ou monte à bord : la voiture rejoue le tour à vitesse réelle.",
                 "The layout is rebuilt from a real car's positions on its fastest lap, elevation included. Fly over it in 3D or ride onboard: the car replays the lap at real speed.",
             ),
-            &[
+            bullets: &[
                 t("Relief réel : Raidillon, Monaco, Suzuka comme tu ne les as jamais vus", "Real elevation: Raidillon, Monaco, Suzuka like never before"),
                 t("Caméra embarquée sur le meilleur tour", "Onboard camera on the fastest lap"),
                 t("Plan 2D : vitesse, rapport, gaz et freinage en chaque point", "2D map: speed, gear, throttle and braking at every point"),
                 t("Longueur, vitesses max / mini / moyenne, palmarès, rois du circuit", "Length, top / min / average speed, winners, kings of the circuit"),
             ],
-            &(img("circuit3d", t("Circuit de Spa en relief 3D", "Spa circuit in 3D relief")) + &img("onboard", t("Caméra embarquée à Spa", "Onboard camera at Spa"))),
-            false,
-        ),
-        feature(
-            "histoire",
-            t("75 ans d'histoire", "75 years of history"),
-            t("Toutes les saisons depuis 1950.", "Every season since 1950."),
-            t(
+            shots: vec![
+                shot("circuit3d", t("Circuit de Spa en relief 3D", "Spa circuit in 3D relief")),
+                shot("onboard", t("Caméra embarquée à Spa", "Onboard camera at Spa")),
+            ],
+            reverse: false,
+        },
+        Feature {
+            id: "histoire",
+            eyebrow: t("75 ans d'histoire", "75 years of history"),
+            title: t("Toutes les saisons depuis 1950.", "Every season since 1950."),
+            text: t(
                 "Calendriers, résultats, classements, carrières des pilotes avec leur photo, palmarès des écuries : toute l'histoire de la F1 est à portée de pouce.",
                 "Calendars, results, standings, driver careers with photos, team records: the whole history of F1 at your fingertips.",
             ),
-            &[
+            bullets: &[
                 t("Photos et avatars des pilotes (images libres, créditées)", "Driver photos and avatars (free, credited images)"),
                 t("Records : titres, victoires, poles, séries, plus jeunes vainqueurs", "Records: titles, wins, poles, streaks, youngest winners"),
                 t("880+ pilotes et 210+ écuries, avec recherche", "880+ drivers and 210+ teams, searchable"),
                 t("Analyse tour par tour des Grands Prix depuis 1996", "Lap-by-lap analysis of Grands Prix since 1996"),
             ],
-            &(img("photos", t("Fiche pilote avec photo", "Driver page with photo")) + &img("records", t("Records de la F1", "F1 records"))),
-            true,
-        ),
-        feature(
-            "fans",
-            t("Pour les fans", "For fans"),
-            t("Compare, pronostique, joue.", "Compare, predict, play."),
-            t(
+            shots: vec![
+                shot("photos", t("Fiche pilote avec photo", "Driver page with photo")),
+                shot("records", t("Records de la F1", "F1 records")),
+            ],
+            reverse: true,
+        },
+        Feature {
+            id: "fans",
+            eyebrow: t("Pour les fans", "For fans"),
+            title: t("Compare, pronostique, joue.", "Compare, predict, play."),
+            text: t(
                 "Mets deux pilotes face à face, pronostique chaque Grand Prix, monte ton équipe Fantasy et teste tes connaissances.",
                 "Put two drivers head to head, predict every Grand Prix, build your Fantasy team and test your knowledge.",
             ),
-            &[
+            bullets: &[
                 t("Comparateur : statistiques et face-à-face en course", "Compare: stats and head-to-head results"),
                 t("Pronostics notés automatiquement après la course", "Predictions scored automatically after the race"),
                 t("Fantasy F1 (100 M€) et quiz « Devine le pilote »", "Fantasy F1 (€100M) and “Guess the driver” quiz"),
             ],
-            &img("compare", t("Comparateur Hamilton / Verstappen", "Hamilton / Verstappen comparison")),
-            false,
-        ),
+            shots: vec![shot("compare", t("Comparateur Hamilton / Verstappen", "Hamilton / Verstappen comparison"))],
+            reverse: false,
+        },
     ]
-    .join("");
+    .into_iter()
+    .map(feature)
+    .collect::<Vec<_>>();
 
     let cards = [
-        ("📲", t("Installable", "Installable"), t("Sur l'écran d'accueil, en plein écran, comme une app.", "On your home screen, full screen, like an app.")),
-        ("📶", t("Hors ligne", "Offline"), t("Les dernières données consultées restent disponibles.", "The latest data you viewed stays available.")),
-        ("🌦️", t("Météo du week-end", "Weekend weather"), t("Prévisions par session et impact sur la course.", "Forecast per session and race impact.")),
-        ("⏱", t("Compte à rebours", "Countdown"), t("Prochaine séance à ton heure locale.", "Next session in your local time.")),
-        ("📰", t("Actualités", "News"), t("Les derniers titres de la presse F1.", "Latest F1 headlines.")),
-        ("⭐", t("Favoris", "Favourites"), t("Ton pilote et ton écurie mis en avant.", "Your driver and team highlighted.")),
-        ("🌍", t("Français / English", "English / Français"), t("Toute l'app dans les deux langues.", "The whole app in both languages.")),
-        ("📱", t("Pensée pour le mobile", "Mobile first"), t("Zéro défilement horizontal, lisible d'une main.", "No horizontal scrolling, one-handed reading.")),
-        ("⬇", t("Export CSV", "CSV export"), t("Classements et résultats à télécharger.", "Download standings and results.")),
-        ("📚", t("Lexique", "Glossary"), t("Drapeaux, pneus, stratégie, règlement 2026.", "Flags, tyres, strategy, 2026 rules.")),
+        (
+            "📲",
+            t("Installable", "Installable"),
+            t(
+                "Sur l'écran d'accueil, en plein écran, comme une app.",
+                "On your home screen, full screen, like an app.",
+            ),
+        ),
+        (
+            "📶",
+            t("Hors ligne", "Offline"),
+            t(
+                "Les dernières données consultées restent disponibles.",
+                "The latest data you viewed stays available.",
+            ),
+        ),
+        (
+            "🌦️",
+            t("Météo du week-end", "Weekend weather"),
+            t(
+                "Prévisions par session et impact sur la course.",
+                "Forecast per session and race impact.",
+            ),
+        ),
+        (
+            "⏱",
+            t("Compte à rebours", "Countdown"),
+            t(
+                "Prochaine séance à ton heure locale.",
+                "Next session in your local time.",
+            ),
+        ),
+        (
+            "📰",
+            t("Actualités", "News"),
+            t(
+                "Les derniers titres de la presse F1.",
+                "Latest F1 headlines.",
+            ),
+        ),
+        (
+            "⭐",
+            t("Favoris", "Favourites"),
+            t(
+                "Ton pilote et ton écurie mis en avant.",
+                "Your driver and team highlighted.",
+            ),
+        ),
+        (
+            "🌍",
+            t("Français / English", "English / Français"),
+            t(
+                "Toute l'app dans les deux langues.",
+                "The whole app in both languages.",
+            ),
+        ),
+        (
+            "📱",
+            t("Pensée pour le mobile", "Mobile first"),
+            t(
+                "Zéro défilement horizontal, lisible d'une main.",
+                "No horizontal scrolling, one-handed reading.",
+            ),
+        ),
+        (
+            "⬇",
+            t("Export CSV", "CSV export"),
+            t(
+                "Classements et résultats à télécharger.",
+                "Download standings and results.",
+            ),
+        ),
+        (
+            "📚",
+            t("Lexique", "Glossary"),
+            t(
+                "Drapeaux, pneus, stratégie, règlement 2026.",
+                "Flags, tyres, strategy, 2026 rules.",
+            ),
+        ),
     ]
-    .iter()
+    .into_iter()
     .enumerate()
-    .map(|(n, (i, h, p))| format!(r#"<li class="mini" style="--i:{n}"><span class="mini-icon" aria-hidden="true">{i}</span><strong>{h}</strong><span>{p}</span></li>"#))
-    .collect::<String>();
+    .map(|(n, (icon, title, text))| {
+        li().class("mini")
+            .style(format!("--i:{n}"))
+            .child(
+                span()
+                    .class("mini-icon")
+                    .attr("aria-hidden", "true")
+                    .text(icon),
+            )
+            .child(strong().text(title))
+            .child(span().text(text))
+    });
 
     let app = back.unwrap_or("/");
-    let back_q = back
-        .map(|b| format!("&amp;back={}", b.replace('/', "%2F")))
-        .unwrap_or_default();
-    let cta = t("Voir l'app web", "See the web app");
-    let body = format!(
-        r##"  <section class="hero">
-    <div class="hero-text">
-      <p class="eyebrow">{eyebrow}</p>
-      <h1 class="mots">{h1}</h1>
-      <p class="lead">{lead}</p>
-      <div class="ctas">
-        <a class="btn btn-big" href="{app}">{cta} <span aria-hidden="true">→</span></a>
-        <a class="btn btn-ghost" href="#fonctionnalites">{discover}</a>
-      </div>
-      <p class="note">{note}</p>
-    </div>
-    <div class="hero-shot">{hero_img}</div>
-  </section>
-
-  <ul class="numbers" aria-label="{numbers_label}">
-    <li><strong>77</strong><span>{seasons}</span></li>
-    <li><strong>1 170+</strong><span>Grands Prix</span></li>
-    <li><strong>880+</strong><span>{drivers}</span></li>
-    <li><strong>3D</strong><span>{three_d}</span></li>
-  </ul>
-
-  <div class="bande" aria-hidden="true"><div class="bande-piste">{ribbon}{ribbon}</div></div>
-
-  <section class="manifeste"><p>{manifesto}</p></section>
-
-  <div id="fonctionnalites">{features}</div>
-
-  <section class="band">
-    <h2 class="mots">{more}</h2>
-    <ul class="minis">{cards}</ul>
-  </section>
-
-  <section class="band install" id="installer">
-    <p class="eyebrow">{install_eyebrow}</p>
-    <h2 class="mots">{install_h}</h2>
-    <p class="band-lead">{install_lead}</p>
-    <ol class="steps">
-      <li><strong>iPhone · iPad (Safari)</strong><span>{install_ios}</span></li>
-      <li><strong>Android (Chrome)</strong><span>{install_android}</span></li>
-      <li><strong>{desktop}</strong><span>{install_desktop}</span></li>
-    </ol>
-  </section>
-
-  <section class="band tech">
-    <p class="eyebrow">{tech_eyebrow}</p>
-    <h2 class="mots">{tech_h}</h2>
-    <p>{tech_p}</p>
-    <ul class="chips"><li>Rust</li><li>WebAssembly</li><li>Yew</li><li>WebGL 2</li><li>WebSocket</li><li>PWA</li></ul>
-  </section>
-
-  <div class="bande inverse" aria-hidden="true"><div class="bande-piste">{ribbon2}{ribbon2}</div></div>
-
-  <section class="final">
-    <h2 class="mots">{final_h}</h2>
-    <a class="btn btn-big" href="{app}">{cta} <span aria-hidden="true">→</span></a>
-  </section>"##,
-        eyebrow = t("Application web gratuite", "Free web app"),
-        h1 = words(
-            t(
-                "Toute la Formule 1 dans ta poche.",
-                "All of Formula 1 in your pocket."
-            ),
-            "mot"
+    let see_app = t("Voir l'app web", "See the web app");
+    let number = |value: &'static str, label: &'static str| {
+        li().child(strong().text(value)).child(span().text(label))
+    };
+    let step = |title: &'static str, text: &'static str| {
+        li().child(strong().text(title)).child(span().text(text))
+    };
+    let body = fragment([
+        Node::from(
+            section()
+                .class("hero")
+                .child(
+                    div()
+                        .class("hero-text")
+                        .child(p().class("eyebrow").text(t("Application web gratuite", "Free web app")))
+                        .child(h1().class("mots").children(words(
+                            t("Toute la Formule 1 dans ta poche.", "All of Formula 1 in your pocket."),
+                            "mot",
+                        )))
+                        .child(p().class("lead").text(t(
+                            "Race Center en temps réel, monoplaces et circuits en 3D, photos des pilotes et 75 ans d'archives. Rapide, clair, pensé pour le téléphone.",
+                            "A real-time Race Center, 3D cars and circuits, driver photos and 75 years of history. Fast, clear and built for your phone.",
+                        )))
+                        .child(
+                            div()
+                                .class("ctas")
+                                .child(cta(app, see_app))
+                                .child(
+                                    a().class("btn btn-ghost")
+                                        .href("#fonctionnalites")
+                                        .text(t("Découvrir", "Discover")),
+                                ),
+                        )
+                        .child(p().class("note").text(t(
+                            "Sans compte, sans publicité, installable en un geste.",
+                            "No account, no ads, installs in one tap.",
+                        ))),
+                )
+                .child(div().class("hero-shot").child(shot(
+                    "home",
+                    t(
+                        "Accueil de F1X : prochain Grand Prix et compte à rebours",
+                        "F1X home: next Grand Prix and countdown",
+                    ),
+                ))),
         ),
-        manifesto = words(
-            t(
-                "Chaque tour, chaque arrêt, chaque radio. La course en direct, les circuits en 3D, 75 ans d'histoire. Tout tient dans ta poche.",
-                "Every lap, every stop, every radio call. The race live, the circuits in 3D, 75 years of history. All of it in your pocket."
-            ),
-            "lueur"
-        ),
-        ribbon = ribbon(lang),
-        ribbon2 = ribbon_fans(lang),
-        lead = t(
-            "Race Center en temps réel, monoplaces et circuits en 3D, photos des pilotes et 75 ans d'archives. Rapide, clair, pensé pour le téléphone.",
-            "A real-time Race Center, 3D cars and circuits, driver photos and 75 years of history. Fast, clear and built for your phone.",
-        ),
-        discover = t("Découvrir", "Discover"),
-        note = t(
-            "Sans compte, sans publicité, installable en un geste.",
-            "No account, no ads, installs in one tap."
-        ),
-        hero_img = img(
-            "home",
-            t(
-                "Accueil de F1X : prochain Grand Prix et compte à rebours",
-                "F1X home: next Grand Prix and countdown"
+        ul().class("numbers")
+            .attr("aria-label", t("F1X en chiffres", "F1X in numbers"))
+            .child(number("77", t("saisons", "seasons")))
+            .child(number("1 170+", "Grands Prix"))
+            .child(number("880+", t("pilotes", "drivers")))
+            .child(number("3D", t("monoplaces et circuits", "cars and circuits")))
+            .into(),
+        band(ribbon(lang), false).into(),
+        section()
+            .class("manifeste")
+            .child(p().children(words(
+                t(
+                    "Chaque tour, chaque arrêt, chaque radio. La course en direct, les circuits en 3D, 75 ans d'histoire. Tout tient dans ta poche.",
+                    "Every lap, every stop, every radio call. The race live, the circuits in 3D, 75 years of history. All of it in your pocket.",
+                ),
+                "lueur",
+            )))
+            .into(),
+        div().id("fonctionnalites").children(features).into(),
+        section()
+            .class("band")
+            .child(h2().class("mots").children(words(t("Et aussi", "And also"), "mot")))
+            .child(ul().class("minis").children(cards))
+            .into(),
+        section()
+            .class("band install")
+            .id("installer")
+            .child(p().class("eyebrow").text(t("Application installable", "Installable app")))
+            .child(h2().class("mots").children(words(
+                t("Installe-la comme une vraie app.", "Install it like a real app."),
+                "mot",
+            )))
+            .child(p().class("band-lead").text(t(
+                "Icône sur l'écran d'accueil, ouverture en plein écran, lancement instantané et consultation hors ligne. Rien à télécharger sur un store.",
+                "Home screen icon, full screen, instant launch and offline access. Nothing to download from a store.",
+            )))
+            .child(
+                ol().class("steps")
+                    .child(step(
+                        "iPhone · iPad (Safari)",
+                        t(
+                            "Ouvre F1X, touche Partager puis « Sur l'écran d'accueil ».",
+                            "Open F1X, tap Share, then “Add to Home Screen”.",
+                        ),
+                    ))
+                    .child(step(
+                        "Android (Chrome)",
+                        t(
+                            "Ouvre F1X : touche « Installer l'app » sur l'accueil, ou menu ⋮ puis « Installer l'application ».",
+                            "Open F1X: tap “Install the app” on the home screen, or ⋮ menu then “Install app”.",
+                        ),
+                    ))
+                    .child(step(
+                        t("Ordinateur (Chrome, Edge)", "Desktop (Chrome, Edge)"),
+                        t(
+                            "Clique sur l'icône d'installation dans la barre d'adresse.",
+                            "Click the install icon in the address bar.",
+                        ),
+                    )),
             )
-        ),
-        numbers_label = t("F1X en chiffres", "F1X in numbers"),
-        seasons = t("saisons", "seasons"),
-        drivers = t("pilotes", "drivers"),
-        three_d = t("monoplaces et circuits", "cars and circuits"),
-        more = words(t("Et aussi", "And also"), "mot"),
-        install_eyebrow = t("Application installable", "Installable app"),
-        install_h = words(
-            t(
-                "Installe-la comme une vraie app.",
-                "Install it like a real app."
-            ),
-            "mot"
-        ),
-        install_lead = t(
-            "Icône sur l'écran d'accueil, ouverture en plein écran, lancement instantané et consultation hors ligne. Rien à télécharger sur un store.",
-            "Home screen icon, full screen, instant launch and offline access. Nothing to download from a store.",
-        ),
-        install_ios = t(
-            "Ouvre F1X, touche Partager puis « Sur l'écran d'accueil ».",
-            "Open F1X, tap Share, then “Add to Home Screen”."
-        ),
-        install_android = t(
-            "Ouvre F1X : touche « Installer l'app » sur l'accueil, ou menu ⋮ puis « Installer l'application ».",
-            "Open F1X: tap “Install the app” on the home screen, or ⋮ menu then “Install app”."
-        ),
-        desktop = t("Ordinateur (Chrome, Edge)", "Desktop (Chrome, Edge)"),
-        install_desktop = t(
-            "Clique sur l'icône d'installation dans la barre d'adresse.",
-            "Click the install icon in the address bar."
-        ),
-        tech_eyebrow = t("Sous le capot", "Under the hood"),
-        tech_h = words(
-            t(
-                "Écrite en Rust, de bout en bout.",
-                "Written in Rust, end to end."
-            ),
-            "mot"
-        ),
-        tech_p = t(
-            "L'interface et le rendu 3D sont en Rust compilé en WebAssembly, le serveur aussi. Le temps réel passe par WebSocket, les données sont mises en cache pour rester rapides, même en 4G.",
-            "The interface and the 3D rendering are Rust compiled to WebAssembly, and so is the server. Real time runs over WebSocket, and data is cached to stay fast, even on 4G.",
-        ),
-        final_h = words(
-            t(
-                "Prêt pour le prochain Grand Prix ?",
-                "Ready for the next Grand Prix?"
-            ),
-            "mot"
-        ),
-    );
+            .into(),
+        section()
+            .class("band tech")
+            .child(p().class("eyebrow").text(t("Sous le capot", "Under the hood")))
+            .child(h2().class("mots").children(words(
+                t("Écrite en Rust, de bout en bout.", "Written in Rust, end to end."),
+                "mot",
+            )))
+            .child(p().text(t(
+                "L'interface et le rendu 3D sont en Rust compilé en WebAssembly, le serveur aussi. Le temps réel passe par WebSocket, les données sont mises en cache pour rester rapides, même en 4G.",
+                "The interface and the 3D rendering are Rust compiled to WebAssembly, and so is the server. Real time runs over WebSocket, and data is cached to stay fast, even on 4G.",
+            )))
+            .child(ul().class("chips").children(
+                ["Rust", "WebAssembly", "active", "WebGL 2", "WebSocket", "PWA"]
+                    .map(|c| li().text(c)),
+            ))
+            .into(),
+        band(ribbon_fans(lang), true).into(),
+        section()
+            .class("final")
+            .child(h2().class("mots").children(words(
+                t("Prêt pour le prochain Grand Prix ?", "Ready for the next Grand Prix?"),
+                "mot",
+            )))
+            .child(cta(app, see_app))
+            .into(),
+    ]);
     shell(
         lang,
         origin,
@@ -766,13 +857,76 @@ fn render(lang: Lang, back: Option<&str>, origin: &str) -> String {
                 "Free web app: real-time Race Center, 3D cars and circuits, driver photos, 75 years of history, predictions and Fantasy. Installable, in English and French.",
             ),
             app,
-            back_q: &back_q,
+            back,
         },
-        &body,
+        body,
     )
 }
 
 // ---------- Pages légales ----------
+
+/// Texte avec liens et gras, écrit simplement : `**gras**` et `[texte](adresse)`. Le texte est
+/// échappé par active ; les adresses viennent du code.
+fn rich(text: &str) -> Vec<Node> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while !rest.is_empty() {
+        let bold = rest.find("**");
+        let link = rest.find('[');
+        match (bold, link) {
+            (Some(b), l) if l.is_none_or(|l| b < l) => {
+                let Some(end) = rest[b + 2..].find("**") else {
+                    out.push(Node::from(rest.to_string()));
+                    break;
+                };
+                out.push(Node::from(rest[..b].to_string()));
+                out.push(strong().children(rich(&rest[b + 2..b + 2 + end])).into());
+                rest = &rest[b + 2 + end + 2..];
+            }
+            (_, Some(l)) => {
+                // L'adresse peut contenir des parenthèses équilibrées (« F60_(2009).ogg »).
+                let parsed = rest[l..].find("](").and_then(|mid| {
+                    let mut depth = 0;
+                    let close = rest[l + mid + 2..].char_indices().find_map(|(i, c)| {
+                        match c {
+                            '(' => depth += 1,
+                            ')' if depth == 0 => return Some(i + 2),
+                            ')' => depth -= 1,
+                            _ => {}
+                        }
+                        None
+                    })?;
+                    Some((mid, close))
+                });
+                let Some((mid, close)) = parsed else {
+                    out.push(Node::from(rest.to_string()));
+                    break;
+                };
+                out.push(Node::from(rest[..l].to_string()));
+                let label = &rest[l + 1..l + mid];
+                let href = &rest[l + mid + 2..l + mid + close];
+                out.push(a().href(href.to_string()).children(rich(label)).into());
+                rest = &rest[l + mid + close + 1..];
+            }
+            _ => {
+                out.push(Node::from(rest.to_string()));
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// Paragraphe : `para("Voir la [politique](/confidentialite).")`.
+fn para(text: &str) -> Node {
+    p().children(rich(text)).into()
+}
+
+/// Liste à puces, un élément par ligne de `items`.
+fn bullets(items: &[&str]) -> Node {
+    ul().children(items.iter().map(|i| li().children(rich(i))))
+        .into()
+}
 
 fn doc_page(
     lang: Lang,
@@ -780,20 +934,17 @@ fn doc_page(
     path: &str,
     title: &str,
     desc: &str,
-    content: &str,
+    content: Vec<Node>,
 ) -> String {
     let updated = lang.t(
         "Dernière mise à jour : 1er octobre 2026",
         "Last updated: 1 October 2026",
     );
-    let title_words = words(title, "mot");
-    let body = format!(
-        r#"  <article class="doc">
-    <h1 class="mots">{title_words}</h1>
-    <p class="doc-date">{updated}</p>
-{content}
-  </article>"#
-    );
+    let body = article()
+        .class("doc")
+        .child(h1().class("mots").children(words(title, "mot")))
+        .child(p().class("doc-date").text(updated))
+        .children(content);
     shell(
         lang,
         origin,
@@ -802,9 +953,9 @@ fn doc_page(
             title: &format!("{title} · F1X"),
             desc,
             app: "/",
-            back_q: "",
+            back: None,
         },
-        &body,
+        body,
     )
 }
 
@@ -822,7 +973,6 @@ fn publisher() -> Publisher {
             .ok()
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty())
-            .map(|v| esc(&v))
     };
     Publisher {
         name: var("LEGAL_PUBLISHER").unwrap_or_else(|| "Maxime Nathan Lestage".into()),
@@ -832,61 +982,85 @@ fn publisher() -> Publisher {
     }
 }
 
+/// Lien `mailto:` vers l'adresse de contact (valeur de la configuration, échappée).
+fn mail(contact: &str) -> Element {
+    a().href(format!("mailto:{contact}"))
+        .text(contact.to_string())
+}
+
 fn legal_page(lang: Lang, origin: &str) -> String {
-    let p = publisher();
+    let pb = publisher();
     let fr = lang == Lang::Fr;
-    let mut editor = format!("<p><strong>{}</strong>", p.name);
-    if let Some(a) = &p.address {
-        editor.push_str(&format!("<br>{a}"));
+    let mut editor = p().child(strong().text(pb.name.clone()));
+    for line in [&pb.address, &pb.registration].into_iter().flatten() {
+        editor = editor.child(br()).text(line.clone());
     }
-    if let Some(r) = &p.registration {
-        editor.push_str(&format!("<br>{r}"));
-    }
-    if let Some(c) = &p.contact {
+    if let Some(c) = &pb.contact {
         let sep = if fr { " :" } else { ":" };
-        editor.push_str(&format!(r#"<br>Contact{sep} <a href="mailto:{c}">{c}</a>"#));
+        editor = editor
+            .child(br())
+            .text(format!("Contact{sep} "))
+            .child(mail(c));
     }
-    editor.push_str("</p>");
+    let h = |title: &'static str| Node::from(h2().text(title));
     let content = if fr {
-        format!(
-            r#"    <h2>Éditeur du site</h2>
-    {editor}
-    <p>Directeur de la publication : {name}.</p>
-    <h2>Hébergement</h2>
-    <p>Salesforce, Inc. (Heroku) — 415 Mission Street, Suite 300, San Francisco, CA 94105, États-Unis — <a href="https://www.heroku.com">heroku.com</a>.</p>
-    <h2>Propriété intellectuelle</h2>
-    <p>L'application F1X, son code, son design, ses textes, ses modèles 3D et son logo sont protégés par le droit d'auteur. Toute reproduction, représentation ou réutilisation, totale ou partielle, sans autorisation écrite préalable de l'éditeur est interdite.</p>
-    <p>Les photos proviennent de Wikimedia Commons et restent la propriété de leurs auteurs, sous les licences libres indiquées sur chaque photo. Les données sportives, cartes et contenus tiers sont détaillés dans les <a href="/credits?lang=fr">crédits et sources</a>.</p>
-    <h2>Marques</h2>
-    <p>F1X est un service indépendant et non officiel, sans lien avec Formula One Group, la Fédération Internationale de l'Automobile (FIA) ou les écuries. F1, FORMULA ONE, FORMULA 1, FIA FORMULA ONE WORLD CHAMPIONSHIP, GRAND PRIX et les marques associées appartiennent à Formula One Licensing B.V. Les noms d'écuries, de pilotes et de circuits sont cités à titre purement informatif.</p>
-    <h2>Responsabilité</h2>
-    <p>Les informations (résultats, classements, chronos, météo, actualités) proviennent de sources publiques et sont fournies à titre indicatif, sans garantie d'exactitude ni de disponibilité. Les données « en direct » peuvent présenter un décalage. L'éditeur ne saurait être tenu responsable de l'usage qui en est fait ni du contenu des sites externes vers lesquels pointent les liens.</p>
-    <h2>Données personnelles</h2>
-    <p>Voir la <a href="/confidentialite?lang=fr">politique de confidentialité</a>.</p>
-    <h2>Droit applicable</h2>
-    <p>Le présent site est soumis au droit français.</p>"#,
-            name = p.name
-        )
+        vec![
+            h("Éditeur du site"),
+            editor.into(),
+            para(&format!("Directeur de la publication : {}.", pb.name)),
+            h("Hébergement"),
+            para(
+                "Salesforce, Inc. (Heroku) — 415 Mission Street, Suite 300, San Francisco, CA 94105, États-Unis — [heroku.com](https://www.heroku.com).",
+            ),
+            h("Propriété intellectuelle"),
+            para(
+                "L'application F1X, son code, son design, ses textes, ses modèles 3D et son logo sont protégés par le droit d'auteur. Toute reproduction, représentation ou réutilisation, totale ou partielle, sans autorisation écrite préalable de l'éditeur est interdite.",
+            ),
+            para(
+                "Les photos proviennent de Wikimedia Commons et restent la propriété de leurs auteurs, sous les licences libres indiquées sur chaque photo. Les données sportives, cartes et contenus tiers sont détaillés dans les [crédits et sources](/credits?lang=fr).",
+            ),
+            h("Marques"),
+            para(
+                "F1X est un service indépendant et non officiel, sans lien avec Formula One Group, la Fédération Internationale de l'Automobile (FIA) ou les écuries. F1, FORMULA ONE, FORMULA 1, FIA FORMULA ONE WORLD CHAMPIONSHIP, GRAND PRIX et les marques associées appartiennent à Formula One Licensing B.V. Les noms d'écuries, de pilotes et de circuits sont cités à titre purement informatif.",
+            ),
+            h("Responsabilité"),
+            para(
+                "Les informations (résultats, classements, chronos, météo, actualités) proviennent de sources publiques et sont fournies à titre indicatif, sans garantie d'exactitude ni de disponibilité. Les données « en direct » peuvent présenter un décalage. L'éditeur ne saurait être tenu responsable de l'usage qui en est fait ni du contenu des sites externes vers lesquels pointent les liens.",
+            ),
+            h("Données personnelles"),
+            para("Voir la [politique de confidentialité](/confidentialite?lang=fr)."),
+            h("Droit applicable"),
+            para("Le présent site est soumis au droit français."),
+        ]
     } else {
-        format!(
-            r#"    <h2>Publisher</h2>
-    {editor}
-    <p>Publication director: {name}.</p>
-    <h2>Hosting</h2>
-    <p>Salesforce, Inc. (Heroku) — 415 Mission Street, Suite 300, San Francisco, CA 94105, USA — <a href="https://www.heroku.com">heroku.com</a>.</p>
-    <h2>Intellectual property</h2>
-    <p>The F1X application, its code, design, texts, 3D models and logo are protected by copyright. Any reproduction, display or reuse, in whole or in part, without the publisher's prior written consent is prohibited.</p>
-    <p>Photos come from Wikimedia Commons and remain the property of their authors, under the free licences shown on each photo. Sports data, maps and third-party content are detailed in the <a href="/credits?lang=en">credits &amp; sources</a>.</p>
-    <h2>Trademarks</h2>
-    <p>F1X is an independent, unofficial service, not affiliated with Formula One Group, the Fédération Internationale de l'Automobile (FIA) or the teams. F1, FORMULA ONE, FORMULA 1, FIA FORMULA ONE WORLD CHAMPIONSHIP, GRAND PRIX and related marks are trademarks of Formula One Licensing B.V. Team, driver and circuit names are used for information purposes only.</p>
-    <h2>Liability</h2>
-    <p>Information (results, standings, timing, weather, news) comes from public sources and is provided for information only, with no guarantee of accuracy or availability. “Live” data may be delayed. The publisher cannot be held liable for its use or for the content of external sites linked from F1X.</p>
-    <h2>Personal data</h2>
-    <p>See the <a href="/confidentialite?lang=en">privacy policy</a>.</p>
-    <h2>Governing law</h2>
-    <p>This site is governed by French law.</p>"#,
-            name = p.name
-        )
+        vec![
+            h("Publisher"),
+            editor.into(),
+            para(&format!("Publication director: {}.", pb.name)),
+            h("Hosting"),
+            para(
+                "Salesforce, Inc. (Heroku) — 415 Mission Street, Suite 300, San Francisco, CA 94105, USA — [heroku.com](https://www.heroku.com).",
+            ),
+            h("Intellectual property"),
+            para(
+                "The F1X application, its code, design, texts, 3D models and logo are protected by copyright. Any reproduction, display or reuse, in whole or in part, without the publisher's prior written consent is prohibited.",
+            ),
+            para(
+                "Photos come from Wikimedia Commons and remain the property of their authors, under the free licences shown on each photo. Sports data, maps and third-party content are detailed in the [credits & sources](/credits?lang=en).",
+            ),
+            h("Trademarks"),
+            para(
+                "F1X is an independent, unofficial service, not affiliated with Formula One Group, the Fédération Internationale de l'Automobile (FIA) or the teams. F1, FORMULA ONE, FORMULA 1, FIA FORMULA ONE WORLD CHAMPIONSHIP, GRAND PRIX and related marks are trademarks of Formula One Licensing B.V. Team, driver and circuit names are used for information purposes only.",
+            ),
+            h("Liability"),
+            para(
+                "Information (results, standings, timing, weather, news) comes from public sources and is provided for information only, with no guarantee of accuracy or availability. “Live” data may be delayed. The publisher cannot be held liable for its use or for the content of external sites linked from F1X.",
+            ),
+            h("Personal data"),
+            para("See the [privacy policy](/confidentialite?lang=en)."),
+            h("Governing law"),
+            para("This site is governed by French law."),
+        ]
     };
     doc_page(
         lang,
@@ -897,51 +1071,63 @@ fn legal_page(lang: Lang, origin: &str) -> String {
             "Mentions légales de F1X : éditeur, hébergement, propriété intellectuelle et marques.",
             "F1X legal notice: publisher, hosting, intellectual property and trademarks.",
         ),
-        &content,
+        content,
     )
 }
 
 fn privacy_page(lang: Lang, origin: &str) -> String {
-    let p = publisher();
-    let contact = p
-        .contact
-        .as_ref()
-        .map(|c| format!(r#" (<a href="mailto:{c}">{c}</a>)"#))
-        .unwrap_or_default();
+    let pb = publisher();
+    // « (adresse) » après « l'éditeur », si une adresse de contact est configurée.
+    let contact = |before: &'static str| {
+        let mut para = p().text(before);
+        if let Some(c) = &pb.contact {
+            para = para.text(" (").child(mail(c)).text(")");
+        }
+        para
+    };
+    let h = |title: &'static str| Node::from(h2().text(title));
     let content = if lang == Lang::Fr {
-        format!(
-            r#"    <p class="doc-lead">En bref : F1X ne demande aucun compte, n'utilise ni cookie publicitaire, ni outil de mesure d'audience, ni traceur. Tes préférences restent sur ton appareil.</p>
-    <h2>Ce qui reste sur ton appareil</h2>
-    <p>Pour fonctionner, l'app enregistre localement dans ton navigateur (stockage local et cache hors ligne) : la langue, tes favoris, tes pronostics, ton équipe Fantasy, ton meilleur score au quiz, tes réglages d'alertes, ainsi qu'une copie des pages et données consultées pour l'usage hors ligne. Ces informations ne sont jamais envoyées à nos serveurs. Tu peux les effacer à tout moment depuis les réglages de ton navigateur (données de site).</p>
-    <h2>Journaux techniques</h2>
-    <p>Comme tout site, l'hébergeur (Heroku) traite l'adresse IP et la page demandée pour acheminer les requêtes et assurer la sécurité du service. Ces journaux techniques sont conservés pour une durée limitée et ne servent à aucun profilage.</p>
-    <h2>Services tiers chargés par ton navigateur</h2>
-    <ul>
-      <li><strong>Wikimedia Commons</strong> (photos des pilotes et circuits),</li>
-      <li><strong>OpenStreetMap</strong> (carte des circuits),</li>
-      <li><strong>Open-Meteo</strong> (prévisions météo).</li>
-    </ul>
-    <p>Ces services reçoivent ton adresse IP lors du chargement, comme pour tout contenu web, selon leurs propres politiques de confidentialité. Les liens d'actualités ouvrent les sites des éditeurs de presse.</p>
-    <h2>Tes droits</h2>
-    <p>F1X ne constitue pas de fichier de données personnelles. Pour toute question ou demande relative au RGPD, tu peux contacter l'éditeur{contact}. Tu peux aussi adresser une réclamation à la CNIL (<a href="https://www.cnil.fr">cnil.fr</a>).</p>"#
-        )
+        vec![
+            p().class("doc-lead").text("En bref : F1X ne demande aucun compte, n'utilise ni cookie publicitaire, ni outil de mesure d'audience, ni traceur. Tes préférences restent sur ton appareil.").into(),
+            h("Ce qui reste sur ton appareil"),
+            para("Pour fonctionner, l'app enregistre localement dans ton navigateur (stockage local et cache hors ligne) : la langue, tes favoris, tes pronostics, ton équipe Fantasy, ton meilleur score au quiz, tes réglages d'alertes, ainsi qu'une copie des pages et données consultées pour l'usage hors ligne. Ces informations ne sont jamais envoyées à nos serveurs. Tu peux les effacer à tout moment depuis les réglages de ton navigateur (données de site)."),
+            h("Journaux techniques"),
+            para("Comme tout site, l'hébergeur (Heroku) traite l'adresse IP et la page demandée pour acheminer les requêtes et assurer la sécurité du service. Ces journaux techniques sont conservés pour une durée limitée et ne servent à aucun profilage."),
+            h("Services tiers chargés par ton navigateur"),
+            bullets(&[
+                "**Wikimedia Commons** (photos des pilotes et circuits),",
+                "**OpenStreetMap** (carte des circuits),",
+                "**Open-Meteo** (prévisions météo).",
+            ]),
+            para("Ces services reçoivent ton adresse IP lors du chargement, comme pour tout contenu web, selon leurs propres politiques de confidentialité. Les liens d'actualités ouvrent les sites des éditeurs de presse."),
+            h("Tes droits"),
+            contact(
+                "F1X ne constitue pas de fichier de données personnelles. Pour toute question ou demande relative au RGPD, tu peux contacter l'éditeur",
+            )
+            .children(rich(". Tu peux aussi adresser une réclamation à la CNIL ([cnil.fr](https://www.cnil.fr))."))
+            .into(),
+        ]
     } else {
-        format!(
-            r#"    <p class="doc-lead">In short: F1X requires no account and uses no advertising cookies, no analytics and no trackers. Your preferences stay on your device.</p>
-    <h2>What stays on your device</h2>
-    <p>To work, the app stores locally in your browser (local storage and offline cache): your language, favourites, predictions, Fantasy team, best quiz score, alert settings, and a copy of the pages and data you viewed for offline use. This information is never sent to our servers. You can delete it at any time from your browser settings (site data).</p>
-    <h2>Technical logs</h2>
-    <p>Like any website, the host (Heroku) processes your IP address and the requested page to route requests and keep the service secure. These technical logs are kept for a limited time and are never used for profiling.</p>
-    <h2>Third-party services loaded by your browser</h2>
-    <ul>
-      <li><strong>Wikimedia Commons</strong> (driver and circuit photos),</li>
-      <li><strong>OpenStreetMap</strong> (circuit maps),</li>
-      <li><strong>Open-Meteo</strong> (weather forecasts).</li>
-    </ul>
-    <p>These services receive your IP address when content loads, as with any web content, under their own privacy policies. News links open the publishers' websites.</p>
-    <h2>Your rights</h2>
-    <p>F1X does not keep any personal data file. For any GDPR question or request, you can contact the publisher{contact}. You may also lodge a complaint with your data protection authority (in France, the CNIL: <a href="https://www.cnil.fr">cnil.fr</a>).</p>"#
-        )
+        vec![
+            p().class("doc-lead").text("In short: F1X requires no account and uses no advertising cookies, no analytics and no trackers. Your preferences stay on your device.").into(),
+            h("What stays on your device"),
+            para("To work, the app stores locally in your browser (local storage and offline cache): your language, favourites, predictions, Fantasy team, best quiz score, alert settings, and a copy of the pages and data you viewed for offline use. This information is never sent to our servers. You can delete it at any time from your browser settings (site data)."),
+            h("Technical logs"),
+            para("Like any website, the host (Heroku) processes your IP address and the requested page to route requests and keep the service secure. These technical logs are kept for a limited time and are never used for profiling."),
+            h("Third-party services loaded by your browser"),
+            bullets(&[
+                "**Wikimedia Commons** (driver and circuit photos),",
+                "**OpenStreetMap** (circuit maps),",
+                "**Open-Meteo** (weather forecasts).",
+            ]),
+            para("These services receive your IP address when content loads, as with any web content, under their own privacy policies. News links open the publishers' websites."),
+            h("Your rights"),
+            contact(
+                "F1X does not keep any personal data file. For any GDPR question or request, you can contact the publisher",
+            )
+            .children(rich(". You may also lodge a complaint with your data protection authority (in France, the CNIL: [cnil.fr](https://www.cnil.fr))."))
+            .into(),
+        ]
     };
     doc_page(
         lang,
@@ -952,49 +1138,62 @@ fn privacy_page(lang: Lang, origin: &str) -> String {
             "Confidentialité sur F1X : sans compte, sans cookie publicitaire, sans traceur.",
             "Privacy on F1X: no account, no advertising cookies, no trackers.",
         ),
-        &content,
+        content,
     )
 }
 
 fn credits_page(lang: Lang, origin: &str) -> String {
+    let h = |title: &'static str| Node::from(h2().text(title));
     let content = if lang == Lang::Fr {
-        r#"    <h2>Données sportives</h2>
-    <ul>
-      <li><strong>Jolpica F1</strong> (successeur de l'API Ergast) — calendriers, résultats, classements et archives depuis 1950.</li>
-      <li><strong><a href="https://openf1.org">OpenF1</a></strong> — positions GPS, télémétrie, chronos, pneus et replays des sessions depuis 2023. Données non officielles.</li>
-      <li><strong><a href="https://open-meteo.com">Open-Meteo</a></strong> — prévisions météo (licence CC BY 4.0).</li>
-    </ul>
-    <h2>Cartes et photos</h2>
-    <ul>
-      <li><strong>OpenStreetMap</strong> — cartes des circuits, © <a href="https://www.openstreetmap.org/copyright">contributeurs OpenStreetMap</a> (ODbL).</li>
-      <li><strong><a href="https://commons.wikimedia.org">Wikimedia Commons</a></strong> — photos sous licences libres ; l'auteur et la licence de chaque photo sont accessibles depuis le lien placé sous l'image.</li>
-      <li><strong>Son du démarrage de l'app</strong> — extrait de « <a href="https://commons.wikimedia.org/wiki/File:Ferrari_F60_(2009).ogg">Ferrari F60 (2009)</a> » par <a href="https://commons.wikimedia.org/wiki/User:Edvvc">Edvvc</a>, Wikimedia Commons, licence <a href="https://creativecommons.org/licenses/by-sa/3.0/deed.fr">CC BY-SA 3.0</a> (raccourci et mis en fondu).</li>
-    </ul>
-    <h2>Actualités</h2>
-    <p>Titres, extraits et liens issus des flux RSS publics de Motorsport.com, Autosport, Formula1.com et RaceFans. Les articles appartiennent à leurs éditeurs ; F1X renvoie vers leurs sites.</p>
-    <h2>3D</h2>
-    <p>Les monoplaces en 3D sont des modèles stylisés originaux, générés par le code de F1X ; elles ne reproduisent aucune voiture réelle. Les circuits en relief sont reconstitués à partir des positions GPS OpenF1.</p>
-    <h2>Technologies</h2>
-    <p>Rust, WebAssembly, Yew, axum, WebGL 2.</p>"#
+        vec![
+            h("Données sportives"),
+            bullets(&[
+                "**Jolpica F1** (successeur de l'API Ergast) — calendriers, résultats, classements et archives depuis 1950.",
+                "**[OpenF1](https://openf1.org)** — positions GPS, télémétrie, chronos, pneus et replays des sessions depuis 2023. Données non officielles.",
+                "**[Open-Meteo](https://open-meteo.com)** — prévisions météo (licence CC BY 4.0).",
+            ]),
+            h("Cartes et photos"),
+            bullets(&[
+                "**OpenStreetMap** — cartes des circuits, © [contributeurs OpenStreetMap](https://www.openstreetmap.org/copyright) (ODbL).",
+                "**[Wikimedia Commons](https://commons.wikimedia.org)** — photos sous licences libres ; l'auteur et la licence de chaque photo sont accessibles depuis le lien placé sous l'image.",
+                "**Son du démarrage de l'app** — extrait de « [Ferrari F60 (2009)](https://commons.wikimedia.org/wiki/File:Ferrari_F60_(2009).ogg) » par [Edvvc](https://commons.wikimedia.org/wiki/User:Edvvc), Wikimedia Commons, licence [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/deed.fr) (raccourci et mis en fondu).",
+            ]),
+            h("Actualités"),
+            para(
+                "Titres, extraits et liens issus des flux RSS publics de Motorsport.com, Autosport, Formula1.com et RaceFans. Les articles appartiennent à leurs éditeurs ; F1X renvoie vers leurs sites.",
+            ),
+            h("3D"),
+            para(
+                "Les monoplaces en 3D sont des modèles stylisés originaux, générés par le code de F1X ; elles ne reproduisent aucune voiture réelle. Les circuits en relief sont reconstitués à partir des positions GPS OpenF1.",
+            ),
+            h("Technologies"),
+            para("Rust, WebAssembly, active, axum, WebGL 2."),
+        ]
     } else {
-        r#"    <h2>Sports data</h2>
-    <ul>
-      <li><strong>Jolpica F1</strong> (successor to the Ergast API) — calendars, results, standings and history since 1950.</li>
-      <li><strong><a href="https://openf1.org">OpenF1</a></strong> — GPS positions, telemetry, timing, tyres and session replays since 2023. Unofficial data.</li>
-      <li><strong><a href="https://open-meteo.com">Open-Meteo</a></strong> — weather forecasts (CC BY 4.0 licence).</li>
-    </ul>
-    <h2>Maps and photos</h2>
-    <ul>
-      <li><strong>OpenStreetMap</strong> — circuit maps, © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> (ODbL).</li>
-      <li><strong><a href="https://commons.wikimedia.org">Wikimedia Commons</a></strong> — freely licensed photos; each photo's author and licence are linked under the image.</li>
-      <li><strong>App start-up sound</strong> — excerpt from “<a href="https://commons.wikimedia.org/wiki/File:Ferrari_F60_(2009).ogg">Ferrari F60 (2009)</a>” by <a href="https://commons.wikimedia.org/wiki/User:Edvvc">Edvvc</a>, Wikimedia Commons, <a href="https://creativecommons.org/licenses/by-sa/3.0/">CC BY-SA 3.0</a> licence (trimmed and faded).</li>
-    </ul>
-    <h2>News</h2>
-    <p>Headlines, excerpts and links from the public RSS feeds of Motorsport.com, Autosport, Formula1.com and RaceFans. Articles belong to their publishers; F1X links to their websites.</p>
-    <h2>3D</h2>
-    <p>The 3D cars are original stylised models generated by F1X's code; they do not replicate any real car. The 3D circuits are rebuilt from OpenF1 GPS positions.</p>
-    <h2>Technologies</h2>
-    <p>Rust, WebAssembly, Yew, axum, WebGL 2.</p>"#
+        vec![
+            h("Sports data"),
+            bullets(&[
+                "**Jolpica F1** (successor to the Ergast API) — calendars, results, standings and history since 1950.",
+                "**[OpenF1](https://openf1.org)** — GPS positions, telemetry, timing, tyres and session replays since 2023. Unofficial data.",
+                "**[Open-Meteo](https://open-meteo.com)** — weather forecasts (CC BY 4.0 licence).",
+            ]),
+            h("Maps and photos"),
+            bullets(&[
+                "**OpenStreetMap** — circuit maps, © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright) (ODbL).",
+                "**[Wikimedia Commons](https://commons.wikimedia.org)** — freely licensed photos; each photo's author and licence are linked under the image.",
+                "**App start-up sound** — excerpt from “[Ferrari F60 (2009)](https://commons.wikimedia.org/wiki/File:Ferrari_F60_(2009).ogg)” by [Edvvc](https://commons.wikimedia.org/wiki/User:Edvvc), Wikimedia Commons, [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/) licence (trimmed and faded).",
+            ]),
+            h("News"),
+            para(
+                "Headlines, excerpts and links from the public RSS feeds of Motorsport.com, Autosport, Formula1.com and RaceFans. Articles belong to their publishers; F1X links to their websites.",
+            ),
+            h("3D"),
+            para(
+                "The 3D cars are original stylised models generated by F1X's code; they do not replicate any real car. The 3D circuits are rebuilt from OpenF1 GPS positions.",
+            ),
+            h("Technologies"),
+            para("Rust, WebAssembly, active, axum, WebGL 2."),
+        ]
     };
     doc_page(
         lang,
@@ -1291,6 +1490,18 @@ mod tests {
     }
 
     #[test]
+    fn rich_text_has_bold_and_links_with_parentheses() {
+        let html = Node::from(p().children(rich(
+            "**[A](https://x.test/F_(1).ogg)** et [b](/c) (fin) <i>",
+        )))
+        .render();
+        assert_eq!(
+            html,
+            r#"<p><strong><a href="https://x.test/F_(1).ogg">A</a></strong> et <a href="/c">b</a> (fin) &lt;i&gt;</p>"#
+        );
+    }
+
+    #[test]
     fn pages_render_without_github() {
         for lang in [Lang::Fr, Lang::En] {
             for html in [
@@ -1304,6 +1515,5 @@ mod tests {
                 assert!(html.contains(r#"class="foot""#));
             }
         }
-        assert_eq!(esc("<a&\">"), "&lt;a&amp;&quot;&gt;");
     }
 }

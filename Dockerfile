@@ -1,4 +1,4 @@
-# --- Build : serveur axum + frontend Yew (WebAssembly, compilé par server/build.rs) ---
+# --- Build : serveur axum + frontend active (WebAssembly, compilé par server/build.rs) ---
 FROM rust:1-slim-trixie AS build
 RUN rustup target add wasm32-unknown-unknown
 WORKDIR /src
