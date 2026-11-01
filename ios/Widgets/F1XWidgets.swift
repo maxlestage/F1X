@@ -193,28 +193,31 @@ struct NextRaceWidgetView: View {
             }
         case .systemLarge:
             VStack(alignment: .leading, spacing: 10) {
-                raceBlock.frame(maxHeight: 110)
+                raceBlock.frame(maxHeight: 130)
                 if let r = entry.race, !r.sessions.isEmpty {
-                    Divider()
-                    VStack(alignment: .leading, spacing: 5) {
+                    Hairline()
+                    VStack(alignment: .leading, spacing: 6) {
+                        SectionTitle(text: L("PROGRAMME", "SCHEDULE"))
                         ForEach(r.sessions, id: \.self) { s in
-                            HStack {
-                                Circle().fill(s.date.addingTimeInterval(3600) < entry.date ? Color.secondary : red).frame(width: 5, height: 5)
-                                Text(s.name).font(.caption.weight(.semibold)).lineLimit(1)
+                            let done = s.date.addingTimeInterval(3600) < entry.date
+                            HStack(spacing: 8) {
+                                Capsule().fill(done ? Color.white.opacity(0.25) : brightRed).frame(width: 3, height: 12)
+                                Text(s.name).font(.caption.weight(.bold)).lineLimit(1)
+                                    .foregroundStyle(done ? HierarchicalShapeStyle.secondary : HierarchicalShapeStyle.primary)
                                 Spacer()
                                 Text(s.date.formatted(.dateTime.weekday(.abbreviated).hour().minute().locale(widgetLocale)))
-                                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                    .font(.caption.monospacedDigit().weight(.semibold)).foregroundStyle(.secondary)
                             }
                         }
                     }
                 }
                 if !entry.leaders.isEmpty {
-                    Divider()
+                    Hairline()
                     HStack(spacing: 10) {
                         ForEach(entry.leaders, id: \.self) { l in
                             VStack(alignment: .leading, spacing: 1) {
-                                Text("P\(l.position)").font(.caption2.bold()).foregroundStyle(red)
-                                Text(l.name).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
+                                Text("P\(l.position)").font(.caption2.weight(.black).italic()).foregroundStyle(l.position == "1" ? gold : brightRed)
+                                Text(l.name).font(.caption.weight(.bold)).lineLimit(1).minimumScaleFactor(0.7)
                                 Text("\(l.points) pts").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -235,17 +238,20 @@ struct NextRaceWidgetView: View {
             HStack(alignment: .top, spacing: 14) {
                 raceBlock
                 if !entry.leaders.isEmpty {
-                    Divider()
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(L("CHAMPIONNAT", "STANDINGS")).font(.caption2.weight(.heavy)).foregroundStyle(.secondary)
+                    Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1)
+                    VStack(alignment: .leading, spacing: 7) {
+                        SectionTitle(text: L("CHAMPIONNAT", "STANDINGS"))
                         ForEach(entry.leaders, id: \.self) { l in
                             HStack(spacing: 6) {
-                                Text(l.position).font(.caption.monospacedDigit().bold()).frame(width: 14, alignment: .trailing)
-                                Text(l.name).font(.caption.weight(.semibold)).lineLimit(1)
+                                Text(l.position).font(.caption.monospacedDigit().weight(.black).italic())
+                                    .foregroundStyle(l.position == "1" ? gold : brightRed)
+                                    .frame(width: 14, alignment: .trailing)
+                                Text(l.name).font(.caption.weight(.bold)).lineLimit(1).minimumScaleFactor(0.8)
                                 Spacer(minLength: 2)
-                                Text(l.points).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                                Text(l.points).font(.caption.monospacedDigit().weight(.semibold)).foregroundStyle(.secondary)
                             }
                         }
+                        Spacer(minLength: 0)
                     }
                 }
             }
@@ -255,27 +261,43 @@ struct NextRaceWidgetView: View {
     }
 
     private var raceBlock: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 4) {
-                Text("F1").font(.caption.weight(.black).italic())
-                Text("X").font(.caption.weight(.black).italic()).foregroundStyle(red)
-                Spacer()
-                if let r = entry.race { Text("R\(r.round)").font(.caption2.bold()).foregroundStyle(.secondary) }
+                Logo()
+                if let r = entry.race { Text(flagEmoji(r.country)).font(.caption) }
+                Spacer(minLength: 2)
+                if let r = entry.race {
+                    Text(L("MANCHE \(r.round)", "ROUND \(r.round)"))
+                        .font(.system(size: 9, weight: .heavy)).tracking(0.5)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Color.white.opacity(0.12), in: Capsule())
+                }
             }
+            .padding(.bottom, 4)
             if let r = entry.race {
                 Text(r.name.replacingOccurrences(of: " Grand Prix", with: ""))
-                    .font(.headline.weight(.heavy)).lineLimit(2).minimumScaleFactor(0.7)
-                Text(r.start.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute().locale(widgetLocale)))
-                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    .font(.title3.weight(.black).italic()).lineLimit(2).minimumScaleFactor(0.6)
                 Spacer(minLength: 0)
-                Text(r.start, style: .relative)
-                    .font(.caption.weight(.bold).monospacedDigit()).foregroundStyle(red).lineLimit(1)
-                if r.sprint { Text("SPRINT").font(.caption2.bold()).foregroundStyle(red) }
+                Countdown(start: r.start, fr: isFrench)
+                    .font(.system(size: 28, weight: .black, design: .rounded).monospacedDigit())
+                    .lineLimit(1).minimumScaleFactor(0.5)
+                HStack(spacing: 5) {
+                    Text(r.start.formatted(.dateTime.weekday(.abbreviated).day().hour().minute().locale(widgetLocale)).capitalized(with: widgetLocale))
+                        .font(.caption.weight(.bold)).foregroundStyle(brightRed).lineLimit(1).minimumScaleFactor(0.7)
+                    if r.sprint {
+                        Text("SPRINT").font(.system(size: 8, weight: .black)).tracking(0.5)
+                            .padding(.horizontal, 4).padding(.vertical, 1)
+                            .background(brightRed, in: Capsule())
+                    }
+                }
             } else {
-                Text(entry.leaders.isEmpty ? L("Chargement…", "Loading…") : L("Saison terminée", "Season over")).font(.headline)
+                Spacer(minLength: 0)
+                Text(entry.leaders.isEmpty ? L("Chargement…", "Loading…") : L("Saison terminée", "Season over"))
+                    .font(.headline.weight(.black).italic())
                 Spacer(minLength: 0)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -284,6 +306,7 @@ struct NextRaceWidget: Widget {
         StaticConfiguration(kind: "NextRace", provider: NextRaceProvider()) { entry in
             NextRaceWidgetView(entry: entry)
                 .environment(\.locale, widgetLocale)
+                .environment(\.colorScheme, .dark)
                 .containerBackground(for: .widget) { WidgetBackground() }
         }
         .configurationDisplayName(L("Prochain Grand Prix", "Next Grand Prix"))
@@ -310,15 +333,36 @@ private struct Logo: View {
     }
 }
 
-/// Fond qui suit le thème de l'iPhone (clair le jour, sombre la nuit).
+/// Fond des widgets de l'écran d'accueil : le même « carbone » F1X que les Live Activities.
 private struct WidgetBackground: View {
-    @Environment(\.colorScheme) private var scheme
+    var body: some View { LockBackground() }
+}
+
+/// Drapeau du pays du Grand Prix.
+private func flagEmoji(_ country: String) -> String {
+    let codes: [String: String] = [
+        "Australia": "AU", "Austria": "AT", "Azerbaijan": "AZ", "Bahrain": "BH", "Belgium": "BE",
+        "Brazil": "BR", "Canada": "CA", "China": "CN", "France": "FR", "Germany": "DE", "Hungary": "HU",
+        "Italy": "IT", "Japan": "JP", "Malaysia": "MY", "Mexico": "MX", "Monaco": "MC", "Netherlands": "NL",
+        "Portugal": "PT", "Qatar": "QA", "Saudi Arabia": "SA", "Singapore": "SG", "Spain": "ES",
+        "UAE": "AE", "United Arab Emirates": "AE", "UK": "GB", "United Kingdom": "GB", "USA": "US",
+        "United States": "US",
+    ]
+    guard let code = codes[country] else { return "🏁" }
+    return code.unicodeScalars.compactMap { UnicodeScalar(127_397 + $0.value) }.map(String.init).joined()
+}
+
+/// Titre de section : « CHAMPIONNAT », « DERNIÈRE COURSE »…
+private struct SectionTitle: View {
+    let text: String
     var body: some View {
-        LinearGradient(colors: scheme == .dark
-                           ? [Color(white: 0.09), Color(red: 0.16, green: 0.03, blue: 0.03)]
-                           : [Color.white, Color(red: 1, green: 0.92, blue: 0.91)],
-                       startPoint: .topLeading, endPoint: .bottomTrailing)
+        Text(text).font(.system(size: 10, weight: .heavy)).tracking(1).foregroundStyle(.secondary).lineLimit(1)
     }
+}
+
+/// Séparateur fin sur fond sombre.
+private struct Hairline: View {
+    var body: some View { Rectangle().fill(Color.white.opacity(0.12)).frame(height: 1) }
 }
 
 // MARK: - Classements
@@ -386,9 +430,11 @@ private struct StandingLine: View {
     let row: StandingRowData
     var body: some View {
         HStack(spacing: 6) {
-            Text(row.position).font(.caption.monospacedDigit().bold()).frame(width: 16, alignment: .trailing)
+            Text(row.position).font(.caption.monospacedDigit().weight(.black).italic())
+                .foregroundStyle(row.position == "1" ? gold : .secondary)
+                .frame(width: 16, alignment: .trailing)
             RoundedRectangle(cornerRadius: 1).fill(teamColour(row.team)).frame(width: 3, height: 12)
-            Text(row.name).font(.caption.weight(.semibold)).lineLimit(1)
+            Text(row.name).font(.caption.weight(.bold)).lineLimit(1)
             Spacer(minLength: 2)
             Text(row.points).font(.caption.monospacedDigit().bold())
         }
@@ -403,13 +449,14 @@ struct StandingsWidgetView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Logo()
-                Text(L("CHAMPIONNAT", "STANDINGS")).font(.caption2.weight(.heavy)).foregroundStyle(.secondary)
+                SectionTitle(text: L("CHAMPIONNAT", "STANDINGS"))
             }
+            .padding(.bottom, 2)
             switch family {
             case .systemLarge:
                 ForEach(entry.drivers.prefix(10), id: \.self) { StandingLine(row: $0) }
                 if !entry.teams.isEmpty {
-                    Divider()
+                    Hairline()
                     ForEach(entry.teams.prefix(4), id: \.self) { StandingLine(row: $0) }
                 }
             case .systemMedium:
@@ -428,7 +475,7 @@ struct StandingsWidgetView: View {
 struct StandingsWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "Standings", provider: StandingsProvider()) { entry in
-            StandingsWidgetView(entry: entry).environment(\.locale, widgetLocale).containerBackground(for: .widget) { WidgetBackground() }
+            StandingsWidgetView(entry: entry).environment(\.locale, widgetLocale).environment(\.colorScheme, .dark).containerBackground(for: .widget) { WidgetBackground() }
         }
         .configurationDisplayName(L("Championnat", "Championship"))
         .description(L("Classement des pilotes et des écuries.", "Driver and constructor standings."))
@@ -498,16 +545,17 @@ struct LastRaceWidgetView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Logo()
-                Text(L("DERNIÈRE COURSE", "LAST RACE")).font(.caption2.weight(.heavy)).foregroundStyle(.secondary).lineLimit(1)
+                SectionTitle(text: L("DERNIÈRE COURSE", "LAST RACE"))
             }
             Text(entry.race.replacingOccurrences(of: " Grand Prix", with: ""))
-                .font(.headline.weight(.heavy)).lineLimit(1).minimumScaleFactor(0.7)
+                .font(.title3.weight(.black).italic()).lineLimit(1).minimumScaleFactor(0.6)
+                .padding(.bottom, 2)
             ForEach(entry.podium.prefix(family == .systemSmall ? 3 : 5), id: \.self) { p in
                 HStack(spacing: 6) {
                     Text(p.position == "1" ? "🥇" : p.position == "2" ? "🥈" : p.position == "3" ? "🥉" : p.position)
                         .font(.caption.monospacedDigit().bold()).frame(width: 20, alignment: .leading)
                     RoundedRectangle(cornerRadius: 1).fill(teamColour(p.team)).frame(width: 3, height: 12)
-                    Text(p.name).font(.caption.weight(.semibold)).lineLimit(1)
+                    Text(p.name).font(.caption.weight(.bold)).lineLimit(1)
                     if family != .systemSmall {
                         Spacer(minLength: 2)
                         Text(p.detail).font(.caption2.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
@@ -522,7 +570,7 @@ struct LastRaceWidgetView: View {
 struct LastRaceWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "LastRace", provider: LastRaceProvider()) { entry in
-            LastRaceWidgetView(entry: entry).environment(\.locale, widgetLocale).containerBackground(for: .widget) { WidgetBackground() }
+            LastRaceWidgetView(entry: entry).environment(\.locale, widgetLocale).environment(\.colorScheme, .dark).containerBackground(for: .widget) { WidgetBackground() }
         }
         .configurationDisplayName(L("Dernière course", "Last race"))
         .description(L("Podium et arrivée du dernier Grand Prix.", "Podium and finish of the last Grand Prix."))
@@ -545,17 +593,18 @@ private let gold = Color(red: 1, green: 0.78, blue: 0.2)
 private struct WeekendSteps: View {
     let steps: [String]
     let index: Int
+    var accent: Color = red
 
     var body: some View {
         HStack(spacing: 4) {
             ForEach(Array(steps.enumerated()), id: \.offset) { i, label in
                 VStack(spacing: 3) {
                     Capsule()
-                        .fill(i < index ? Color.secondary.opacity(0.5) : i == index ? red : Color.secondary.opacity(0.18))
+                        .fill(i < index ? Color.secondary.opacity(0.5) : i == index ? accent : Color.secondary.opacity(0.18))
                         .frame(height: 4)
                     Text(label)
                         .font(.system(size: 9, weight: i == index ? .heavy : .semibold))
-                        .foregroundStyle(i == index ? red : .secondary)
+                        .foregroundStyle(i == index ? accent : .secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
                 }
@@ -588,6 +637,41 @@ private struct Until: View {
             Text(start, style: .relative)
         } else {
             Text(fr ? "En cours" : "Live now").foregroundColor(red)
+        }
+    }
+}
+
+/// Rouge lisible sur fond sombre.
+private let brightRed = Color(red: 1, green: 0.24, blue: 0.2)
+
+/// Fond « carbone » des Live Activities sur l'écran verrouillé, avec la bande rouge F1X.
+private struct LockBackground: View {
+    var body: some View {
+        ZStack(alignment: .leading) {
+            LinearGradient(colors: [Color(white: 0.07), Color(red: 0.2, green: 0.02, blue: 0.03)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+            // Reflet diagonal discret, comme une livrée.
+            LinearGradient(colors: [.clear, red.opacity(0.22), .clear],
+                           startPoint: UnitPoint(x: 0.55, y: 0), endPoint: UnitPoint(x: 1, y: 1))
+            red.frame(width: 5)
+        }
+    }
+}
+
+/// Compte à rebours façon chrono : « 4:40 » puis « 5:12:03 » dans les dernières 24 h, sinon « J-3 ».
+private struct Countdown: View {
+    let start: Date
+    let fr: Bool
+    var body: some View {
+        let now = Date()
+        let s = start.timeIntervalSince(now)
+        if s <= 0 {
+            Text(fr ? "EN COURS" : "LIVE").foregroundColor(brightRed)
+        } else if s < 86_400 {
+            Text(timerInterval: now...start, countsDown: true)
+        } else {
+            let d = Int(ceil(s / 86_400))
+            Text(fr ? "J-\(d)" : "D-\(d)")
         }
     }
 }
@@ -660,17 +744,17 @@ struct WeekendLiveActivity: Widget {
                     Logo()
                     Text("\(context.attributes.flag) \(name)").font(.subheadline.weight(.bold)).lineLimit(1)
                     Spacer(minLength: 4)
-                    Text("R\(context.attributes.round)")
-                        .font(.caption2.weight(.heavy))
-                        .padding(.horizontal, 7).padding(.vertical, 2)
-                        .background(Color.secondary.opacity(0.18), in: Capsule())
+                    Text(L("MANCHE \(context.attributes.round)", "ROUND \(context.attributes.round)"))
+                        .font(.system(size: 10, weight: .heavy)).tracking(0.6)
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(Color.white.opacity(0.12), in: Capsule())
                 }
                 if state.podium == true, let winner = state.winner {
                     HStack(alignment: .center, spacing: 10) {
                         Text("🏆").font(.system(size: 34))
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(L("VAINQUEUR", "WINNER")).font(.caption2.weight(.heavy)).foregroundStyle(gold)
-                            Text(winner).font(.title2.weight(.black)).lineLimit(1).minimumScaleFactor(0.7)
+                            Text(L("VAINQUEUR", "WINNER")).font(.caption2.weight(.heavy)).tracking(1).foregroundStyle(gold)
+                            Text(winner).font(.title2.weight(.black).italic()).lineLimit(1).minimumScaleFactor(0.7)
                         }
                         Spacer(minLength: 0)
                     }
@@ -678,99 +762,125 @@ struct WeekendLiveActivity: Widget {
                         Text(L("Prochain : \(next)", "Next: \(next)")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
                 } else {
-                    HStack(alignment: .lastTextBaseline) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(L("PROCHAINE SÉANCE", "NEXT SESSION")).font(.caption2.weight(.heavy)).foregroundStyle(.secondary)
-                            Text(state.session).font(.title2.weight(.heavy)).lineLimit(1).minimumScaleFactor(0.7)
-                            Text(state.start.formatted(.dateTime.weekday(.wide).hour().minute().locale(loc)))
-                                .font(.subheadline.weight(.bold)).foregroundStyle(red)
+                    HStack(alignment: .bottom) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(L("PROCHAINE SÉANCE", "NEXT SESSION")).font(.caption2.weight(.heavy)).tracking(1).foregroundStyle(.secondary)
+                            Text(state.session).font(.title2.weight(.black).italic()).lineLimit(1).minimumScaleFactor(0.7)
+                            Text(state.start.formatted(.dateTime.weekday(.wide).hour().minute().locale(loc)).capitalized(with: loc))
+                                .font(.subheadline.weight(.bold)).foregroundStyle(brightRed)
                         }
                         Spacer(minLength: 8)
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text(state.start > Date() ? L("DANS", "IN") : "").font(.caption2.weight(.heavy)).foregroundStyle(.secondary)
-                            Until(start: state.start, fr: fr)
-                                .font(.headline.monospacedDigit())
+                        VStack(alignment: .trailing, spacing: 1) {
+                            Text(state.start > Date() ? L("DÉPART DANS", "STARTS IN") : "").font(.caption2.weight(.heavy)).tracking(1).foregroundStyle(.secondary)
+                            Countdown(start: state.start, fr: fr)
+                                .font(.system(size: 30, weight: .black, design: .rounded).monospacedDigit())
                                 .multilineTextAlignment(.trailing)
-                                .lineLimit(2)
-                                .frame(maxWidth: 120, alignment: .trailing)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.6)
+                                .frame(maxWidth: 130, alignment: .trailing)
                         }
                     }
                     if let steps = state.steps, steps.count > 1 {
-                        WeekendSteps(steps: steps, index: state.stepIndex ?? 0)
+                        WeekendSteps(steps: steps, index: state.stepIndex ?? 0, accent: brightRed)
                     }
                     if let code = state.winnerCode {
                         WinnerChip(code: code, race: state.winnerRace)
                     }
                 }
             }
-            .padding(16)
+            .padding(.leading, 21).padding([.trailing, .vertical], 16)
+            .foregroundStyle(.white)
+            .environment(\.colorScheme, .dark)
             .environment(\.locale, loc)
+            .background(LockBackground())
             }
-            .activityBackgroundTint(nil)
+            .activityBackgroundTint(Color(white: 0.07))
+            .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
             let state = context.state
             let fr = context.attributes.lang.map { $0 == "fr" } ?? isFrench
             let loc = Locale(identifier: fr ? "fr_FR" : "en_GB")
             let L = { (a: String, b: String) in fr ? a : b }
+            let name = context.attributes.raceName.replacingOccurrences(of: " Grand Prix", with: "")
+            let podium = state.podium == true
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(context.attributes.flag).font(.title)
-                        Text("R\(context.attributes.round)").font(.caption2.weight(.heavy)).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Logo()
+                        Text(context.attributes.flag).font(.system(size: 30))
                     }
+                    .padding(.leading, 4)
                 }
                 DynamicIslandExpandedRegion(.center) {
-                    VStack(spacing: 2) {
-                        Text(context.attributes.raceName.replacingOccurrences(of: " Grand Prix", with: ""))
-                            .font(.caption.bold()).foregroundStyle(.secondary).lineLimit(1)
-                        if state.podium == true, let winner = state.winner {
-                            Text("🏆 \(winner)").font(.headline.weight(.heavy)).foregroundStyle(gold).lineLimit(1)
+                    VStack(spacing: 1) {
+                        Text("\(name.uppercased()) · \(L("MANCHE", "ROUND")) \(context.attributes.round)")
+                            .font(.system(size: 10, weight: .heavy)).tracking(0.6)
+                            .foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7)
+                        if podium, let winner = state.winner {
+                            Text(L("VAINQUEUR", "WINNER")).font(.system(size: 9, weight: .heavy)).tracking(1).foregroundStyle(gold)
+                            Text(winner).font(.title3.weight(.black).italic()).lineLimit(1).minimumScaleFactor(0.6)
                         } else {
-                            Text(state.session).font(.headline.weight(.heavy)).lineLimit(1)
+                            Text(state.session).font(.title3.weight(.black).italic()).lineLimit(1).minimumScaleFactor(0.6)
+                            Text(state.start.formatted(.dateTime.weekday(.wide).hour().minute().locale(loc)).capitalized(with: loc))
+                                .font(.caption.weight(.bold)).foregroundStyle(brightRed).lineLimit(1)
                         }
                     }
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    if state.podium != true {
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text(sessionTime(state.start, loc)).font(.caption.weight(.bold)).foregroundStyle(red)
-                            Until(start: state.start, fr: fr).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
-                                .multilineTextAlignment(.trailing).lineLimit(2)
+                    if podium {
+                        Text("🏆").font(.system(size: 30)).padding(.trailing, 4)
+                    } else {
+                        VStack(alignment: .trailing, spacing: 0) {
+                            Text(state.start > Date() ? L("DANS", "IN") : "")
+                                .font(.system(size: 9, weight: .heavy)).tracking(1).foregroundStyle(.secondary)
+                            Countdown(start: state.start, fr: fr)
+                                .font(.system(size: 22, weight: .black, design: .rounded).monospacedDigit())
+                                .multilineTextAlignment(.trailing)
+                                .lineLimit(1).minimumScaleFactor(0.5)
                         }
-                        .frame(maxWidth: 90, alignment: .trailing)
+                        .frame(maxWidth: 92, alignment: .trailing)
+                        .padding(.trailing, 4)
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(spacing: 6) {
-                        if let steps = state.steps, steps.count > 1 {
-                            WeekendSteps(steps: steps, index: state.stepIndex ?? 0)
+                        if !podium, let steps = state.steps, steps.count > 1 {
+                            WeekendSteps(steps: steps, index: state.stepIndex ?? 0, accent: brightRed)
                         }
-                        if state.podium == true, let next = state.next {
+                        if podium, let next = state.next {
                             Text(L("Prochain : \(next)", "Next: \(next)")).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                         } else if let code = state.winnerCode {
                             WinnerChip(code: code, race: state.winnerRace)
                         }
                     }
+                    .padding(.horizontal, 4)
                     .environment(\.locale, loc)
                 }
             } compactLeading: {
                 HStack(spacing: 4) {
                     Text(context.attributes.flag)
-                    Text(state.podium == true ? "🏆" : state.short).fontWeight(.heavy).foregroundStyle(.white)
+                    Text(podium ? "🏆" : state.short).font(.caption.weight(.black).italic()).foregroundStyle(.white)
                 }
                 .font(.caption)
             } compactTrailing: {
-                if state.podium == true, let code = state.winnerCode {
-                    Text(code).font(.caption.weight(.heavy)).foregroundStyle(gold)
+                if podium, let code = state.winnerCode {
+                    Text(code).font(.caption.weight(.black).italic()).foregroundStyle(gold)
+                } else if state.start > Date(), state.start.timeIntervalSinceNow < 3600 {
+                    // Dernière heure : chrono qui défile.
+                    Text(timerInterval: Date()...state.start, countsDown: true)
+                        .font(.caption.weight(.heavy).monospacedDigit())
+                        .foregroundStyle(brightRed)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 40, alignment: .trailing)
                 } else {
-                    Text(sessionTime(state.start, loc))
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(red)
+                    Text(state.start > Date() ? sessionTime(state.start, loc) : L("LIVE", "LIVE"))
+                        .font(.caption.weight(.heavy))
+                        .foregroundStyle(brightRed)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                 }
             } minimal: {
-                Text(state.podium == true ? "🏆" : context.attributes.flag).font(.caption)
+                Text(podium ? "🏆" : context.attributes.flag).font(.caption)
             }
             .keylineTint(red)
         }
@@ -862,41 +972,60 @@ struct RaceLiveActivity: Widget {
                 }
                 ForEach(context.state.leaders, id: \.self) { LeaderRow(e: $0) }
             }
-            .padding(14)
+            .padding(.leading, 19).padding([.trailing, .vertical], 14)
+            .foregroundStyle(.white)
+            .environment(\.colorScheme, .dark)
             .environment(\.locale, widgetLocale)
+            .background(LockBackground())
             }
-            .activityBackgroundTint(nil)
+            .activityBackgroundTint(Color(white: 0.07))
+            .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
             let first = context.state.leaders.first
+            let status = context.state.status
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Text(progress(context.state, context.attributes)).font(.caption.monospacedDigit().bold())
+                    VStack(alignment: .leading, spacing: 3) {
+                        Logo()
+                        Text(progress(context.state, context.attributes))
+                            .font(.subheadline.monospacedDigit().weight(.black).italic())
+                            .lineLimit(1).minimumScaleFactor(0.7)
+                    }
+                    .padding(.leading, 4)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     HStack(spacing: 4) {
-                        Circle().fill(statusColour(context.state.status)).frame(width: 7, height: 7)
-                        Text(statusText(context.state.status)).font(.caption2).lineLimit(1)
+                        Circle().fill(statusColour(status)).frame(width: 7, height: 7)
+                        Text(statusText(status)).font(.caption2.weight(.heavy)).lineLimit(1).minimumScaleFactor(0.7)
                     }
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(statusColour(status).opacity(0.18), in: Capsule())
+                    .padding(.trailing, 4)
                 }
                 DynamicIslandExpandedRegion(.center) {
-                    Text(context.attributes.location).font(.caption.bold()).lineLimit(1)
+                    Text(context.attributes.location.uppercased())
+                        .font(.system(size: 10, weight: .heavy)).tracking(0.6)
+                        .foregroundStyle(.secondary).lineLimit(1)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    VStack(spacing: 3) {
+                    VStack(spacing: 4) {
                         ForEach(context.state.leaders, id: \.self) { LeaderRow(e: $0) }
                     }
+                    .padding(.horizontal, 4)
                 }
             } compactLeading: {
-                HStack(spacing: 3) {
+                HStack(spacing: 4) {
                     RoundedRectangle(cornerRadius: 1).fill(colour(first?.colour ?? "E10600")).frame(width: 3, height: 12)
-                    Text(first?.code ?? "F1X").font(.caption2.bold())
+                    Text(first?.code ?? "F1X").font(.caption2.weight(.black).italic())
                 }
             } compactTrailing: {
-                Text(context.attributes.racing ? "T\(context.state.lap)" : "P1")
-                    .font(.caption2.monospacedDigit().bold())
-                    .foregroundStyle(statusColour(context.state.status))
+                HStack(spacing: 3) {
+                    Circle().fill(statusColour(status)).frame(width: 5, height: 5)
+                    Text(context.attributes.racing ? L("T\(context.state.lap)", "L\(context.state.lap)") : "P1")
+                        .font(.caption2.monospacedDigit().weight(.heavy))
+                }
             } minimal: {
-                Text(first?.code.prefix(1).description ?? "F").font(.caption2.bold()).foregroundStyle(red)
+                Text(first?.code.prefix(1).description ?? "F").font(.caption2.weight(.black).italic()).foregroundStyle(statusColour(status))
             }
             .keylineTint(red)
         }
