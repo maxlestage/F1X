@@ -753,65 +753,86 @@ struct WeekendLiveActivity: Widget {
             let fr = context.attributes.lang.map { $0 == "fr" } ?? isFrench
             let loc = Locale(identifier: fr ? "fr_FR" : "en_GB")
             let L = { (a: String, b: String) in fr ? a : b }
+            let name = context.attributes.raceName.replacingOccurrences(of: " Grand Prix", with: "")
+            let podium = state.podium == true
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(context.attributes.flag).font(.title)
-                        Text("R\(context.attributes.round)").font(.caption2.weight(.heavy)).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Logo()
+                        Text(context.attributes.flag).font(.system(size: 30))
                     }
+                    .padding(.leading, 4)
                 }
                 DynamicIslandExpandedRegion(.center) {
-                    VStack(spacing: 2) {
-                        Text(context.attributes.raceName.replacingOccurrences(of: " Grand Prix", with: ""))
-                            .font(.caption.bold()).foregroundStyle(.secondary).lineLimit(1)
-                        if state.podium == true, let winner = state.winner {
-                            Text("🏆 \(winner)").font(.headline.weight(.heavy)).foregroundStyle(gold).lineLimit(1)
+                    VStack(spacing: 1) {
+                        Text("\(name.uppercased()) · \(L("MANCHE", "ROUND")) \(context.attributes.round)")
+                            .font(.system(size: 10, weight: .heavy)).tracking(0.6)
+                            .foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7)
+                        if podium, let winner = state.winner {
+                            Text(L("VAINQUEUR", "WINNER")).font(.system(size: 9, weight: .heavy)).tracking(1).foregroundStyle(gold)
+                            Text(winner).font(.title3.weight(.black).italic()).lineLimit(1).minimumScaleFactor(0.6)
                         } else {
-                            Text(state.session).font(.headline.weight(.heavy)).lineLimit(1)
+                            Text(state.session).font(.title3.weight(.black).italic()).lineLimit(1).minimumScaleFactor(0.6)
+                            Text(state.start.formatted(.dateTime.weekday(.wide).hour().minute().locale(loc)).capitalized(with: loc))
+                                .font(.caption.weight(.bold)).foregroundStyle(brightRed).lineLimit(1)
                         }
                     }
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    if state.podium != true {
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text(sessionTime(state.start, loc)).font(.caption.weight(.bold)).foregroundStyle(red)
-                            Until(start: state.start, fr: fr).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
-                                .multilineTextAlignment(.trailing).lineLimit(2)
+                    if podium {
+                        Text("🏆").font(.system(size: 30)).padding(.trailing, 4)
+                    } else {
+                        VStack(alignment: .trailing, spacing: 0) {
+                            Text(state.start > Date() ? L("DANS", "IN") : "")
+                                .font(.system(size: 9, weight: .heavy)).tracking(1).foregroundStyle(.secondary)
+                            Countdown(start: state.start, fr: fr)
+                                .font(.system(size: 22, weight: .black, design: .rounded).monospacedDigit())
+                                .multilineTextAlignment(.trailing)
+                                .lineLimit(1).minimumScaleFactor(0.5)
                         }
-                        .frame(maxWidth: 90, alignment: .trailing)
+                        .frame(maxWidth: 92, alignment: .trailing)
+                        .padding(.trailing, 4)
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(spacing: 6) {
-                        if let steps = state.steps, steps.count > 1 {
-                            WeekendSteps(steps: steps, index: state.stepIndex ?? 0)
+                        if !podium, let steps = state.steps, steps.count > 1 {
+                            WeekendSteps(steps: steps, index: state.stepIndex ?? 0, accent: brightRed)
                         }
-                        if state.podium == true, let next = state.next {
+                        if podium, let next = state.next {
                             Text(L("Prochain : \(next)", "Next: \(next)")).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                         } else if let code = state.winnerCode {
                             WinnerChip(code: code, race: state.winnerRace)
                         }
                     }
+                    .padding(.horizontal, 4)
                     .environment(\.locale, loc)
                 }
             } compactLeading: {
                 HStack(spacing: 4) {
                     Text(context.attributes.flag)
-                    Text(state.podium == true ? "🏆" : state.short).fontWeight(.heavy).foregroundStyle(.white)
+                    Text(podium ? "🏆" : state.short).font(.caption.weight(.black).italic()).foregroundStyle(.white)
                 }
                 .font(.caption)
             } compactTrailing: {
-                if state.podium == true, let code = state.winnerCode {
-                    Text(code).font(.caption.weight(.heavy)).foregroundStyle(gold)
+                if podium, let code = state.winnerCode {
+                    Text(code).font(.caption.weight(.black).italic()).foregroundStyle(gold)
+                } else if state.start > Date(), state.start.timeIntervalSinceNow < 3600 {
+                    // Dernière heure : chrono qui défile.
+                    Text(timerInterval: Date()...state.start, countsDown: true)
+                        .font(.caption.weight(.heavy).monospacedDigit())
+                        .foregroundStyle(brightRed)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 40, alignment: .trailing)
                 } else {
-                    Text(sessionTime(state.start, loc))
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(red)
+                    Text(state.start > Date() ? sessionTime(state.start, loc) : L("LIVE", "LIVE"))
+                        .font(.caption.weight(.heavy))
+                        .foregroundStyle(brightRed)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                 }
             } minimal: {
-                Text(state.podium == true ? "🏆" : context.attributes.flag).font(.caption)
+                Text(podium ? "🏆" : context.attributes.flag).font(.caption)
             }
             .keylineTint(red)
         }
@@ -913,35 +934,50 @@ struct RaceLiveActivity: Widget {
             .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
             let first = context.state.leaders.first
+            let status = context.state.status
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Text(progress(context.state, context.attributes)).font(.caption.monospacedDigit().bold())
+                    VStack(alignment: .leading, spacing: 3) {
+                        Logo()
+                        Text(progress(context.state, context.attributes))
+                            .font(.subheadline.monospacedDigit().weight(.black).italic())
+                            .lineLimit(1).minimumScaleFactor(0.7)
+                    }
+                    .padding(.leading, 4)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     HStack(spacing: 4) {
-                        Circle().fill(statusColour(context.state.status)).frame(width: 7, height: 7)
-                        Text(statusText(context.state.status)).font(.caption2).lineLimit(1)
+                        Circle().fill(statusColour(status)).frame(width: 7, height: 7)
+                        Text(statusText(status)).font(.caption2.weight(.heavy)).lineLimit(1).minimumScaleFactor(0.7)
                     }
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(statusColour(status).opacity(0.18), in: Capsule())
+                    .padding(.trailing, 4)
                 }
                 DynamicIslandExpandedRegion(.center) {
-                    Text(context.attributes.location).font(.caption.bold()).lineLimit(1)
+                    Text(context.attributes.location.uppercased())
+                        .font(.system(size: 10, weight: .heavy)).tracking(0.6)
+                        .foregroundStyle(.secondary).lineLimit(1)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    VStack(spacing: 3) {
+                    VStack(spacing: 4) {
                         ForEach(context.state.leaders, id: \.self) { LeaderRow(e: $0) }
                     }
+                    .padding(.horizontal, 4)
                 }
             } compactLeading: {
-                HStack(spacing: 3) {
+                HStack(spacing: 4) {
                     RoundedRectangle(cornerRadius: 1).fill(colour(first?.colour ?? "E10600")).frame(width: 3, height: 12)
-                    Text(first?.code ?? "F1X").font(.caption2.bold())
+                    Text(first?.code ?? "F1X").font(.caption2.weight(.black).italic())
                 }
             } compactTrailing: {
-                Text(context.attributes.racing ? "T\(context.state.lap)" : "P1")
-                    .font(.caption2.monospacedDigit().bold())
-                    .foregroundStyle(statusColour(context.state.status))
+                HStack(spacing: 3) {
+                    Circle().fill(statusColour(status)).frame(width: 5, height: 5)
+                    Text(context.attributes.racing ? L("T\(context.state.lap)", "L\(context.state.lap)") : "P1")
+                        .font(.caption2.monospacedDigit().weight(.heavy))
+                }
             } minimal: {
-                Text(first?.code.prefix(1).description ?? "F").font(.caption2.bold()).foregroundStyle(red)
+                Text(first?.code.prefix(1).description ?? "F").font(.caption2.weight(.black).italic()).foregroundStyle(statusColour(status))
             }
             .keylineTint(red)
         }
