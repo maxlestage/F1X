@@ -545,17 +545,18 @@ private let gold = Color(red: 1, green: 0.78, blue: 0.2)
 private struct WeekendSteps: View {
     let steps: [String]
     let index: Int
+    var accent: Color = red
 
     var body: some View {
         HStack(spacing: 4) {
             ForEach(Array(steps.enumerated()), id: \.offset) { i, label in
                 VStack(spacing: 3) {
                     Capsule()
-                        .fill(i < index ? Color.secondary.opacity(0.5) : i == index ? red : Color.secondary.opacity(0.18))
+                        .fill(i < index ? Color.secondary.opacity(0.5) : i == index ? accent : Color.secondary.opacity(0.18))
                         .frame(height: 4)
                     Text(label)
                         .font(.system(size: 9, weight: i == index ? .heavy : .semibold))
-                        .foregroundStyle(i == index ? red : .secondary)
+                        .foregroundStyle(i == index ? accent : .secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
                 }
@@ -588,6 +589,41 @@ private struct Until: View {
             Text(start, style: .relative)
         } else {
             Text(fr ? "En cours" : "Live now").foregroundColor(red)
+        }
+    }
+}
+
+/// Rouge lisible sur fond sombre.
+private let brightRed = Color(red: 1, green: 0.24, blue: 0.2)
+
+/// Fond « carbone » des Live Activities sur l'écran verrouillé, avec la bande rouge F1X.
+private struct LockBackground: View {
+    var body: some View {
+        ZStack(alignment: .leading) {
+            LinearGradient(colors: [Color(white: 0.07), Color(red: 0.2, green: 0.02, blue: 0.03)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+            // Reflet diagonal discret, comme une livrée.
+            LinearGradient(colors: [.clear, red.opacity(0.22), .clear],
+                           startPoint: UnitPoint(x: 0.55, y: 0), endPoint: UnitPoint(x: 1, y: 1))
+            red.frame(width: 5)
+        }
+    }
+}
+
+/// Compte à rebours façon chrono : « 4:40 » puis « 5:12:03 » dans les dernières 24 h, sinon « J-3 ».
+private struct Countdown: View {
+    let start: Date
+    let fr: Bool
+    var body: some View {
+        let now = Date()
+        let s = start.timeIntervalSince(now)
+        if s <= 0 {
+            Text(fr ? "EN COURS" : "LIVE").foregroundColor(brightRed)
+        } else if s < 86_400 {
+            Text(timerInterval: now...start, countsDown: true)
+        } else {
+            let d = Int(ceil(s / 86_400))
+            Text(fr ? "J-\(d)" : "D-\(d)")
         }
     }
 }
@@ -660,17 +696,17 @@ struct WeekendLiveActivity: Widget {
                     Logo()
                     Text("\(context.attributes.flag) \(name)").font(.subheadline.weight(.bold)).lineLimit(1)
                     Spacer(minLength: 4)
-                    Text("R\(context.attributes.round)")
-                        .font(.caption2.weight(.heavy))
-                        .padding(.horizontal, 7).padding(.vertical, 2)
-                        .background(Color.secondary.opacity(0.18), in: Capsule())
+                    Text(L("MANCHE \(context.attributes.round)", "ROUND \(context.attributes.round)"))
+                        .font(.system(size: 10, weight: .heavy)).tracking(0.6)
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(Color.white.opacity(0.12), in: Capsule())
                 }
                 if state.podium == true, let winner = state.winner {
                     HStack(alignment: .center, spacing: 10) {
                         Text("🏆").font(.system(size: 34))
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(L("VAINQUEUR", "WINNER")).font(.caption2.weight(.heavy)).foregroundStyle(gold)
-                            Text(winner).font(.title2.weight(.black)).lineLimit(1).minimumScaleFactor(0.7)
+                            Text(L("VAINQUEUR", "WINNER")).font(.caption2.weight(.heavy)).tracking(1).foregroundStyle(gold)
+                            Text(winner).font(.title2.weight(.black).italic()).lineLimit(1).minimumScaleFactor(0.7)
                         }
                         Spacer(minLength: 0)
                     }
@@ -678,35 +714,40 @@ struct WeekendLiveActivity: Widget {
                         Text(L("Prochain : \(next)", "Next: \(next)")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
                 } else {
-                    HStack(alignment: .lastTextBaseline) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(L("PROCHAINE SÉANCE", "NEXT SESSION")).font(.caption2.weight(.heavy)).foregroundStyle(.secondary)
-                            Text(state.session).font(.title2.weight(.heavy)).lineLimit(1).minimumScaleFactor(0.7)
-                            Text(state.start.formatted(.dateTime.weekday(.wide).hour().minute().locale(loc)))
-                                .font(.subheadline.weight(.bold)).foregroundStyle(red)
+                    HStack(alignment: .bottom) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(L("PROCHAINE SÉANCE", "NEXT SESSION")).font(.caption2.weight(.heavy)).tracking(1).foregroundStyle(.secondary)
+                            Text(state.session).font(.title2.weight(.black).italic()).lineLimit(1).minimumScaleFactor(0.7)
+                            Text(state.start.formatted(.dateTime.weekday(.wide).hour().minute().locale(loc)).capitalized(with: loc))
+                                .font(.subheadline.weight(.bold)).foregroundStyle(brightRed)
                         }
                         Spacer(minLength: 8)
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text(state.start > Date() ? L("DANS", "IN") : "").font(.caption2.weight(.heavy)).foregroundStyle(.secondary)
-                            Until(start: state.start, fr: fr)
-                                .font(.headline.monospacedDigit())
+                        VStack(alignment: .trailing, spacing: 1) {
+                            Text(state.start > Date() ? L("DÉPART DANS", "STARTS IN") : "").font(.caption2.weight(.heavy)).tracking(1).foregroundStyle(.secondary)
+                            Countdown(start: state.start, fr: fr)
+                                .font(.system(size: 30, weight: .black, design: .rounded).monospacedDigit())
                                 .multilineTextAlignment(.trailing)
-                                .lineLimit(2)
-                                .frame(maxWidth: 120, alignment: .trailing)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.6)
+                                .frame(maxWidth: 130, alignment: .trailing)
                         }
                     }
                     if let steps = state.steps, steps.count > 1 {
-                        WeekendSteps(steps: steps, index: state.stepIndex ?? 0)
+                        WeekendSteps(steps: steps, index: state.stepIndex ?? 0, accent: brightRed)
                     }
                     if let code = state.winnerCode {
                         WinnerChip(code: code, race: state.winnerRace)
                     }
                 }
             }
-            .padding(16)
+            .padding(.leading, 21).padding([.trailing, .vertical], 16)
+            .foregroundStyle(.white)
+            .environment(\.colorScheme, .dark)
             .environment(\.locale, loc)
+            .background(LockBackground())
             }
-            .activityBackgroundTint(nil)
+            .activityBackgroundTint(Color(white: 0.07))
+            .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
             let state = context.state
             let fr = context.attributes.lang.map { $0 == "fr" } ?? isFrench
@@ -862,10 +903,14 @@ struct RaceLiveActivity: Widget {
                 }
                 ForEach(context.state.leaders, id: \.self) { LeaderRow(e: $0) }
             }
-            .padding(14)
+            .padding(.leading, 19).padding([.trailing, .vertical], 14)
+            .foregroundStyle(.white)
+            .environment(\.colorScheme, .dark)
             .environment(\.locale, widgetLocale)
+            .background(LockBackground())
             }
-            .activityBackgroundTint(nil)
+            .activityBackgroundTint(Color(white: 0.07))
+            .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
             let first = context.state.leaders.first
             return DynamicIsland {
