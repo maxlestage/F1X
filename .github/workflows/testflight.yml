@@ -28,6 +28,8 @@ jobs:
       KEY_CONTENT: ${{ secrets.ASC_KEY_P8 || secrets.ASC_KEY_CONTENT || secrets.ASC_KEY_BASE64 || secrets.ASC_KEY_PRIVATE || secrets.ASC_KEY_FILE || secrets.ASC_KEY }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # historique complet : liste des commits pour les notes TestFlight
 
       - name: Vérifier les secrets
         run: |
@@ -131,6 +133,31 @@ jobs:
             2>&1 | tee "$RUNNER_TEMP/export.log" | tail -40
           grep -qE "EXPORT SUCCEEDED|Upload succeeded|Uploaded" "$RUNNER_TEMP/export.log" || exit 1
           echo "::notice::Build ${{ github.run_number }} envoyé sur TestFlight (traitement Apple : 5 à 30 min)."
+
+      - name: Notes « À tester » (commits livrés)
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          notes="$RUNNER_TEMP/notes.txt"
+          subject=$(git log -1 --format=%s)
+          title="$subject"
+          case "$subject" in
+            "Merge pull request"*) title=$(git log -1 --format=%b | sed '/^$/d' | head -1) ;;
+          esac
+          # Commits depuis l'état précédent de master (sinon les 10 derniers).
+          range="HEAD~10..HEAD"
+          if [ -n "$BEFORE" ] && ! echo "$BEFORE" | grep -qE '^0+$' && git cat-file -e "$BEFORE" 2>/dev/null; then
+            range="$BEFORE..HEAD"
+          fi
+          {
+            echo "${title:-$subject}"
+            echo "Build ${{ github.run_number }} · commit $(git rev-parse --short=8 HEAD)"
+            echo
+            echo "Commits :"
+            git log --no-merges --reverse --format='• %s' "$range" | grep -v '^• Merge ' | head -40
+          } > "$notes"
+          BUNDLE_ID=com.maxlestage.f1x BUILD_NUMBER="${{ github.run_number }}" NOTES_FILE="$notes" \
+            KEY_PATH="$KEY_PATH" "$RUNNER_TEMP/venv/bin/python" scripts/testflight_notes.py
 
       - name: Journaux
         if: failure()
