@@ -12,6 +12,14 @@ struct F1XWatchWidgets: WidgetBundle {
     }
 }
 
+/// Fond des widgets dans la pile intelligente (ignoré sur les cadrans, qui gardent leur fond).
+struct WidgetBackdrop: View {
+    var body: some View {
+        LinearGradient(colors: [f1Red.opacity(0.55), Color(red: 0.12, green: 0.02, blue: 0.03)],
+                       startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+}
+
 // MARK: - Compte à rebours
 
 struct CountdownEntry: TimelineEntry {
@@ -109,7 +117,9 @@ struct CountdownView: View {
                             }
                         }
                     } else {
-                        Text("F1X").font(.headline)
+                        Text("🏁 F1X").font(.headline).widgetAccentable()
+                        Text(WL("Prochaine séance", "Next session")).font(.caption).foregroundStyle(.secondary)
+                        Text(WL("Mise à jour…", "Updating…")).font(.caption2).foregroundStyle(.secondary)
                     }
                 }
                 .font(.caption)
@@ -124,7 +134,7 @@ struct CountdownComplication: Widget {
         StaticConfiguration(kind: "F1XCountdown", provider: CountdownProvider()) { entry in
             CountdownView(entry: entry)
                 .environment(\.locale, wLocale)
-                .containerBackground(.clear, for: .widget)
+                .containerBackground(for: .widget) { WidgetBackdrop() }
         }
         .configurationDisplayName(WL("Prochaine séance", "Next session"))
         .description(WL("Compte à rebours jusqu'à la prochaine séance de F1.", "Countdown to the next F1 session."))
@@ -199,7 +209,7 @@ struct WinnerComplication: Widget {
         StaticConfiguration(kind: "F1XWinner", provider: WinnerProvider()) { entry in
             WinnerView(entry: entry)
                 .environment(\.locale, wLocale)
-                .containerBackground(.clear, for: .widget)
+                .containerBackground(for: .widget) { WidgetBackdrop() }
         }
         .configurationDisplayName(WL("Dernier vainqueur", "Last winner"))
         .description(WL("Le vainqueur du dernier Grand Prix.", "Winner of the latest Grand Prix."))
@@ -281,7 +291,7 @@ struct LeaderComplication: Widget {
         StaticConfiguration(kind: "F1XLeader", provider: LeaderProvider()) { entry in
             LeaderView(entry: entry)
                 .environment(\.locale, wLocale)
-                .containerBackground(.clear, for: .widget)
+                .containerBackground(for: .widget) { WidgetBackdrop() }
         }
         .configurationDisplayName(WL("Championnat", "Championship"))
         .description(WL("Le top 3 du championnat pilotes.", "Drivers' championship top 3."))

@@ -100,9 +100,19 @@ enum WatchFeed {
         guard let url = URL(string: "api/f1/\(path)", relativeTo: server) else { return nil }
         var request = URLRequest(url: url)
         request.timeoutInterval = 20
-        guard let (data, _) = try? await URLSession.shared.data(for: request),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        return obj["MRData"] as? [String: Any]
+        let key = "feed-cache:\(path)"
+        if let (data, response) = try? await URLSession.shared.data(for: request),
+           ((response as? HTTPURLResponse)?.statusCode ?? 200) < 400,
+           let mr = parse(data) {
+            // Dernière réponse valide gardée : le widget reste rempli si le réseau manque.
+            UserDefaults.standard.set(data, forKey: key)
+            return mr
+        }
+        return UserDefaults.standard.data(forKey: key).flatMap(parse)
+    }
+
+    private static func parse(_ data: Data) -> [String: Any]? {
+        (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["MRData"] as? [String: Any]
     }
 
     private static func date(_ d: String?, _ t: String?) -> Date? {
