@@ -13,6 +13,7 @@ actor F1API {
 
     private let ttl: TimeInterval = 300
     private var cache: [String: (date: Date, data: Data)] = [:]
+    private var inflight: [String: Task<Data, Error>] = [:]
 
     /// Vrai pendant un premier affichage : la dernière copie connue (même ancienne) est servie
     /// tout de suite, sans attendre le réseau.
@@ -163,19 +164,14 @@ actor F1API {
         if let hit = cache[key], F1API.preferCached || Date().timeIntervalSince(hit.date) < ttl {
             return try JSONDecoder().decode(T.self, from: hit.data)
         }
-        guard let url = URL(string: "api/\(key)", relativeTo: Server.base) else { throw URLError(.badURL) }
-        // Délai borné : sur un réseau lent, la dernière copie est servie au bout de 20 s
-        // au lieu des 60 s par défaut d'URLSession.
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 20
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                throw URLError(.badServerResponse)
-            }
+            let (data, owner) = try await download(key)
             let decoded = try JSONDecoder().decode(T.self, from: data)
-            cache[key] = (Date(), data)
-            DiskCache.write(key, data)
+            // Seul l'appel qui a lancé la requête met à jour le cache (une écriture disque par réponse).
+            if owner {
+                cache[key] = (Date(), data)
+                DiskCache.write(key, data)
+            }
             return decoded
         } catch {
             // Hors ligne : on sert la dernière copie connue plutôt qu'une erreur.
@@ -184,6 +180,29 @@ actor F1API {
             }
             throw error
         }
+    }
+
+    /// Une seule requête réseau par adresse à la fois : les appels simultanés (préchargement
+    /// au lancement et vues qui s'ouvrent en même temps) attendent la même réponse.
+    private func download(_ key: String) async throws -> (data: Data, owner: Bool) {
+        if let running = inflight[key] { return (try await running.value, false) }
+        let task = Task { try await Self.get(key) }
+        inflight[key] = task
+        defer { inflight[key] = nil }
+        return (try await task.value, true)
+    }
+
+    private static func get(_ key: String) async throws -> Data {
+        guard let url = URL(string: "api/\(key)", relativeTo: Server.base) else { throw URLError(.badURL) }
+        // Délai borné : sur un réseau lent, la dernière copie est servie au bout de 20 s
+        // au lieu des 60 s par défaut d'URLSession.
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return data
     }
 }
 
