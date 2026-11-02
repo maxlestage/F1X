@@ -304,7 +304,7 @@ struct LiveView: View {
             L("\(tyreLabel(st.compound)) tours \(st.from) à \(st.to)", "\(tyreLabel(st.compound)) laps \(st.from) to \(st.to)")
         }.joined(separator: ", ")
         let stops = L("\(car.pits) arrêt\(car.pits > 1 ? "s" : "")", "\(car.pits) stop\(car.pits == 1 ? "" : "s")")
-        return stints.isEmpty ? "\(car.code), \(stops)" : "\(car.code), \(stops) : \(stints)"
+        return stints.isEmpty ? "\(car.code), \(stops)" : "\(car.code), \(stops)\(L(" : ", ": "))\(stints)"
     }
 
     private func tyreLabel(_ compound: String) -> String {
