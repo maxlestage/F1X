@@ -30,6 +30,11 @@ targets:
         buildPhase: resources
       - path: Resources/Archivo-OFL.txt
         buildPhase: resources
+      # Tracés géographiques réels des circuits (bacinger/f1-circuits, licence MIT jointe).
+      - path: Resources/f1-circuits.geojson
+        buildPhase: resources
+      - path: Resources/f1-circuits-LICENSE.txt
+        buildPhase: resources
     dependencies:
       - target: F1XWidgets
       - target: F1XWatch

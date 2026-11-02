@@ -208,22 +208,21 @@ struct TrackPanel: View {
     @State private var failed = false
     @State private var unavailable = false
     @State private var attempt = 0
-    @State private var three = false
+    @State private var mode: TrackViewMode = .map
 
     var body: some View {
         // Conteneur réel (pas un Group) : dans une List, le .task doit avoir une vue stable.
         VStack(alignment: .leading, spacing: 0) {
             if let map {
                 VStack(alignment: .leading, spacing: 10) {
-                    Picker("", selection: $three) {
-                        Text(L("Plan 2D", "2D map")).tag(false)
-                        Text(L("Relief 3D", "3D relief")).tag(true)
+                    Picker("", selection: $mode) {
+                        ForEach(TrackViewMode.allCases) { Text($0.label).tag($0) }
                     }
                     .pickerStyle(.segmented)
-                    if three {
-                        Track3DView(map: map)
-                    } else {
-                        TrackMapView(map: map)
+                    switch mode {
+                    case .map: TrackMapView(map: map)
+                    case .relief: Track3DView(map: map)
+                    case .real: TrackRealView(map: map)
                     }
                     StatGrid(items: [
                         (L("Tour", "Lap"), formatLap(map.lap_time)),
@@ -252,7 +251,7 @@ struct TrackPanel: View {
             }
         }
         .task(id: "\(circuitId)-\(attempt)") {
-            three = start3D
+            mode = start3D ? .relief : .map
             unavailable = false
             do {
                 map = try await ServerAPI.shared.track(circuitId)
