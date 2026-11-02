@@ -10,7 +10,7 @@ struct LiveView: View {
     @State private var sessions: [SessionSummary] = []
     @State private var speed = 10
     @State private var tab = 0
-    @State private var map3D = false
+    @State private var mapMode: TrackViewMode = .map
 
     var body: some View {
         Group {
@@ -247,15 +247,14 @@ struct LiveView: View {
                 let markers = snap.cars.filter { $0.lap_progress != nil && !$0.retired }.map {
                     TrackMarker(key: $0.code, label: "\($0.position)", colour: $0.colour, fraction: $0.lap_progress ?? 0)
                 }
-                Picker("", selection: $map3D) {
-                    Text(L("Plan 2D", "2D map")).tag(false)
-                    Text(L("Relief 3D", "3D relief")).tag(true)
+                Picker("", selection: $mapMode) {
+                    ForEach(TrackViewMode.allCases) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                if map3D {
-                    Track3DView(map: track, markers: markers, ghost: false)
-                } else {
-                    TrackMapView(map: track, markers: markers, showTelemetry: false)
+                switch mapMode {
+                case .map: TrackMapView(map: track, markers: markers, showTelemetry: false)
+                case .relief: Track3DView(map: track, markers: markers, ghost: false)
+                case .real: TrackRealView(map: track, markers: markers, ghost: false)
                 }
                 Text(L("Positions estimées d'après l'avancement de chaque pilote dans son tour (couleur = écurie, chiffre = position).",
                        "Positions estimated from each driver's progress through the lap (colour = team, number = position)."))
