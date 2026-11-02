@@ -164,8 +164,12 @@ actor F1API {
             return try JSONDecoder().decode(T.self, from: hit.data)
         }
         guard let url = URL(string: "api/\(key)", relativeTo: Server.base) else { throw URLError(.badURL) }
+        // Délai borné : sur un réseau lent, la dernière copie est servie au bout de 20 s
+        // au lieu des 60 s par défaut d'URLSession.
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 throw URLError(.badServerResponse)
             }
