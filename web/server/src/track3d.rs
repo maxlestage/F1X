@@ -578,6 +578,96 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
         }
     }
 
+    // Campagne jusqu'à l'horizon : anneaux de terrain autour du plateau, qui rejoignent
+    // le relief moyen puis se soulèvent en collines lointaines (plus de plateau qui flotte
+    // dans le vide, l'horizon se fond dans la brume).
+    let mut edge: Vec<(usize, usize)> = Vec::with_capacity(4 * grid);
+    edge.extend((0..grid).map(|gx| (gx, 0)));
+    edge.extend((0..grid).map(|gz| (grid, gz)));
+    edge.extend((0..grid).map(|gx| (grid - gx, grid)));
+    edge.extend((0..grid).map(|gz| (0, grid - gz)));
+    let hills = |x: f32, z: f32| {
+        let a = z.atan2(x);
+        let r = (x * x + z * z).sqrt();
+        let v = 0.55 * (a * 3.0 + 1.3).sin() * (a * 5.0 + 0.4).cos()
+            + 0.30 * (a * 11.0 + 2.1).sin()
+            + 0.15 * (r * 0.004 + a * 7.0).sin();
+        (v * 0.5 + 0.5).clamp(0.0, 1.0)
+    };
+    let rings: [(f32, f32, f32); 6] = [
+        (1.0, 0.0, 0.0),
+        (1.25, 0.35, 5.0),
+        (1.7, 0.75, 22.0),
+        (2.5, 1.0, 60.0),
+        (3.4, 1.0, 120.0),
+        (4.2, 1.0, 170.0),
+    ];
+    let m_edge = edge.len();
+    let ring_pts: Vec<Vec<V>> = rings
+        .iter()
+        .map(|&(f, blend, amp)| {
+            edge.iter()
+                .map(|&(gx, gz)| {
+                    let (x, z) = (-ext + gx as f32 * step, -ext + gz as f32 * step);
+                    // Du carré du plateau vers un cercle : pas d'angles visibles à l'horizon.
+                    let r = (x * x + z * z).sqrt().max(1.0);
+                    let round = ((f - 1.0) / 1.2).clamp(0.0, 1.0);
+                    let radius = r * f + (ext * 1.2 * f - r * f) * round;
+                    let (x, z) = (x / r * radius, z / r * radius);
+                    let y0 = hv(gx, gz);
+                    [
+                        x,
+                        y0 + (mean - y0) * blend + amp * hills(x, z) - amp * 0.15,
+                        z,
+                    ]
+                })
+                .collect()
+        })
+        .collect();
+    {
+        let total = rings.len() * m_edge;
+        let g = {
+            b.group(lawn, total);
+            b.current[&lawn]
+        };
+        let base = b.groups[g].pos.len();
+        for (r, ring) in ring_pts.iter().enumerate() {
+            for k in 0..m_edge {
+                let along = sub(ring[(k + 1) % m_edge], ring[(k + m_edge - 1) % m_edge]);
+                let (r0, r1) = (r.saturating_sub(1), (r + 1).min(rings.len() - 1));
+                let across = sub(ring_pts[r1][k], ring_pts[r0][k]);
+                let mut nn = norm(cross(along, across));
+                if nn[1] < 0.0 {
+                    nn = mul(nn, -1.0);
+                }
+                let grp = &mut b.groups[g];
+                grp.pos.push(ring[k]);
+                grp.nrm.push(nn);
+            }
+        }
+        for r in 0..rings.len() - 1 {
+            for k in 0..m_edge {
+                let k1 = (k + 1) % m_edge;
+                let id = |rr: usize, kk: usize| (base + rr * m_edge + kk) as u16;
+                let (a, c, d, e) = (id(r, k), id(r, k1), id(r + 1, k1), id(r + 1, k));
+                for tri in [[a, c, d], [a, d, e]] {
+                    let grp = &mut b.groups[g];
+                    let (p0, p1, p2) = (
+                        grp.pos[tri[0] as usize],
+                        grp.pos[tri[1] as usize],
+                        grp.pos[tri[2] as usize],
+                    );
+                    let up_facing = cross(sub(p1, p0), sub(p2, p0))[1] > 0.0;
+                    if up_facing {
+                        grp.idx.extend_from_slice(&tri);
+                    } else {
+                        grp.idx.extend_from_slice(&[tri[0], tri[2], tri[1]]);
+                    }
+                }
+            }
+        }
+    }
+
     // Ligne de départ en damier, grille de départ, portique.
     let ahead = tangent(0);
     let s0 = side(0);
@@ -862,19 +952,29 @@ pub fn build(map: &TrackMap) -> Vec<u8> {
         mat(0x3D6B2A, 8),
         mat(0x4F7A2C, 8),
     ];
+    // Bois : les arbres se regroupent en bosquets et lisières (masque de « forêt »), avec
+    // quelques arbres isolés ; jamais près de la piste.
+    let forest = |x: f32, z: f32| {
+        (x * 0.0105 + 1.7).sin() * (z * 0.0123 + 0.6).sin()
+            + 0.6 * (x * 0.027 + z * 0.019 + 2.4).sin()
+    };
     let mut planted = 0;
     let mut tries = 0;
-    while planted < 420 && tries < 8000 {
+    while planted < 760 && tries < 40_000 {
         tries += 1;
-        let (gx, gz) = (
-            (rng.next() * grid as f32) as usize,
-            (rng.next() * grid as f32) as usize,
-        );
+        // Position continue (pas alignée sur la grille du relief).
+        let (fx, fz) = (rng.next() * grid as f32, rng.next() * grid as f32);
+        let (gx, gz) = ((fx as usize).min(grid), (fz as usize).min(grid));
         let d = dist[gz * (grid + 1) + gx];
-        if !(40.0..170.0).contains(&d) {
+        if d < 42.0 {
             continue;
         }
-        let base = [-ext + gx as f32 * step, hv(gx, gz), -ext + gz as f32 * step];
+        let (x, z) = (-ext + fx * step, -ext + fz * step);
+        let dense = forest(x, z);
+        if dense < 0.35 && rng.next() > 0.06 {
+            continue;
+        }
+        let base = [x, hv(gx, gz) - 0.2, z];
         let size = 0.7 + rng.next() * 0.8;
         b.block(
             trunk,
