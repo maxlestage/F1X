@@ -430,7 +430,12 @@ struct StandingsProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<StandingsEntry>) -> Void) {
-        Task { completion(Timeline(entries: [await load()], policy: .after(Date().addingTimeInterval(3600)))) }
+        Task {
+            let entry = await load()
+            // Rafraîchi toutes les heures ; vide (hors ligne, sans cache) : nouvel essai dans 15 min.
+            let delay: TimeInterval = entry.drivers.isEmpty && entry.teams.isEmpty ? 900 : 3600
+            completion(Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(delay))))
+        }
     }
 
     private func load() async -> StandingsEntry {
@@ -546,7 +551,9 @@ struct LastRaceProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<LastRaceEntry>) -> Void) {
         Task {
             let entry = await Feed.lastRace() ?? LastRaceEntry(date: Date(), race: "F1X", round: "", podium: [])
-            completion(Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(3600))))
+            // Vide (hors ligne, sans cache) : nouvel essai dans 15 min plutôt qu'une heure.
+            let delay: TimeInterval = entry.podium.isEmpty ? 900 : 3600
+            completion(Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(delay))))
         }
     }
 }
