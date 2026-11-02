@@ -544,7 +544,7 @@ enum Studio {
             let colors = [UIColor(red: 0.24, green: 0.45, blue: 0.78, alpha: 1).cgColor,
                           UIColor(red: 0.47, green: 0.65, blue: 0.88, alpha: 1).cgColor,
                           UIColor(red: 0.78, green: 0.84, blue: 0.90, alpha: 1).cgColor,
-                          UIColor(red: 0.62, green: 0.68, blue: 0.70, alpha: 1).cgColor] as CFArray
+                          UIColor(red: 0.74, green: 0.80, blue: 0.88, alpha: 1).cgColor] as CFArray
             let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 0.38, 0.5, 1])!
             ctx.cgContext.drawLinearGradient(g, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
         }
@@ -831,6 +831,166 @@ final class TrackPath {
     }
 }
 
+/// Décor du circuit (fichier du serveur) avec des textures procédurales : herbe tondue et
+/// taches de prairie, asphalte granuleux, graviers. Coordonnées de texture projetées sur le
+/// sol (x, z), le format du serveur n'en transporte pas.
+enum TrackDecor {
+    /// Unités du décor par répétition de la texture fine.
+    private static let tile: Float = 9
+
+    static func geometry(_ groups: [CarFile.Group]) -> SCNGeometry {
+        var pos: [SCNVector3] = [], nrm: [SCNVector3] = [], uv: [CGPoint] = []
+        var elements: [SCNGeometryElement] = [], materials: [SCNMaterial] = []
+        for g in groups {
+            let base = UInt32(pos.count)
+            pos += g.positions
+            nrm += g.normals
+            uv += g.positions.map { CGPoint(x: CGFloat($0.x / tile), y: CGFloat($0.z / tile)) }
+            elements.append(SCNGeometryElement(indices: g.indices.map { base + UInt32($0) }, primitiveType: .triangles))
+            materials.append(material(g.mat))
+        }
+        let geo = SCNGeometry(sources: [SCNGeometrySource(vertices: pos), SCNGeometrySource(normals: nrm),
+                                        SCNGeometrySource(textureCoordinates: uv)], elements: elements)
+        geo.materials = materials
+        return geo
+    }
+
+    private static func material(_ m: Mat) -> SCNMaterial {
+        let mat = MeshBuilder.material(m, .team(""))
+        guard case .fixed(let hex, _) = m else { return mat }
+        switch hex {
+        case 0x4A7E33: // herbe
+            textured(mat, grass, scale: 1)
+            mat.multiply.contents = meadow
+            mat.multiply.wrapS = .repeat
+            mat.multiply.wrapT = .repeat
+            mat.multiply.mipFilter = .linear
+            // Taches de prairie à grande échelle (~450 unités) par-dessus l'herbe fine.
+            mat.multiply.contentsTransform = SCNMatrix4MakeScale(tile / 450, tile / 450, 1)
+            mat.roughness.contents = 0.95
+        case 0x2A2C31, 0x3A3E46: // asphalte, dégagements
+            textured(mat, asphalt(hex == 0x2A2C31 ? 0.17 : 0.24), scale: 2.2)
+            mat.roughness.contents = 0.82
+        case 0x26282C: // trajectoire gommée
+            textured(mat, asphalt(0.13), scale: 2.2)
+            mat.roughness.contents = 0.7
+        case 0xC4AE86: // graviers
+            textured(mat, gravel, scale: 3)
+            mat.roughness.contents = 1
+        default:
+            break
+        }
+        return mat
+    }
+
+    private static func textured(_ mat: SCNMaterial, _ image: UIImage, scale: Float) {
+        mat.diffuse.contents = image
+        mat.diffuse.wrapS = .repeat
+        mat.diffuse.wrapT = .repeat
+        mat.diffuse.mipFilter = .linear
+        mat.diffuse.maxAnisotropy = 8
+        mat.diffuse.contentsTransform = SCNMatrix4MakeScale(scale, scale, 1)
+    }
+
+    /// Générateur déterministe (même texture à chaque lancement).
+    private struct Noise {
+        var state: UInt64
+        mutating func next() -> CGFloat {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return CGFloat(state >> 33) / CGFloat(UInt32.max >> 1)
+        }
+    }
+
+    /// Dessine une texture qui se répète sans couture (chaque motif est reproduit sur les bords).
+    private static func tileImage(_ size: CGFloat, _ base: UIColor, _ draw: (CGContext, inout Noise, (CGRect, (CGRect) -> Void) -> Void) -> Void) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: CGSize(width: size, height: size), format: format).image { ctx in
+            let c = ctx.cgContext
+            base.setFill()
+            c.fill(CGRect(x: 0, y: 0, width: size, height: size))
+            var rng = Noise(state: 0xF1F1_2026)
+            draw(c, &rng) { rect, paint in
+                for dx in [-size, 0, size] {
+                    for dy in [-size, 0, size] {
+                        let r = rect.offsetBy(dx: dx, dy: dy)
+                        if r.intersects(CGRect(x: 0, y: 0, width: size, height: size)) { paint(r) }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Herbe : brins clairs et sombres serrés sur un vert naturel.
+    static let grass: UIImage = tileImage(256, UIColor(red: 0.36, green: 0.55, blue: 0.24, alpha: 1)) { c, rng, wrap in
+        for _ in 0..<5200 {
+            let x = rng.next() * 256, y = rng.next() * 256
+            let light = rng.next()
+            let colour = UIColor(red: 0.26 + 0.22 * light, green: 0.42 + 0.26 * light, blue: 0.16 + 0.12 * light,
+                                 alpha: 0.55)
+            let w = 1 + rng.next() * 1.5, h = 2 + rng.next() * 3.5
+            wrap(CGRect(x: x, y: y, width: w, height: h)) { r in
+                c.setFillColor(colour.cgColor)
+                c.fill(r)
+            }
+        }
+    }
+
+    /// Prairie : grandes taches plus ou moins vertes (multiplie l'herbe), zones sèches.
+    static let meadow: UIImage = tileImage(256, UIColor(white: 0.97, alpha: 1)) { c, rng, wrap in
+        for _ in 0..<70 {
+            let x = rng.next() * 256, y = rng.next() * 256, r = 18 + rng.next() * 46
+            let dry = rng.next() < 0.3
+            let tone = dry ? UIColor(red: 1, green: 0.93, blue: 0.72, alpha: 0.35)
+                           : UIColor(red: 0.72, green: 0.82, blue: 0.70, alpha: 0.32 + rng.next() * 0.25)
+            wrap(CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r)) { rect in
+                let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                   colors: [tone.cgColor, tone.withAlphaComponent(0).cgColor] as CFArray,
+                                   locations: [0, 1])!
+                c.drawRadialGradient(g, startCenter: CGPoint(x: rect.midX, y: rect.midY), startRadius: 0,
+                                     endCenter: CGPoint(x: rect.midX, y: rect.midY), endRadius: r, options: [])
+            }
+        }
+    }
+
+    /// Asphalte : grain fin clair et sombre, quelques taches.
+    static func asphalt(_ lum: CGFloat) -> UIImage {
+        tileImage(256, UIColor(red: lum, green: lum * 1.02, blue: lum * 1.08, alpha: 1)) { c, rng, wrap in
+            for _ in 0..<9000 {
+                let x = rng.next() * 256, y = rng.next() * 256
+                let v = lum + (rng.next() - 0.5) * 0.16
+                let s = 1 + rng.next() * 1.2
+                wrap(CGRect(x: x, y: y, width: s, height: s)) { r in
+                    c.setFillColor(UIColor(white: max(0, v), alpha: 0.8).cgColor)
+                    c.fill(r)
+                }
+            }
+            for _ in 0..<14 {
+                let x = rng.next() * 256, y = rng.next() * 256, r = 10 + rng.next() * 30
+                wrap(CGRect(x: x - r, y: y - r, width: 2 * r, height: r * 1.4)) { rect in
+                    c.setFillColor(UIColor(white: 0, alpha: 0.06).cgColor)
+                    c.fillEllipse(in: rect)
+                }
+            }
+        }
+    }
+
+    /// Graviers : cailloux beiges, gris et bruns.
+    static let gravel: UIImage = tileImage(256, UIColor(red: 0.74, green: 0.66, blue: 0.51, alpha: 1)) { c, rng, wrap in
+        for _ in 0..<6500 {
+            let x = rng.next() * 256, y = rng.next() * 256, s = 1.5 + rng.next() * 3
+            let k = rng.next()
+            let colour = k < 0.4 ? UIColor(red: 0.85, green: 0.78, blue: 0.64, alpha: 0.9)
+                : k < 0.7 ? UIColor(red: 0.58, green: 0.52, blue: 0.42, alpha: 0.9)
+                : UIColor(white: 0.62 + rng.next() * 0.2, alpha: 0.9)
+            wrap(CGRect(x: x, y: y, width: s, height: s * (0.7 + rng.next() * 0.5))) { r in
+                c.setFillColor(colour.cgColor)
+                c.fillEllipse(in: r)
+            }
+        }
+    }
+}
+
 enum TrackModel {
     static func node(_ map: TrackMap, path: TrackPath) -> SCNNode {
         let pts = path.pts, n = pts.count
@@ -1086,11 +1246,11 @@ struct TrackSceneView: UIViewRepresentable {
             // Décor détaillé (relief, vibreurs, tribunes, arbres) calculé par le serveur.
             let id = map.circuit_id
             Task { [weak self] in
-                guard let url = URL(string: "api/track3d/\(id)?v=8", relativeTo: Server.base),
+                guard let url = URL(string: "api/track3d/\(id)?v=9", relativeTo: Server.base),
                       let result = try? await URLSession.shared.data(from: url),
                       (result.1 as? HTTPURLResponse)?.statusCode == 200,
                       let groups = CarFile.parse([UInt8](result.0)) else { return }
-                let node = SCNNode(geometry: CarFile.geometry(groups, livery: .single(.gray)))
+                let node = SCNNode(geometry: TrackDecor.geometry(groups))
                 await MainActor.run {
                     guard let self else { return }
                     self.scene.rootNode.addChildNode(node)
