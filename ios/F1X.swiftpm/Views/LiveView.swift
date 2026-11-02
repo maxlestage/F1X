@@ -42,10 +42,7 @@ struct LiveView: View {
     }
 
     private func isPast(_ s: SessionSummary) -> Bool {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let g = ISO8601DateFormatter()
-        guard let end = f.date(from: s.date_end) ?? g.date(from: s.date_end) else { return true }
+        guard let end = of1Date(s.date_end) else { return true }
         return end < .now
     }
 
