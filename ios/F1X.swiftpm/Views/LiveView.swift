@@ -288,11 +288,33 @@ struct LiveView: View {
                     .drawIn()
                     Text("\(car.pits)").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 18)
                 }
+                // VoiceOver : la barre colorée ne dit rien, on lit les relais en clair.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(stintsLabel(car))
             }
         } header: {
             Text(L("Relais de pneus", "Tyre stints"))
         } footer: {
             Text(snap.pit_loss.map { L(String(format: "Un arrêt coûte environ %.0f s. Chiffre = nombre d'arrêts.", $0), String(format: "A stop costs about %.0f s. Number = stops made.", $0)) } ?? "")
+        }
+    }
+
+    private func stintsLabel(_ car: LiveCar) -> String {
+        let stints = car.stints.map { st in
+            L("\(tyreLabel(st.compound)) tours \(st.from) à \(st.to)", "\(tyreLabel(st.compound)) laps \(st.from) to \(st.to)")
+        }.joined(separator: ", ")
+        let stops = L("\(car.pits) arrêt\(car.pits > 1 ? "s" : "")", "\(car.pits) stop\(car.pits == 1 ? "" : "s")")
+        return stints.isEmpty ? "\(car.code), \(stops)" : "\(car.code), \(stops) : \(stints)"
+    }
+
+    private func tyreLabel(_ compound: String) -> String {
+        switch compound.uppercased() {
+        case "SOFT": L("tendres", "soft")
+        case "MEDIUM": L("mediums", "medium")
+        case "HARD": L("durs", "hard")
+        case "INTERMEDIATE": L("intermédiaires", "intermediate")
+        case "WET": L("pluie", "wet")
+        default: L("pneus inconnus", "unknown tyres")
         }
     }
 
