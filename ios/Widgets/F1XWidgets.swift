@@ -78,8 +78,12 @@ struct NextRaceEntry: TimelineEntry {
 /// Lecture minimale des réponses Jolpica relayées par le serveur F1X.
 private enum Feed {
     static func json(_ path: String) async -> [String: Any]? {
-        guard let url = URL(string: "api/f1/\(path)", relativeTo: server),
-              let (data, _) = try? await URLSession.shared.data(from: url),
+        guard let url = URL(string: "api/f1/\(path)", relativeTo: server) else { return nil }
+        // Délai court (budget limité des widgets) et réponse d'erreur du serveur ignorée.
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         return obj["MRData"] as? [String: Any]
     }
