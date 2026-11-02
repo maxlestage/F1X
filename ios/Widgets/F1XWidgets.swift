@@ -880,8 +880,9 @@ struct WeekendLiveActivity: Widget {
                 if podium, let code = state.winnerCode {
                     Text(code).font(.caption.weight(.black).italic()).foregroundStyle(gold)
                 } else if state.start > Date(), state.start.timeIntervalSinceNow < 3600 {
-                    // Dernière heure : chrono qui défile.
-                    Text(timerInterval: Date()...state.start, countsDown: true)
+                    // Dernière heure : chrono qui défile. La borne basse est plafonnée au départ :
+                    // un second `Date()` lu après le test pourrait le dépasser et inverser la plage (plantage).
+                    Text(timerInterval: min(Date(), state.start)...state.start, countsDown: true)
                         .font(.caption.weight(.heavy).monospacedDigit())
                         .foregroundStyle(brightRed)
                         .multilineTextAlignment(.trailing)
