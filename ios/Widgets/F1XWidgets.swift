@@ -82,10 +82,20 @@ private enum Feed {
         // Délai court (budget limité des widgets) et réponse d'erreur du serveur ignorée.
         var request = URLRequest(url: url)
         request.timeoutInterval = 15
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
-              let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        return obj["MRData"] as? [String: Any]
+        let key = "feed-cache:\(path)"
+        if let (data, response) = try? await URLSession.shared.data(for: request),
+           let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+           let mr = parse(data) {
+            // Dernière réponse valide gardée : hors réseau, le widget reste rempli
+            // au lieu de retomber sur un état vide.
+            UserDefaults.standard.set(data, forKey: key)
+            return mr
+        }
+        return UserDefaults.standard.data(forKey: key).flatMap(parse)
+    }
+
+    private static func parse(_ data: Data) -> [String: Any]? {
+        (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["MRData"] as? [String: Any]
     }
 
     static func nextRace() async -> NextRace? {
