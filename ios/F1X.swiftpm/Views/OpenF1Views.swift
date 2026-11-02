@@ -69,12 +69,17 @@ func of1(_ endpoint: String, _ query: String, ttl: TimeInterval = 600) async -> 
 }
 
 /// Date ISO OpenF1 → Date.
-func of1Date(_ s: String) -> Date? {
+/// Les graphiques OpenF1 convertissent des milliers de dates à chaque rendu :
+/// on réutilise donc deux formateurs partagés (coûteux à créer, sûrs entre fils).
+let isoFractionalParser: ISO8601DateFormatter = {
     let f = ISO8601DateFormatter()
     f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    if let d = f.date(from: s) { return d }
-    f.formatOptions = [.withInternetDateTime]
-    return f.date(from: s)
+    return f
+}()
+let isoParser = ISO8601DateFormatter()
+
+func of1Date(_ s: String) -> Date? {
+    isoFractionalParser.date(from: s) ?? isoParser.date(from: s)
 }
 
 private let palette: [Color] = [

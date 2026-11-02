@@ -74,9 +74,7 @@ struct Hour {
 }
 
 private func utcDate(_ s: String) -> Date? {
-    let f = ISO8601DateFormatter()
-    f.formatOptions = [.withInternetDateTime]
-    return f.date(from: s.count == 16 ? s + ":00Z" : s)
+    isoParser.date(from: s.count == 16 ? s + ":00Z" : s)
 }
 
 extension Forecast.Hourly {
