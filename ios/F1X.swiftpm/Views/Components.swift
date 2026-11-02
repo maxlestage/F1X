@@ -288,12 +288,12 @@ extension View {
 
 /// Âge à partir d'une date « 1985-01-07 ».
 func age(_ dob: String?) -> Int? {
-    guard let dob, let date = ISO8601DateFormatter().date(from: dob + "T00:00:00Z") else { return nil }
+    guard let dob, let date = isoParser.date(from: dob + "T00:00:00Z") else { return nil }
     return Calendar.current.dateComponents([.year], from: date, to: .now).year
 }
 
 /// « 7 janvier 1985 ».
 func longDate(_ iso: String?) -> String {
-    guard let iso, let date = ISO8601DateFormatter().date(from: iso + "T12:00:00Z") else { return iso ?? "" }
+    guard let iso, let date = isoParser.date(from: iso + "T12:00:00Z") else { return iso ?? "" }
     return date.formatted(.dateTime.day().month(.wide).year().locale(appLocale))
 }
