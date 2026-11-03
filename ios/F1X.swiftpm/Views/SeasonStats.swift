@@ -302,6 +302,17 @@ private struct DuelRow: View {
             }
         }
         .padding(.vertical, 4)
+        // VoiceOver : une seule phrase avec les noms, au lieu de chiffres isolés
+        // (« 12, Course, 3 ») qu'on ne peut pas rattacher à un pilote.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(spoken)
+    }
+
+    private var spoken: String {
+        let a = duel.a.familyName, b = duel.b.familyName
+        let pa = points(duel.points.0), pb = points(duel.points.1)
+        return L("\(a) contre \(b). Course : \(duel.race.0) à \(duel.race.1). Qualifications : \(duel.quali.0) à \(duel.quali.1). Points : \(pa) à \(pb).",
+                 "\(a) versus \(b). Race: \(duel.race.0) to \(duel.race.1). Qualifying: \(duel.quali.0) to \(duel.quali.1). Points: \(pa) to \(pb).")
     }
 
     private func points(_ value: Double) -> String {
