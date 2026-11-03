@@ -8,6 +8,11 @@ struct LiveView: View {
     @StateObject private var radioPlayer = RadioPlayer()
     @State private var year = Calendar.current.component(.year, from: .now)
     @State private var sessions: [SessionSummary] = []
+    /// État de la liste des sessions à rejouer : chargement, échec réseau ou chargée.
+    @State private var sessionsLoading = true
+    @State private var sessionsFailed = false
+    @State private var sessionsRetry = 0
+    @State private var sessionsYear: Int?
     @State private var speed = 10
     @State private var tab = 0
     @State private var mapMode: TrackViewMode = .map
@@ -39,7 +44,27 @@ struct LiveView: View {
                 activity.update(snap)
             }
         }
-        .task(id: year) { sessions = Array(((try? await ServerAPI.shared.sessions(year: year)) ?? []).filter { isPast($0) }.reversed()) }
+        .task(id: "\(year)-\(sessionsRetry)") { await loadSessions() }
+    }
+
+    /// Charge les sessions passées de l'année ; en cas d'échec réseau, affiche l'erreur
+    /// et un bouton « Réessayer » au lieu d'une section vide.
+    private func loadSessions() async {
+        let wanted = year
+        if sessionsYear != wanted { sessions = [] }
+        sessionsLoading = true
+        sessionsFailed = false
+        do {
+            let list = try await ServerAPI.shared.sessions(year: wanted)
+            // Année changée entre-temps : la nouvelle tâche s'en charge.
+            guard !Task.isCancelled, wanted == year else { return }
+            sessions = Array(list.filter { isPast($0) }.reversed())
+            sessionsYear = wanted
+        } catch {
+            guard !Task.isCancelled, wanted == year else { return }
+            sessionsFailed = sessions.isEmpty
+        }
+        sessionsLoading = false
     }
 
     private func isPast(_ s: SessionSummary) -> Bool {
@@ -78,6 +103,22 @@ struct LiveView: View {
                     ForEach([1, 5, 10, 30, 60], id: \.self) { Text("×\($0)").tag($0) }
                 }
                 .pickerStyle(.segmented)
+                if sessionsFailed {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(L("Impossible de charger les sessions. Vérifie ta connexion.", "Couldn't load sessions. Check your connection."))
+                            .font(.footnote).foregroundStyle(.secondary)
+                        Button(L("Réessayer", "Try again")) { sessionsRetry += 1 }
+                    }
+                } else if sessionsLoading && sessions.isEmpty {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text(L("Chargement des sessions…", "Loading sessions…")).font(.footnote).foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                } else if sessions.isEmpty {
+                    Text(L("Aucune session terminée pour \(String(year)).", "No finished session for \(String(year)) yet."))
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 ForEach(sessions) { s in
                     Button { client.replay(s, speed: speed) } label: {
                         VStack(alignment: .leading, spacing: 2) {
@@ -125,18 +166,23 @@ struct LiveView: View {
                     if snap.mode == "replay" {
                         HStack {
                             Button { client.send(["type": "seek", "seconds": -120]) } label: { Image(systemName: "gobackward.120") }
+                                .accessibilityLabel(L("Reculer de 2 minutes", "Back 2 minutes"))
                             Spacer()
                             Button { client.send(["type": snap.paused ? "resume" : "pause"]) } label: {
                                 Image(systemName: snap.paused ? "play.fill" : "pause.fill").font(.title2)
                             }
+                            .accessibilityLabel(snap.paused ? L("Reprendre", "Resume") : L("Pause", "Pause"))
                             Spacer()
                             Button { client.send(["type": "seek", "seconds": 120]) } label: { Image(systemName: "goforward.120") }
+                                .accessibilityLabel(L("Avancer de 2 minutes", "Forward 2 minutes"))
                             Spacer()
                             Menu("×\(snap.speed)") {
                                 ForEach([1, 5, 10, 30, 60], id: \.self) { v in
                                     Button("×\(v)") { client.send(["type": "speed", "speed": v]) }
+                                        .accessibilityLabel(L("Vitesse \(v) fois", "Speed \(v)x"))
                                 }
                             }
+                            .accessibilityLabel(L("Vitesse du replay : \(snap.speed) fois", "Replay speed: \(snap.speed)x"))
                         }
                         .buttonStyle(.borderless)
                     }
