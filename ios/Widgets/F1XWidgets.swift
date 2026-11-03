@@ -46,13 +46,15 @@ struct SessionItem: Codable, Hashable {
     var date: Date
 }
 
+// Tables construites une seule fois (et non à chaque ligne du widget).
+private let teamHex: [String: String] = [
+    "mercedes": "27F4D2", "ferrari": "E8002D", "red_bull": "3671C6", "mclaren": "FF8000",
+    "aston_martin": "229971", "alpine": "FF87BC", "williams": "64C4FF", "rb": "6692FF",
+    "haas": "B6BABD", "sauber": "52E252", "audi": "F50537", "cadillac": "C9A96E",
+]
+
 private func teamColour(_ id: String) -> Color {
-    let map: [String: String] = [
-        "mercedes": "27F4D2", "ferrari": "E8002D", "red_bull": "3671C6", "mclaren": "FF8000",
-        "aston_martin": "229971", "alpine": "FF87BC", "williams": "64C4FF", "rb": "6692FF",
-        "haas": "B6BABD", "sauber": "52E252", "audi": "F50537", "cadillac": "C9A96E",
-    ]
-    return colour(map[id] ?? "8A8A99")
+    colour(teamHex[id] ?? "8A8A99")
 }
 
 private let isoParser = ISO8601DateFormatter()
@@ -101,12 +103,11 @@ private enum Feed {
     static func nextRace() async -> NextRace? {
         guard let mr = await json("current.json?limit=100"),
               let races = (mr["RaceTable"] as? [String: Any])?["Races"] as? [[String: Any]] else { return nil }
-        let iso = ISO8601DateFormatter()
         let now = Date()
         for r in races {
             let date = r["date"] as? String ?? ""
             let time = (r["time"] as? String) ?? "12:00:00Z"
-            guard let start = iso.date(from: "\(date)T\(time.hasSuffix("Z") ? time : time + "Z")"),
+            guard let start = isoParser.date(from: "\(date)T\(time.hasSuffix("Z") ? time : time + "Z")"),
                   start.addingTimeInterval(2 * 3600) > now else { continue }
             let circuit = r["Circuit"] as? [String: Any]
             let location = circuit?["Location"] as? [String: Any]
@@ -352,17 +353,19 @@ private struct WidgetBackground: View {
     var body: some View { LockBackground() }
 }
 
+// Codes pays construits une seule fois (et non à chaque affichage).
+private let countryCodes: [String: String] = [
+    "Australia": "AU", "Austria": "AT", "Azerbaijan": "AZ", "Bahrain": "BH", "Belgium": "BE",
+    "Brazil": "BR", "Canada": "CA", "China": "CN", "France": "FR", "Germany": "DE", "Hungary": "HU",
+    "Italy": "IT", "Japan": "JP", "Malaysia": "MY", "Mexico": "MX", "Monaco": "MC", "Netherlands": "NL",
+    "Portugal": "PT", "Qatar": "QA", "Saudi Arabia": "SA", "Singapore": "SG", "Spain": "ES",
+    "UAE": "AE", "United Arab Emirates": "AE", "UK": "GB", "United Kingdom": "GB", "USA": "US",
+    "United States": "US",
+]
+
 /// Drapeau du pays du Grand Prix.
 private func flagEmoji(_ country: String) -> String {
-    let codes: [String: String] = [
-        "Australia": "AU", "Austria": "AT", "Azerbaijan": "AZ", "Bahrain": "BH", "Belgium": "BE",
-        "Brazil": "BR", "Canada": "CA", "China": "CN", "France": "FR", "Germany": "DE", "Hungary": "HU",
-        "Italy": "IT", "Japan": "JP", "Malaysia": "MY", "Mexico": "MX", "Monaco": "MC", "Netherlands": "NL",
-        "Portugal": "PT", "Qatar": "QA", "Saudi Arabia": "SA", "Singapore": "SG", "Spain": "ES",
-        "UAE": "AE", "United Arab Emirates": "AE", "UK": "GB", "United Kingdom": "GB", "USA": "US",
-        "United States": "US",
-    ]
-    guard let code = codes[country] else { return "🏁" }
+    guard let code = countryCodes[country] else { return "🏁" }
     return code.unicodeScalars.compactMap { UnicodeScalar(127_397 + $0.value) }.map(String.init).joined()
 }
 
