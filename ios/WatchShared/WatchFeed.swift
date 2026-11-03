@@ -60,26 +60,29 @@ struct WLastRace: Hashable, Codable {
     var rows: [WRow]
 }
 
+// Tables construites une seule fois (et non à chaque ligne affichée).
+private let teamHex: [String: UInt32] = [
+    "mercedes": 0x27F4D2, "ferrari": 0xE8002D, "red_bull": 0x3671C6, "mclaren": 0xFF8000,
+    "aston_martin": 0x229971, "alpine": 0xFF87BC, "williams": 0x64C4FF, "rb": 0x6692FF,
+    "haas": 0xB6BABD, "sauber": 0x52E252, "audi": 0xF50537, "cadillac": 0xC9A96E,
+]
+
 func teamColor(_ id: String) -> Color {
-    let map: [String: UInt32] = [
-        "mercedes": 0x27F4D2, "ferrari": 0xE8002D, "red_bull": 0x3671C6, "mclaren": 0xFF8000,
-        "aston_martin": 0x229971, "alpine": 0xFF87BC, "williams": 0x64C4FF, "rb": 0x6692FF,
-        "haas": 0xB6BABD, "sauber": 0x52E252, "audi": 0xF50537, "cadillac": 0xC9A96E,
-    ]
-    let v = map[id] ?? 0x8A8A99
+    let v = teamHex[id] ?? 0x8A8A99
     return Color(red: Double(v >> 16 & 0xFF) / 255, green: Double(v >> 8 & 0xFF) / 255, blue: Double(v & 0xFF) / 255)
 }
 
+private let countryCodes: [String: String] = [
+    "Australia": "AU", "Austria": "AT", "Azerbaijan": "AZ", "Bahrain": "BH", "Belgium": "BE",
+    "Brazil": "BR", "Canada": "CA", "China": "CN", "France": "FR", "Germany": "DE", "Hungary": "HU",
+    "Italy": "IT", "Japan": "JP", "Malaysia": "MY", "Mexico": "MX", "Monaco": "MC", "Netherlands": "NL",
+    "Portugal": "PT", "Qatar": "QA", "Saudi Arabia": "SA", "Singapore": "SG", "Spain": "ES",
+    "UAE": "AE", "United Arab Emirates": "AE", "UK": "GB", "United Kingdom": "GB", "USA": "US",
+    "United States": "US",
+]
+
 func countryFlag(_ country: String) -> String {
-    let codes: [String: String] = [
-        "Australia": "AU", "Austria": "AT", "Azerbaijan": "AZ", "Bahrain": "BH", "Belgium": "BE",
-        "Brazil": "BR", "Canada": "CA", "China": "CN", "France": "FR", "Germany": "DE", "Hungary": "HU",
-        "Italy": "IT", "Japan": "JP", "Malaysia": "MY", "Mexico": "MX", "Monaco": "MC", "Netherlands": "NL",
-        "Portugal": "PT", "Qatar": "QA", "Saudi Arabia": "SA", "Singapore": "SG", "Spain": "ES",
-        "UAE": "AE", "United Arab Emirates": "AE", "UK": "GB", "United Kingdom": "GB", "USA": "US",
-        "United States": "US",
-    ]
-    guard let code = codes[country] else { return "🏁" }
+    guard let code = countryCodes[country] else { return "🏁" }
     return code.unicodeScalars.compactMap { UnicodeScalar(127_397 + $0.value) }.map(String.init).joined()
 }
 
