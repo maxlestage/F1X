@@ -11,6 +11,7 @@ struct LiveView: View {
     @State private var speed = 10
     @State private var tab = 0
     @State private var mapMode: TrackViewMode = .map
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
@@ -173,7 +174,8 @@ struct LiveView: View {
         }
         .listStyle(.insetGrouped)
         // Dépassement : les lignes glissent à leur nouvelle place.
-        .animation(.spring(response: 0.5, dampingFraction: 0.85), value: snap.cars.map(\.id))
+        // « Réduire les animations » : les lignes changent de place sans glisser.
+        .animation(reduceMotion ? nil : .spring(response: 0.5, dampingFraction: 0.85), value: snap.cars.map(\.id))
     }
 
     @ViewBuilder
@@ -223,6 +225,9 @@ struct LiveView: View {
                     }
                 }
                 .opacity(car.retired ? 0.45 : 1)
+                // VoiceOver : une phrase par voiture au lieu de symboles lus un par un (⏱, ▲, « S », « 12 »).
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(orderLabel(car))
                 .cascadeIn()
             }
         } footer: {
@@ -296,6 +301,30 @@ struct LiveView: View {
         } footer: {
             Text(snap.pit_loss.map { L(String(format: "Un arrêt coûte environ %.0f s. Chiffre = nombre d'arrêts.", $0), String(format: "A stop costs about %.0f s. Number = stops made.", $0)) } ?? "")
         }
+    }
+
+    private func orderLabel(_ car: LiveCar) -> String {
+        var parts = [L(car.position == 1 ? "1er" : "\(car.position)e", ordinalEN(car.position)), car.name]
+        if car.retired { parts.append(L("abandon", "retired")) }
+        if car.in_pit { parts.append(L("au stand", "in the pits")) }
+        if car.fastest { parts.append(L("meilleur tour", "fastest lap")) }
+        if let g = car.gained, g != 0 {
+            parts.append(g > 0 ? L("\(g) place\(g > 1 ? "s" : "") gagnée\(g > 1 ? "s" : "")", "gained \(g) place\(g == 1 ? "" : "s")")
+                               : L("\(-g) place\(g < -1 ? "s" : "") perdue\(g < -1 ? "s" : "")", "lost \(-g) place\(g == -1 ? "" : "s")"))
+        }
+        if car.position == 1 { parts.append(L("en tête", "leading")) }
+        else if !car.interval.isEmpty { parts.append(L("à \(car.interval) du précédent", "\(car.interval) to car ahead")) }
+        if let lap = car.last_lap { parts.append(L("dernier tour \(formatLap(lap))", "last lap \(formatLap(lap))")) }
+        if let c = car.compound {
+            let tyre = tyreLabel(c)
+            parts.append(car.tyre_age.map { L("\(tyre), \($0) tours", "\(tyre), \($0) laps") } ?? tyre)
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    private func ordinalEN(_ n: Int) -> String {
+        let suffix = (11...13).contains(n % 100) ? "th" : [1: "st", 2: "nd", 3: "rd"][n % 10] ?? "th"
+        return "\(n)\(suffix)"
     }
 
     private func stintsLabel(_ car: LiveCar) -> String {
