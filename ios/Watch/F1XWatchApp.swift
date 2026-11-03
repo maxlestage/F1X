@@ -112,6 +112,8 @@ private struct Steps: View {
                 }
             }
         }
+        // Abréviations (« EL1 », « Q ») redondantes avec le programme détaillé lu juste après.
+        .accessibilityHidden(true)
     }
 }
 
@@ -143,6 +145,7 @@ private struct NextRacePage: View {
                             Text(s.date.formatted(.dateTime.weekday(.wide).hour().minute().locale(wLocale)))
                                 .font(.footnote).foregroundStyle(.white.opacity(0.7))
                         }
+                        .accessibilityElement(children: .combine)
                     }
                     Steps(race: race)
                     VStack(alignment: .leading, spacing: 6) {
@@ -155,6 +158,7 @@ private struct NextRacePage: View {
                                     .font(.footnote.monospacedDigit()).foregroundStyle(.white.opacity(0.7))
                             }
                             .opacity(s.date.addingTimeInterval(3600) < Date() ? 0.5 : 1)
+                            .accessibilityElement(children: .combine)
                         }
                     }
                 } else {
@@ -186,6 +190,8 @@ private struct LastRacePage: View {
                         Text("\(race.flag) \(race.name.replacingOccurrences(of: " Grand Prix", with: ""))")
                             .font(.footnote).foregroundStyle(.white.opacity(0.7))
                     }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(WL("Vainqueur : \(winner.name), \(race.name)", "Winner: \(winner.name), \(race.name)"))
                     if race.rows.count > 2 {
                         HStack(spacing: 6) {
                             ForEach(race.rows.prefix(3).dropFirst(), id: \.self) { r in
@@ -195,12 +201,14 @@ private struct LastRacePage: View {
                                     Text(r.value).font(.caption2.monospacedDigit()).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
+                                .accessibilityElement(children: .ignore)
+                                .accessibilityLabel(spokenRow(r, value: r.value))
                             }
                         }
                     }
                     VStack(spacing: 5) {
                         ForEach(race.rows.dropFirst(3), id: \.self) { r in
-                            Row(row: r, trailing: r.value)
+                            Row(row: r, trailing: r.value, spoken: spokenRow(r, value: r.value))
                         }
                     }
                 } else {
@@ -230,17 +238,20 @@ private struct StandingsPage: View {
                         Text(leader.name).font(.system(size: 24, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.6)
                         Text("\(leader.value) pts").font(.footnote.monospacedDigit()).foregroundStyle(.white.opacity(0.7))
                     }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(WL("Leader : \(leader.name), \(leader.value) points", "Leader: \(leader.name), \(leader.value) points"))
                     let top = Double(leader.value) ?? 1
                     VStack(spacing: 6) {
                         ForEach(rows.dropFirst(), id: \.self) { r in
                             VStack(spacing: 2) {
-                                Row(row: r, trailing: "\(r.value)")
+                                Row(row: r, trailing: "\(r.value)", spoken: spokenRow(r, value: "\(r.value) points"))
                                 // Écart au leader en barre.
                                 GeometryReader { g in
                                     Capsule().fill(teamColor(r.team))
                                         .frame(width: max(3, g.size.width * CGFloat((Double(r.value) ?? 0) / max(top, 1))), height: 3)
                                 }
                                 .frame(height: 3)
+                                .accessibilityHidden(true)
                             }
                         }
                     }
@@ -257,6 +268,7 @@ private struct StandingsPage: View {
 private struct Row: View {
     let row: WRow
     let trailing: String
+    let spoken: String
 
     var body: some View {
         HStack(spacing: 6) {
@@ -266,5 +278,14 @@ private struct Row: View {
             Spacer(minLength: 2)
             Text(trailing).font(.caption2.monospacedDigit()).foregroundStyle(.white.opacity(0.75)).lineLimit(1)
         }
+        // Une phrase par ligne au lieu de « 4 », « Norris », « 245 » lus séparément.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(spoken)
     }
+}
+
+/// Ligne de classement lue par VoiceOver : « 4e, Lando Norris, 245 points ».
+private func spokenRow(_ r: WRow, value: String) -> String {
+    let rank = r.position == "1" ? "1er" : "\(r.position)e"
+    return WL("\(rank), \(r.name), \(value)", "Position \(r.position), \(r.name), \(value)")
 }
