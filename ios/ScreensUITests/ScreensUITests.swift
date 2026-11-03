@@ -57,7 +57,7 @@ final class ScreensUITests: XCTestCase {
         shot("calendrier")
         scrollToTop()
         shot("calendrier-haut")
-        let race = app.staticTexts.matching(NSPredicate(format: "label CONTAINS '🏆'")).firstMatch
+        let race = app.buttons.matching(NSPredicate(format: "label CONTAINS 'vainqueur'")).firstMatch
         if tap(race) {
             sleep(6)
             shot("course")
