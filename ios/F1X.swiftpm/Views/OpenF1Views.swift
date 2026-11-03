@@ -580,24 +580,14 @@ struct LapsSection: View {
 struct PositionsSection: View {
     let key: Int
     let drivers: [Int: OF1Driver]
-    @State private var positions: [JSONValue] = []
-    @State private var intervals: [JSONValue] = []
+    /// Séries déjà calculées : les milliers de dates OpenF1 ne sont lues qu'une fois,
+    /// hors du fil principal, au lieu d'être reparsées à chaque rendu de la vue.
+    @State private var series = PositionSeries()
     @State private var loaded = false
 
     var body: some View {
-        let t0 = positions.compactMap { of1Date($0["date"].string) }.min() ?? Date()
-        var last: [Int: Int] = [:]
-        for p in positions { if let d = p["driver_number"].int, let v = p["position"].int { last[d] = v } }
-        let top = last.sorted { $0.value < $1.value }.prefix(5).map(\.key)
-        let pts: [Pt] = positions.compactMap { p in
-            guard let d = p["driver_number"].int, top.contains(d), let v = p["position"].double, let t = of1Date(p["date"].string) else { return nil }
-            return Pt(series: of1Code(drivers, d), x: t.timeIntervalSince(t0) / 60, y: v)
-        }
-        let gaps: [Pt] = intervals.enumerated().compactMap { i, p in
-            guard i % 4 == 0, let d = p["driver_number"].int, top.contains(d), let g = p["gap_to_leader"].double, g < 120,
-                  let t = of1Date(p["date"].string) else { return nil }
-            return Pt(series: of1Code(drivers, d), x: t.timeIntervalSince(t0) / 60, y: g)
-        }
+        let pts = series.positions.map { Pt(series: of1Code(drivers, $0.driver), x: $0.x, y: $0.y) }
+        let gaps = series.gaps.map { Pt(series: of1Code(drivers, $0.driver), x: $0.x, y: $0.y) }
         return VStack(spacing: 16) {
             Card(title: L("Positions (5 premiers à l'arrivée)", "Positions (top 5 at the finish)")) {
                 if !loaded { StartLightsLoader() }
@@ -628,9 +618,41 @@ struct PositionsSection: View {
         .task {
             async let p = of1("position", "session_key=\(key)")
             async let i = of1("intervals", "session_key=\(key)")
-            positions = await p
-            intervals = await i
+            let (positions, intervals) = await (p, i)
+            series = await Task.detached(priority: .userInitiated) {
+                PositionSeries(positions: positions, intervals: intervals)
+            }.value
             loaded = true
+        }
+    }
+}
+
+/// Points des graphiques de positions et d'écarts (numéro du pilote, minute, valeur).
+private struct PositionSeries: Sendable {
+    struct Point: Sendable {
+        let driver: Int
+        let x: Double
+        let y: Double
+    }
+    var positions: [Point] = []
+    var gaps: [Point] = []
+
+    init() {}
+
+    init(positions raw: [JSONValue], intervals: [JSONValue]) {
+        let t0 = raw.compactMap { of1Date($0["date"].string) }.min() ?? Date()
+        var last: [Int: Int] = [:]
+        for p in raw { if let d = p["driver_number"].int, let v = p["position"].int { last[d] = v } }
+        let top = Set(last.sorted { $0.value < $1.value }.prefix(5).map(\.key))
+        positions = raw.compactMap { p in
+            guard let d = p["driver_number"].int, top.contains(d), let v = p["position"].double,
+                  let t = of1Date(p["date"].string) else { return nil }
+            return Point(driver: d, x: t.timeIntervalSince(t0) / 60, y: v)
+        }
+        gaps = intervals.enumerated().compactMap { i, p in
+            guard i % 4 == 0, let d = p["driver_number"].int, top.contains(d), let g = p["gap_to_leader"].double, g < 120,
+                  let t = of1Date(p["date"].string) else { return nil }
+            return Point(driver: d, x: t.timeIntervalSince(t0) / 60, y: g)
         }
     }
 }
