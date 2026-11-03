@@ -113,18 +113,23 @@ struct RaceReplayCard: View {
     private func controls(_ snap: Snapshot) -> some View {
         HStack {
             Button { client.send(["type": "seek", "seconds": -120]) } label: { Image(systemName: "gobackward.120") }
+                .accessibilityLabel(L("Reculer de 2 minutes", "Back 2 minutes"))
             Spacer()
             Button { client.send(["type": snap.paused ? "resume" : "pause"]) } label: {
                 Image(systemName: snap.paused ? "play.fill" : "pause.fill").font(.title2)
             }
+            .accessibilityLabel(snap.paused ? L("Reprendre", "Resume") : L("Pause", "Pause"))
             Spacer()
             Button { client.send(["type": "seek", "seconds": 120]) } label: { Image(systemName: "goforward.120") }
+                .accessibilityLabel(L("Avancer de 2 minutes", "Forward 2 minutes"))
             Spacer()
             Menu("×\(snap.speed)") {
                 ForEach([1, 5, 10, 30, 60], id: \.self) { v in
                     Button("×\(v)") { client.send(["type": "speed", "speed": v]) }
+                        .accessibilityLabel(L("Vitesse \(v) fois", "Speed \(v)x"))
                 }
             }
+            .accessibilityLabel(L("Vitesse du replay : \(snap.speed) fois", "Replay speed: \(snap.speed)x"))
             .font(.body.monospacedDigit().bold())
         }
         .buttonStyle(.borderless)
@@ -143,6 +148,10 @@ struct RaceReplayCard: View {
                     Text(c.position == 1 ? L("Leader", "Leader") : c.gap)
                         .font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
                 }
+                // Une seule phrase par pilote pour VoiceOver au lieu de cinq morceaux.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(L("\(c.position == 1 ? "1er" : "\(c.position)e"), \(c.name)\(c.in_pit ? ", au stand" : ""), \(c.position == 1 ? "en tête" : c.gap)",
+                                      "P\(c.position), \(c.name)\(c.in_pit ? ", in the pits" : ""), \(c.position == 1 ? "leader" : c.gap)"))
             }
         }
     }
