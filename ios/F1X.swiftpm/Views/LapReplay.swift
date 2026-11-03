@@ -91,7 +91,9 @@ struct LapReplayView: View {
                 if playing { offset = elapsed(at: Date()) } else { origin = Date() }
                 playing.toggle()
             } label: { Image(systemName: playing ? "pause.fill" : "play.fill").font(.title3) }
+            .accessibilityLabel(playing ? L("Pause", "Pause") : L("Lecture", "Play"))
             Button { restart() } label: { Image(systemName: "backward.end.fill") }
+                .accessibilityLabel(L("Recommencer le tour", "Restart lap"))
             Spacer()
             Menu("×\(Int(speed))") {
                 ForEach([1.0, 2.0, 4.0], id: \.self) { v in
@@ -100,8 +102,10 @@ struct LapReplayView: View {
                         origin = Date()
                         speed = v
                     }
+                    .accessibilityLabel(L("Vitesse \(Int(v)) fois", "Speed \(Int(v))x"))
                 }
             }
+            .accessibilityLabel(L("Vitesse : \(Int(speed)) fois", "Speed: \(Int(speed))x"))
             .font(.body.monospacedDigit().bold())
         }
         .buttonStyle(.borderless)
