@@ -170,11 +170,27 @@ private struct CalendarRow: View {
             }
         }
         .opacity(isPast ? 0.62 : race.isOver() && winner == nil ? 0.6 : 1)
+        // VoiceOver : une seule phrase au lieu de « R5 », du nom du drapeau et de « trophée ».
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(spokenLabel)
         .cascadeIn()
         .onAppear {
             guard !flipped else { return }
             if reduceMotion { flipped = true; return }
             withAnimation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.12)) { flipped = true }
         }
+    }
+
+    private var spokenLabel: String {
+        var parts = [L("Manche \(race.round)", "Round \(race.round)"), race.raceName]
+        if let start = race.start { parts.append(start.f1Day) }
+        if race.isSprintWeekend { parts.append(L("week-end sprint", "sprint weekend")) }
+        if let w = winner {
+            parts.append(L("vainqueur \(w.driver.givenName) \(w.driver.familyName)", "won by \(w.driver.givenName) \(w.driver.familyName)"))
+        } else if isNext {
+            parts.append(L("prochaine course", "next race"))
+        }
+        if isPast { parts.append(L("terminé", "done")) }
+        return parts.joined(separator: ", ")
     }
 }
