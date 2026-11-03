@@ -8,6 +8,7 @@ struct FoldSection<Content: View>: View {
     @ViewBuilder var content: Content
 
     @AppStorage("foldedSections") private var folded = ""
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(_ title: String, footer: String? = nil, @ViewBuilder content: () -> Content) {
         self.title = title
@@ -33,7 +34,7 @@ struct FoldSection<Content: View>: View {
             if !isFolded { content }
         } header: {
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) { toggle() }
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { toggle() }
             } label: {
                 HStack {
                     Text(title)

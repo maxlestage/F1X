@@ -306,6 +306,7 @@ private struct Card<Content: View>: View {
     let title: String
     @ViewBuilder var content: Content
     @AppStorage("foldedCards") private var folded = ""
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var key: String {
         title.filter { !$0.isNumber && $0 != "(" && $0 != ")" }.trimmingCharacters(in: .whitespaces)
@@ -317,7 +318,7 @@ private struct Card<Content: View>: View {
             Button {
                 var set = Set(folded.components(separatedBy: "|").filter { !$0.isEmpty })
                 if set.contains(key) { set.remove(key) } else { set.insert(key) }
-                withAnimation(.easeInOut(duration: 0.2)) { folded = set.sorted().joined(separator: "|") }
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { folded = set.sorted().joined(separator: "|") }
             } label: {
                 HStack {
                     Text(title).font(.headline)
