@@ -178,6 +178,8 @@ struct TrackRealView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var coords: [CLLocationCoordinate2D]?
+    /// Tracé fermé pour la polyligne, calculé une fois (et non à chaque image du chrono).
+    @State private var loop: [CLLocationCoordinate2D] = []
     @State private var failed = false
     @State private var position: MapCameraPosition = .automatic
     @State private var clock: Double = 0
@@ -208,6 +210,7 @@ struct TrackRealView: View {
         }
         .task(id: map.circuit_id) {
             coords = await TrackGeoFit.coordinates(map)
+            loop = coords.map { c in c.first.map { c + [$0] } ?? c } ?? []
             failed = coords == nil
             if let coords { position = .camera(overview(coords)) }
         }
@@ -235,7 +238,7 @@ struct TrackRealView: View {
     private var content: some View {
         if let coords {
             Map(position: $position, interactionModes: follow ? [] : .all) {
-                MapPolyline(coordinates: coords + [coords[0]])
+                MapPolyline(coordinates: loop)
                     .stroke(Color(red: 0.95, green: 0.1, blue: 0.08).opacity(0.85), lineWidth: 3)
                 ForEach(cars(coords), id: \.key) { car in
                     Annotation(labels ? car.label : "", coordinate: car.coordinate, anchor: .center) {
@@ -277,7 +280,7 @@ struct TrackRealView: View {
                 }
             }
             Spacer(minLength: 0)
-            if ghost && markers.isEmpty {
+            if ghost && markers.isEmpty && !reduceMotion {
                 Button { speed = speed >= 4 ? 1 : speed * 2 } label: { Text("×\(Int(speed))").monospacedDigit() }
                     .frame(width: 38, height: 34).background(.black.opacity(0.65), in: Capsule())
                     .accessibilityLabel(L("Vitesse de lecture", "Playback speed"))
@@ -322,11 +325,12 @@ struct TrackRealView: View {
     }
 
     private func advance() {
-        guard let coords else { return }
+        // « Réduire les animations » : la voiture fantôme reste immobile sur la ligne de départ.
+        guard !reduceMotion, let coords else { return }
         if markers.isEmpty && ghost {
             clock = (clock + speed / 24).truncatingRemainder(dividingBy: max(map.lap_time, 1))
         }
-        guard follow, !reduceMotion, let car = cars(coords).first else { return }
+        guard follow, let car = cars(coords).first else { return }
         position = .camera(MapCamera(centerCoordinate: car.coordinate, distance: 420, heading: car.heading, pitch: 70))
     }
 
