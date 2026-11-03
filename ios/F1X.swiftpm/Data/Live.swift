@@ -199,6 +199,9 @@ final class LiveClient: ObservableObject {
 
     private var task: URLSessionWebSocketTask?
     private var reconnect = true
+    /// Attente avant de se reconnecter : 3 s, doublée à chaque échec, plafonnée à 60 s.
+    private var retryDelay: UInt64 = 3
+    private let decoder = JSONDecoder()
 
     func connect() {
         guard task == nil else { return }
@@ -212,6 +215,7 @@ final class LiveClient: ObservableObject {
 
     func disconnect() {
         reconnect = false
+        retryDelay = 3
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
         connected = false
@@ -254,18 +258,23 @@ final class LiveClient: ObservableObject {
     }
 
     private func receive() {
-        task?.receive { [weak self] result in
+        guard let current = task else { return }
+        current.receive { [weak self] result in
             Task { @MainActor in
-                guard let self else { return }
+                // Une ancienne connexion (annulée puis remplacée) ne doit pas toucher la nouvelle.
+                guard let self, self.task === current else { return }
                 switch result {
                 case .success(let message):
+                    self.retryDelay = 3
                     if case .string(let text) = message { self.handle(text) }
                     self.receive()
                 case .failure:
                     self.task = nil
                     self.connected = false
                     if self.reconnect {
-                        try? await Task.sleep(nanoseconds: 3_000_000_000)
+                        let delay = self.retryDelay
+                        self.retryDelay = min(delay * 2, 60)
+                        try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
                         if self.reconnect { self.connect() }
                     }
                 }
@@ -283,7 +292,7 @@ final class LiveClient: ObservableObject {
 
     private func handle(_ text: String) {
         guard let data = text.data(using: .utf8),
-              let env = try? JSONDecoder().decode(Envelope.self, from: data) else { return }
+              let env = try? decoder.decode(Envelope.self, from: data) else { return }
         switch env.type {
         case "status":
             liveAvailable = env.live_available ?? false
@@ -294,12 +303,12 @@ final class LiveClient: ObservableObject {
         case "loading":
             loading = env.message
         case "snapshot":
-            if let snap = try? JSONDecoder().decode(Snapshot.self, from: data) {
+            if let snap = try? decoder.decode(Snapshot.self, from: data) {
                 snapshot = snap
                 loading = nil
             }
         case "track":
-            track = try? JSONDecoder().decode(TrackMap.self, from: data)
+            track = try? decoder.decode(TrackMap.self, from: data)
         case "stopped":
             snapshot = nil
             loading = nil
