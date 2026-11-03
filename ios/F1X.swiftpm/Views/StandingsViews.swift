@@ -46,6 +46,7 @@ struct StandingsView: View {
                 if teams {
                     let leader = constructors.first.flatMap { Double($0.points) } ?? 0
                     Section {
+                        if constructors.isEmpty { emptyRow(teams: true) }
                         ForEach(constructors) { s in
                             NavigationLink(value: s.constructor) {
                                 VStack(alignment: .leading, spacing: 6) {
@@ -62,6 +63,7 @@ struct StandingsView: View {
                     }
                 } else {
                     Section {
+                        if list.isEmpty { emptyRow(teams: false) }
                         ForEach(list) { s in
                             NavigationLink(value: s.driver) {
                                 StandingRow(
@@ -87,6 +89,18 @@ struct StandingsView: View {
         }
         .task(id: season) { await F1API.instant { await load() } }
         .autoRefresh { await load() }
+    }
+
+    /// Message à la place d'une section vide : pas de championnat des écuries avant 1958,
+    /// ou saison qui n'a pas encore commencé.
+    private func emptyRow(teams: Bool) -> some View {
+        let beforeConstructors = teams && (Int(season).map { $0 < 1958 } ?? false)
+        return Text(beforeConstructors
+                    ? L("Le championnat des écuries n'existe que depuis 1958.", "The constructors' championship only began in 1958.")
+                    : L("Pas encore de classement pour cette saison.", "No standings yet for this season."))
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private func load() async {
