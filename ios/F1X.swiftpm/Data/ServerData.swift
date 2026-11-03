@@ -86,6 +86,7 @@ actor ServerAPI {
     private var cache: [String: (Date, Data)] = [:]
     private var photos: [String: Photo?] = [:]
     private var inflight: [String: Task<Data, Error>] = [:]
+    private var photoInflight: [String: Task<PhotoFetch, Never>] = [:]
 
     func get<T: Decodable>(_ path: String, as type: T.Type, ttl: TimeInterval = 600) async throws -> T {
         if let hit = cache[path], Date().timeIntervalSince(hit.0) < ttl {
@@ -152,22 +153,47 @@ actor ServerAPI {
             photos[title] = stored
             return stored
         }
-        guard let api = URL(string: "api/photo/\(title)", relativeTo: Server.base) else { return nil }
+        // Une seule requête par photo à la fois : la même photo affichée par plusieurs vues
+        // (avatar dans l'accueil et les classements, grande photo de la fiche) n'est téléchargée qu'une fois.
+        let task: Task<PhotoFetch, Never>
+        if let running = photoInflight[title] {
+            task = running
+        } else {
+            task = Task { await Self.fetchPhoto(title) }
+            photoInflight[title] = task
+        }
+        let result = await task.value
+        if photoInflight[title] == task { photoInflight[title] = nil }
+        switch result {
+        case .found(let photo, let data):
+            photos[title] = photo
+            UserDefaults.standard.set(data, forKey: key)
+            return photo
+        case .missing:
+            photos[title] = .some(nil)
+            return nil
+        case .failed:
+            return nil
+        }
+    }
+
+    private enum PhotoFetch: Sendable {
+        case found(Photo, Data)
+        case missing
+        case failed
+    }
+
+    private static func fetchPhoto(_ title: String) async -> PhotoFetch {
+        guard let api = URL(string: "api/photo/\(title)", relativeTo: Server.base) else { return .failed }
         // Délai borné : hors réseau, l'initiale s'affiche vite à la place de la photo.
         var request = URLRequest(url: api)
         request.timeoutInterval = 15
-        guard let result = try? await URLSession.shared.data(for: request),
-              let http = result.1 as? HTTPURLResponse
-        else { return nil }
-        let data = result.0
-        if http.statusCode == 404 {
-            photos[title] = .some(nil)
-            return nil
-        }
-        guard http.statusCode == 200, let photo = try? JSONDecoder().decode(Photo.self, from: data) else { return nil }
-        photos[title] = photo
-        UserDefaults.standard.set(data, forKey: key)
-        return photo
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse
+        else { return .failed }
+        if http.statusCode == 404 { return .missing }
+        guard http.statusCode == 200, let photo = try? JSONDecoder().decode(Photo.self, from: data) else { return .failed }
+        return .found(photo, data)
     }
 }
 
