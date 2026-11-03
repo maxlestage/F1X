@@ -17,14 +17,21 @@ enum SessionReminders {
     }
 
     static func disable() {
-        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        Task { await removeOwn(UNUserNotificationCenter.current()) }
+    }
+
+    /// Retire les rappels de séance seulement (pas l'avertissement de la Live Activity).
+    private static func removeOwn(_ center: UNUserNotificationCenter) async {
+        let ids = await center.pendingNotificationRequests().map(\.identifier)
+            .filter { $0.hasPrefix("f1x-") && $0 != "f1x-weekend-activity-expiry" }
+        center.removePendingNotificationRequests(withIdentifiers: ids)
     }
 
     /// Reprogramme les rappels des 3 prochains Grands Prix (limite iOS : 64 en attente).
     static func schedule(races: [Race]) async {
         guard enabled else { return }
         let center = UNUserNotificationCenter.current()
-        center.removeAllPendingNotificationRequests()
+        await removeOwn(center)
         for race in races.filter({ !$0.isOver() }).prefix(3) {
             let title = "\(Flag.country(race.circuit.location.country)) \(race.raceName)"
             for session in race.sessions {
