@@ -1246,10 +1246,9 @@ struct TrackSceneView: UIViewRepresentable {
             // Décor détaillé (relief, vibreurs, tribunes, arbres) calculé par le serveur.
             let id = map.circuit_id
             Task { [weak self] in
-                guard let url = URL(string: "api/track3d/\(id)?v=9", relativeTo: Server.base),
-                      let result = try? await URLSession.shared.data(from: url),
-                      (result.1 as? HTTPURLResponse)?.statusCode == 200,
-                      let groups = CarFile.parse([UInt8](result.0)) else { return }
+                // Cache mémoire, délai borné et requêtes simultanées regroupées (ServerAPI).
+                guard let bytes = try? await ServerAPI.shared.data("api/track3d/\(id)?v=9", ttl: 86_400),
+                      let groups = CarFile.parse([UInt8](bytes)) else { return }
                 let node = SCNNode(geometry: TrackDecor.geometry(groups))
                 await MainActor.run {
                     guard let self else { return }
