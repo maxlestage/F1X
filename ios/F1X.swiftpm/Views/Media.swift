@@ -159,7 +159,7 @@ struct TrackMapView: View {
                             .frame(width: 26, height: 26)
                             .background(Circle().fill(Color(hexString: m.colour)))
                             .position(p)
-                            .animation(.linear(duration: 1), value: idx)
+                            .animation(reduceMotion ? nil : .linear(duration: 1), value: idx)
                     }
                 }
                 .contentShape(Rectangle())

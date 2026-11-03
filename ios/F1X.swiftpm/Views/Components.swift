@@ -40,6 +40,7 @@ func loadErrorMessage(_ error: Error) -> String {
 /// Compte à rebours jusqu'à `target`, 4 cases de largeur égale (jamais plus large que l'écran).
 struct CountdownView: View {
     let target: Date
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -63,8 +64,8 @@ struct CountdownView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 // Le chiffre qui change bascule.
-                .contentTransition(.numericText(countsDown: true))
-                .animation(.snappy(duration: 0.35), value: value)
+                .contentTransition(reduceMotion ? .identity : .numericText(countsDown: true))
+                .animation(reduceMotion ? nil : .snappy(duration: 0.35), value: value)
             Text(label.uppercased())
                 .font(.caption2.weight(.medium))
                 .tracking(1.6)
