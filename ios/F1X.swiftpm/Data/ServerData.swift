@@ -136,8 +136,11 @@ actor ServerAPI {
             photos[title] = stored
             return stored
         }
-        guard let api = URL(string: "api/photo/\(title)", relativeTo: Server.base),
-              let result = try? await URLSession.shared.data(from: api),
+        guard let api = URL(string: "api/photo/\(title)", relativeTo: Server.base) else { return nil }
+        // Délai borné : hors réseau, l'initiale s'affiche vite à la place de la photo.
+        var request = URLRequest(url: api)
+        request.timeoutInterval = 15
+        guard let result = try? await URLSession.shared.data(for: request),
               let http = result.1 as? HTTPURLResponse
         else { return nil }
         let data = result.0
