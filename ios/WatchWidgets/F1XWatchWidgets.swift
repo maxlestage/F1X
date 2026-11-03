@@ -51,8 +51,17 @@ struct CountdownProvider: TimelineProvider {
         Task {
             let race = await WatchFeed.nextRace()
             // Une entrée par heure : « J-3 » → « 5 h » sans réseau ; nouvelles données toutes les 6 h.
+            // Dans l'heure avant une séance, une entrée toutes les 5 min (« 45 min » → « GO » à l'heure),
+            // puis au départ et à la fin de la séance pour passer à la suivante sans attendre l'heure pile.
             let now = Date()
-            let entries = (0..<12).map { CountdownEntry(date: now.addingTimeInterval(Double($0) * 3600), race: race) }
+            let horizon = now.addingTimeInterval(12 * 3600)
+            var dates = Set((0..<12).map { now.addingTimeInterval(Double($0) * 3600) })
+            for s in race?.sessions ?? [] {
+                let marks = stride(from: -3600.0, to: 0, by: 300).map { s.date.addingTimeInterval($0) }
+                    + [s.date, s.date.addingTimeInterval(3600)]
+                dates.formUnion(marks.filter { $0 > now && $0 < horizon })
+            }
+            let entries = dates.sorted().map { CountdownEntry(date: $0, race: race) }
             let refresh = now.addingTimeInterval(race == nil ? 900 : 6 * 3600)
             completion(Timeline(entries: entries, policy: .after(refresh)))
         }
