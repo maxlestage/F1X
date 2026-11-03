@@ -106,6 +106,26 @@ actor ServerAPI {
         }
     }
 
+    /// Fichier binaire (décor 3D d'un circuit) gardé en mémoire : rouvrir la vue 3D ne le
+    /// re-télécharge pas (trop gros pour le cache HTTP d'URLSession). Seuls les derniers
+    /// fichiers sont conservés pour borner la mémoire ; hors ligne, la dernière copie sert.
+    private var blobs: [(path: String, date: Date, data: Data)] = []
+
+    func data(_ path: String, ttl: TimeInterval) async throws -> Data {
+        let hit = blobs.first { $0.path == path }
+        if let hit, Date().timeIntervalSince(hit.date) < ttl { return hit.data }
+        do {
+            let data = try await download(path)
+            blobs.removeAll { $0.path == path }
+            blobs.insert((path: path, date: Date(), data: data), at: 0)
+            if blobs.count > 3 { blobs.removeLast(blobs.count - 3) }
+            return data
+        } catch let error as URLError where error.code != .fileDoesNotExist {
+            if let hit { return hit.data }
+            throw error
+        }
+    }
+
     /// Une seule requête réseau par adresse à la fois : les vues ouvertes en même temps
     /// (tracé du circuit, télémétrie, relais OpenF1) attendent la même réponse.
     private func download(_ path: String) async throws -> Data {
