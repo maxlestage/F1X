@@ -202,6 +202,8 @@ struct NextRaceWidgetView: View {
                         Text("R\(r.round)").font(.system(size: 10, weight: .heavy))
                         Text(daysLeft(r.start)).font(.system(size: 15, weight: .black)).minimumScaleFactor(0.6)
                     }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(L("Manche \(r.round), \(spokenDaysLeft(r.start))", "Round \(r.round), \(spokenDaysLeft(r.start))"))
                 } else {
                     Text("F1X").font(.caption.bold())
                 }
@@ -236,6 +238,8 @@ struct NextRaceWidgetView: View {
                                 Text("\(l.points) pts").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel(String("\(spokenPosition(l.position)), \(l.name), \(l.points) points"))
                         }
                     }
                 }
@@ -337,6 +341,21 @@ private func daysLeft(_ date: Date) -> String {
     if seconds <= 0 { return "GO" }
     if seconds < 86_400 { return "\(Int(seconds / 3600)) h" }
     return L("J-\(Int(ceil(seconds / 86_400)))", "D-\(Int(ceil(seconds / 86_400)))")
+}
+
+/// Même compte à rebours que `daysLeft`, en toutes lettres pour VoiceOver (« J-3 » serait épelé).
+private func spokenDaysLeft(_ date: Date) -> String {
+    let seconds = date.timeIntervalSinceNow
+    if seconds <= 0 { return L("c'est parti", "under way") }
+    if seconds < 86_400 { return L("dans \(Int(seconds / 3600)) h", "in \(Int(seconds / 3600)) h") }
+    let days = Int(ceil(seconds / 86_400))
+    return L("dans \(days) jour\(days > 1 ? "s" : "")", "in \(days) day\(days > 1 ? "s" : "")")
+}
+
+/// « 1re place » / « Position 1 » : la position lue par VoiceOver au lieu de « P1 » ou d'un émoji.
+private func spokenPosition(_ position: String) -> String {
+    guard Int(position) != nil else { return position }
+    return L(position == "1" ? "1re place" : "\(position)e place", "Position \(position)")
 }
 
 private struct Logo: View {
@@ -460,6 +479,8 @@ private struct StandingLine: View {
             Spacer(minLength: 2)
             Text(row.points).font(.caption.monospacedDigit().bold())
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(String("\(spokenPosition(row.position)), \(row.name), \(row.points) points"))
     }
 }
 
@@ -585,6 +606,10 @@ struct LastRaceWidgetView: View {
                         Text(p.detail).font(.caption2.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(family == .systemSmall || p.detail.isEmpty
+                    ? String("\(spokenPosition(p.position)), \(p.name)")
+                    : String("\(spokenPosition(p.position)), \(p.name), \(p.detail)"))
             }
             Spacer(minLength: 0)
         }
