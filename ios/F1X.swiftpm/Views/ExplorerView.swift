@@ -99,7 +99,49 @@ struct ChampionsView: View {
             .cascadeIn()
         }
         .navigationTitle(L("Champions", "Champions"))
-        .task { champions = (try? await ServerAPI.shared.champions()) ?? [] }
+        .championsLoading($champions)
+    }
+}
+
+/// Champions et records : feu de départ pendant le chargement, puis message et « Réessayer »
+/// si le serveur ne répond pas, au lieu d'une liste vide sans explication.
+private struct ChampionsLoading: ViewModifier {
+    @Binding var champions: [Champion]
+    @State private var failed = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(champions.isEmpty ? 0 : 1)
+            .overlay {
+                if champions.isEmpty {
+                    if failed {
+                        ContentUnavailableView {
+                            Label(L("Données indisponibles", "Data unavailable"), systemImage: "wifi.slash")
+                        } description: {
+                            Text(L("Le palmarès n'a pas pu être chargé.", "The champions list could not be loaded."))
+                        } actions: {
+                            Button(L("Réessayer", "Retry")) { Task { await load() } }
+                                .buttonStyle(.borderedProminent)
+                        }
+                    } else {
+                        StartLightsLoader()
+                    }
+                }
+            }
+            .task { await load() }
+    }
+
+    private func load() async {
+        failed = false
+        // Liste déjà affichée gardée si le nouvel essai échoue (retour sur l'écran hors ligne).
+        if let list = try? await ServerAPI.shared.champions(), !list.isEmpty { champions = list }
+        failed = champions.isEmpty
+    }
+}
+
+private extension View {
+    func championsLoading(_ champions: Binding<[Champion]>) -> some View {
+        modifier(ChampionsLoading(champions: champions))
     }
 }
 
@@ -109,9 +151,9 @@ struct RecordsView: View {
     var body: some View {
         let done = champions.filter { $0.in_progress != true }
         let drivers = Dictionary(grouping: done.compactMap(\.driver), by: \.driverId)
-            .map { ($0.value[0], $0.value.count) }.sorted { $0.1 > $1.1 }
+            .map { ($0.value[0], $0.value.count) }.sorted { $0.1 != $1.1 ? $0.1 > $1.1 : $0.0.fullName < $1.0.fullName }
         let teams = Dictionary(grouping: done.compactMap(\.constructor), by: \.constructorId)
-            .map { ($0.value[0], $0.value.count) }.sorted { $0.1 > $1.1 }
+            .map { ($0.value[0], $0.value.count) }.sorted { $0.1 != $1.1 ? $0.1 > $1.1 : $0.0.name < $1.0.name }
         List {
             Section(L("Titres pilotes", "Drivers' titles")) {
                 ForEach(Array(drivers.prefix(10).enumerated()), id: \.offset) { i, e in
@@ -154,7 +196,7 @@ struct RecordsView: View {
             }
         }
         .navigationTitle("Records")
-        .task { champions = (try? await ServerAPI.shared.champions()) ?? [] }
+        .championsLoading($champions)
     }
 }
 
