@@ -280,6 +280,7 @@ struct WeatherCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 10) {
                     Text(WeatherText.icon(c.weather_code)).font(.largeTitle).floating()
+                        .accessibilityHidden(true)
                     VStack(alignment: .leading) {
                         Text("\(WeatherText.deg(c.temperature_2m)) · \(WeatherText.describe(c.weather_code))").font(.headline)
                         Text(L("Maintenant au circuit", "Now at the circuit")).font(.caption).foregroundStyle(.secondary)
@@ -302,16 +303,28 @@ struct WeatherCard: View {
                 let g = { (a: [Double?]?) -> Double? in a.flatMap { i < $0.count ? $0[i] : nil } }
                 let sunrise = d.sunrise.flatMap { i < $0.count ? $0[i] : nil }.flatMap(utcDate)
                 let sunset = d.sunset.flatMap { i < $0.count ? $0[i] : nil }.flatMap(utcDate)
+                let dayName = (utcDate(day + "T12:00") ?? .now).f1Day
+                let rain = WeatherText.pct(g(d.precipitation_probability_max))
+                let rainMM = String(format: "%.1f", g(d.precipitation_sum) ?? 0)
+                let gusts = WeatherText.kmh(g(d.wind_gusts_10m_max))
+                let uv = g(d.uv_index_max).map { String(format: "%.0f", $0) } ?? "–"
+                let rise = sunrise?.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(appLocale)) ?? "–"
+                let setTime = sunset?.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(appLocale)) ?? "–"
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
-                        Text("\(WeatherText.icon(g(d.weather_code))) \((utcDate(day + "T12:00") ?? .now).f1Day)").bold()
+                        Text("\(WeatherText.icon(g(d.weather_code))) \(dayName)").bold()
+                            .accessibilityLabel("\(dayName), \(WeatherText.describe(g(d.weather_code)))")
                         Spacer()
                         Text("\(WeatherText.deg(g(d.temperature_2m_min))) / \(WeatherText.deg(g(d.temperature_2m_max)))").bold().monospacedDigit()
+                            .accessibilityLabel(L("minimum \(WeatherText.deg(g(d.temperature_2m_min))), maximum \(WeatherText.deg(g(d.temperature_2m_max)))",
+                                                  "low \(WeatherText.deg(g(d.temperature_2m_min))), high \(WeatherText.deg(g(d.temperature_2m_max)))"))
                     }
-                    Text("💧 \(WeatherText.pct(g(d.precipitation_probability_max))) · \(String(format: "%.1f", g(d.precipitation_sum) ?? 0)) mm · \(L("rafales", "gusts")) \(WeatherText.kmh(g(d.wind_gusts_10m_max))) · UV \(g(d.uv_index_max).map { String(format: "%.0f", $0) } ?? "–") · 🌅 \(sunrise?.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(appLocale)) ?? "–") · 🌇 \(sunset?.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(appLocale)) ?? "–")")
+                    Text("💧 \(rain) · \(rainMM) mm · \(L("rafales", "gusts")) \(gusts) · UV \(uv) · 🌅 \(rise) · 🌇 \(setTime)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel(L("Risque de pluie \(rain), \(rainMM) mm, rafales \(gusts), indice UV \(uv), lever du soleil \(rise), coucher du soleil \(setTime)",
+                                              "Chance of rain \(rain), \(rainMM) mm, gusts \(gusts), UV index \(uv), sunrise \(rise), sunset \(setTime)"))
                 }
                 Divider()
             }
@@ -331,6 +344,8 @@ struct WeatherCard: View {
                     if let h {
                         Text("\(WeatherText.icon(h.code)) \(WeatherText.deg(h.temp)) · 💧\(WeatherText.pct(h.rainProb)) · 💨\(WeatherText.kmh(h.wind))")
                             .font(.footnote).foregroundStyle(.secondary)
+                            .accessibilityLabel(L("\(WeatherText.describe(h.code)), \(WeatherText.deg(h.temp)), risque de pluie \(WeatherText.pct(h.rainProb)), vent \(WeatherText.kmh(h.wind))",
+                                                  "\(WeatherText.describe(h.code)), \(WeatherText.deg(h.temp)), chance of rain \(WeatherText.pct(h.rainProb)), wind \(WeatherText.kmh(h.wind))"))
                     } else {
                         Text(L("prévision pas encore disponible", "forecast not available yet")).font(.footnote).foregroundStyle(.secondary)
                     }
