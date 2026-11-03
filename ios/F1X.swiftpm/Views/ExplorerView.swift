@@ -357,12 +357,22 @@ struct PredictView: View {
                 pick = Predictions.all().first { $0.season == r.season && $0.round == r.round }
                     ?? Prediction(season: r.season, round: r.round, raceName: r.raceName, p1: "", p2: "", p3: "")
             }
-            var out: [(Prediction, Int?)] = []
-            for p in Predictions.all().reversed() {
-                let results = (try? await F1API.shared.results(season: p.season, round: Int(p.round) ?? 0)) ?? []
-                out.append((p, results.isEmpty ? nil : Predictions.score(p, results: results)))
+            // Résultats de chaque course pronostiquée chargés en parallèle (et non l'un après l'autre),
+            // puis remis dans l'ordre : l'historique s'affiche en une seule attente réseau.
+            let saved = Array(Predictions.all().reversed())
+            let fetched = await withTaskGroup(of: (Int, [RaceResult]).self) { group in
+                for (i, p) in saved.enumerated() {
+                    let season = p.season, round = Int(p.round) ?? 0
+                    group.addTask { (i, (try? await F1API.shared.results(season: season, round: round)) ?? []) }
+                }
+                var byIndex: [Int: [RaceResult]] = [:]
+                for await (i, results) in group { byIndex[i] = results }
+                return byIndex
             }
-            history = out
+            history = saved.enumerated().map { i, p in
+                let results = fetched[i] ?? []
+                return (p, results.isEmpty ? nil : Predictions.score(p, results: results))
+            }
         }
     }
 }
