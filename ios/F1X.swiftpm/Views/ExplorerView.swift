@@ -429,6 +429,7 @@ struct FantasyView: View {
     @State private var draft = FantasyTeam.load()
     /// Pourquoi le dernier choix a été refusé (5 pilotes déjà, budget dépassé).
     @State private var notice: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let budget = 100.0
 
@@ -502,7 +503,7 @@ struct FantasyView: View {
     }
 
     private func toggleDriver(_ id: String, cost: Double, spent: Double) {
-        withAnimation(.snappy) {
+        withAnimation(reduceMotion ? nil : .snappy) {
             if let i = draft.drivers.firstIndex(of: id) {
                 draft.drivers.remove(at: i)
                 notice = nil
@@ -520,7 +521,7 @@ struct FantasyView: View {
 
     /// `spent` : dépenses hors écurie (on peut toujours remplacer l'écurie choisie).
     private func chooseTeam(_ id: String, cost: Double, spent: Double) {
-        withAnimation(.snappy) {
+        withAnimation(reduceMotion ? nil : .snappy) {
             if draft.team == id {
                 draft.team = nil
                 notice = nil
@@ -550,7 +551,7 @@ struct FantasyView: View {
         return VStack(spacing: 6) {
             Button {
                 draft.save()
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.65)) {
+                withAnimation(reduceMotion ? nil : .spring(response: 0.4, dampingFraction: 0.65)) {
                     saved = draft
                     notice = nil
                 }
@@ -592,6 +593,7 @@ struct QuizView: View {
     /// Secousse de la mauvaise réponse (0 → 1 en une demi-seconde).
     @State private var shake: CGFloat = 0
     @AppStorage("f1x-quiz-best") private var best = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         List {
@@ -615,7 +617,7 @@ struct QuizView: View {
                             Button {
                                 guard picked == nil else { return }
                                 picked = od.driverId
-                                withAnimation(.snappy) {
+                                withAnimation(reduceMotion ? nil : .snappy) {
                                     if od.driverId == d.driverId {
                                         score += 1
                                         best = max(best, score)
@@ -623,7 +625,7 @@ struct QuizView: View {
                                         score = 0
                                     }
                                 }
-                                if od.driverId != d.driverId {
+                                if od.driverId != d.driverId && !reduceMotion {
                                     withAnimation(.linear(duration: 0.45)) { shake = 1 }
                                 }
                             } label: {

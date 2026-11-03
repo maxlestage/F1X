@@ -7,6 +7,7 @@ struct WikiSummaryView: View {
     let url: String?
     @State private var summary: Summary?
     @State private var expanded = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private struct Summary: Decodable {
         let extract: String
@@ -28,7 +29,7 @@ struct WikiSummaryView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 HStack {
                     Button(expanded ? L("Réduire", "Less") : L("Lire la suite", "Read more")) {
-                        withAnimation { expanded.toggle() }
+                        withAnimation(reduceMotion ? nil : .default) { expanded.toggle() }
                     }
                     .font(.footnote.bold())
                     .buttonStyle(.borderless)
