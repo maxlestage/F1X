@@ -1,5 +1,6 @@
 import ActivityKit
 import SwiftUI
+import UserNotifications
 
 /// Démarre et tient à jour la Live Activity du week-end (prochaine séance + minuteur).
 @MainActor
@@ -8,7 +9,21 @@ enum WeekendActivity {
     /// Activé par défaut ; désactivable depuis l'accueil.
     static var enabled: Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
 
-    static var running: Bool { !Activity<WeekendActivityAttributes>.activities.isEmpty }
+    /// Grand Prix que l'utilisateur a choisi de suivre (« saison-manche ») : l'activité est relancée
+    /// à chaque ouverture de l'app, même plusieurs jours avant le week-end.
+    private static let followedKey = "weekendActivityFollowed"
+    /// Début de l'activité en cours, pour prévenir avant la limite d'iOS.
+    private static let startedKey = "weekendActivityStarted"
+    /// iOS arrête une Live Activity au bout de 8 h : on prévient un peu avant.
+    private static let lifetime: TimeInterval = 8 * 3600
+    private static let warningID = "f1x-weekend-activity-expiry"
+
+    /// Activités encore affichées (iOS garde un moment celles qu'il a arrêtées).
+    private static var live: [Activity<WeekendActivityAttributes>] {
+        Activity<WeekendActivityAttributes>.activities.filter { $0.activityState == .active || $0.activityState == .stale }
+    }
+
+    static var running: Bool { !live.isEmpty }
 
     /// Durée approximative d'une séance (une course dure ~2 h).
     private static func duration(_ name: String) -> TimeInterval {
@@ -73,35 +88,64 @@ enum WeekendActivity {
                           winner: winner, winnerCode: code, winnerRace: winnerRace, podium: false,
                           steps: sessions.map { short($0.name) }, stepIndex: index)
             stale = current.date.addingTimeInterval(duration(current.name))
-            // Démarrage automatique dans les 24 h qui précèdent la séance (week-end en cours).
-            soon = current.date.timeIntervalSince(now) < 24 * 3600
+            // Démarrage automatique dans les 4 h qui précèdent la séance : iOS n'affiche une activité
+            // que 8 h, elle couvre ainsi la séance entière (démarrée la veille, elle s'éteignait avant).
+            soon = current.date.timeIntervalSince(now) < 4 * 3600
         } else {
             await endAll()
             return
         }
         let content = ActivityContent(state: state, staleDate: stale)
 
-        let existing = Activity<WeekendActivityAttributes>.activities
+        let existing = live
         let lang = isFrench ? "fr" : "en"
+        let raceKey = "\(race.season)-\(race.round)"
+        if force { UserDefaults.standard.set(raceKey, forKey: followedKey) }
         if let activity = existing.first(where: {
             $0.attributes.round == race.round && $0.attributes.raceName == race.raceName && $0.attributes.lang == lang
         }) {
             if activity.content.state != state { await activity.update(content) }
             for other in existing where other.id != activity.id { await other.end(nil, dismissalPolicy: .immediate) }
+            await scheduleWarning(race: race)
             return
         }
         for other in existing { await other.end(nil, dismissalPolicy: .immediate) }
-        guard soon || force else { return }
+        // Relancée si l'utilisateur suit ce Grand Prix, ou automatiquement peu avant la séance.
+        let followed = UserDefaults.standard.string(forKey: followedKey) == raceKey
+        guard soon || force || followed else { return }
         let attributes = WeekendActivityAttributes(
             raceName: race.raceName,
             flag: Flag.country(race.circuit.location.country),
             round: race.round,
             circuit: race.circuit.location.locality,
             lang: lang)
-        _ = try? Activity.request(attributes: attributes, content: content)
+        if (try? Activity.request(attributes: attributes, content: content)) != nil {
+            UserDefaults.standard.set(Date.now, forKey: startedKey)
+            await scheduleWarning(race: race)
+        }
+    }
+
+    /// Notification un quart d'heure avant que iOS n'arrête l'activité (8 h d'affichage au plus) :
+    /// ouvrir F1X la relance. Seulement si les notifications sont déjà autorisées.
+    private static func scheduleWarning(race: Race) async {
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: [warningID])
+        guard let started = UserDefaults.standard.object(forKey: startedKey) as? Date else { return }
+        let settings = await center.notificationSettings()
+        guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return }
+        let fire = started.addingTimeInterval(lifetime - 15 * 60)
+        guard fire > .now.addingTimeInterval(60) else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "\(Flag.country(race.circuit.location.country)) \(race.raceName)"
+        content.body = L("Le suivi du week-end va s'arrêter (iOS limite l'affichage à 8 h). Ouvre F1X pour le relancer.",
+                         "Weekend tracking is about to stop (iOS limits it to 8 h). Open F1X to restart it.")
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: fire.timeIntervalSinceNow, repeats: false)
+        try? await center.add(UNNotificationRequest(identifier: warningID, content: content, trigger: trigger))
     }
 
     static func endAll() async {
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [warningID])
+        UserDefaults.standard.removeObject(forKey: followedKey)
         for activity in Activity<WeekendActivityAttributes>.activities {
             await activity.end(nil, dismissalPolicy: .immediate)
         }
@@ -138,6 +182,13 @@ struct WeekendActivityToggle: View {
             .buttonStyle(.bordered)
             .tint(running ? .f1Red : .primary)
             .task { running = WeekendActivity.running }
+            if running {
+                Text(L("iOS affiche une Live Activity 8 h au plus : F1X la relance à chaque ouverture et te prévient avant (si les rappels sont activés).",
+                       "iOS shows a Live Activity for 8 h at most: F1X restarts it each time you open the app and warns you first (if reminders are on)."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }
