@@ -85,20 +85,14 @@ actor ServerAPI {
 
     private var cache: [String: (Date, Data)] = [:]
     private var photos: [String: Photo?] = [:]
+    private var inflight: [String: Task<Data, Error>] = [:]
 
     func get<T: Decodable>(_ path: String, as type: T.Type, ttl: TimeInterval = 600) async throws -> T {
         if let hit = cache[path], Date().timeIntervalSince(hit.0) < ttl {
             return try JSONDecoder().decode(T.self, from: hit.1)
         }
-        guard let url = URL(string: path, relativeTo: Server.base) else { throw URLError(.badURL) }
-        // Délai borné : jamais de chargement infini (le bouton « Réessayer » prend le relais).
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 30
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
-            if http.statusCode == 404 { throw URLError(.fileDoesNotExist) }
-            guard (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }
+            let data = try await download(path)
             let decoded = try JSONDecoder().decode(T.self, from: data)
             cache[path] = (Date(), data)
             return decoded
@@ -109,6 +103,28 @@ actor ServerAPI {
             }
             throw error
         }
+    }
+
+    /// Une seule requête réseau par adresse à la fois : les vues ouvertes en même temps
+    /// (tracé du circuit, télémétrie, relais OpenF1) attendent la même réponse.
+    private func download(_ path: String) async throws -> Data {
+        if let running = inflight[path] { return try await running.value }
+        let task = Task { try await Self.fetch(path) }
+        inflight[path] = task
+        defer { inflight[path] = nil }
+        return try await task.value
+    }
+
+    private static func fetch(_ path: String) async throws -> Data {
+        guard let url = URL(string: path, relativeTo: Server.base) else { throw URLError(.badURL) }
+        // Délai borné : jamais de chargement infini (le bouton « Réessayer » prend le relais).
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 30
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        if http.statusCode == 404 { throw URLError(.fileDoesNotExist) }
+        guard (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }
+        return data
     }
 
     func track(_ circuitId: String) async throws -> TrackMap {
