@@ -419,8 +419,13 @@ struct WeatherCard: View {
         let current = "temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,precipitation"
         let s = "https://api.open-meteo.com/v1/forecast?latitude=\(lat)&longitude=\(lon)&hourly=\(hourly)&daily=\(daily)&current=\(current)&timezone=UTC&start_date=\(first)&end_date=\(race.date)"
         guard let url = URL(string: s) else { return }
+        // Délai borné : hors réseau, le message d'échec s'affiche au bout de 15 s
+        // au lieu des 60 s par défaut d'URLSession.
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
             forecast = try JSONDecoder().decode(Forecast.self, from: data)
         } catch {
             failed = true
