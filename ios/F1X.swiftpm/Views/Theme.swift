@@ -53,29 +53,32 @@ enum Team {
 }
 
 enum Flag {
+    // Tables construites une seule fois : les drapeaux sont demandés à chaque ligne affichée.
+    private static let countryCodes: [String: String] = [
+        "Australia": "AU", "Austria": "AT", "Azerbaijan": "AZ", "Bahrain": "BH",
+        "Belgium": "BE", "Brazil": "BR", "Canada": "CA", "China": "CN", "France": "FR",
+        "Germany": "DE", "Hungary": "HU", "Italy": "IT", "Japan": "JP", "Malaysia": "MY",
+        "Mexico": "MX", "Monaco": "MC", "Netherlands": "NL", "Portugal": "PT", "Qatar": "QA",
+        "Saudi Arabia": "SA", "Singapore": "SG", "Spain": "ES", "UAE": "AE",
+        "United Arab Emirates": "AE", "UK": "GB", "United Kingdom": "GB", "USA": "US",
+        "United States": "US",
+    ]
+
+    private static let nationalityCodes: [String: String] = [
+        "American": "US", "Argentine": "AR", "Argentinian": "AR", "Australian": "AU",
+        "Austrian": "AT", "Belgian": "BE", "Brazilian": "BR", "British": "GB",
+        "Canadian": "CA", "Chinese": "CN", "Danish": "DK", "Dutch": "NL", "Finnish": "FI",
+        "French": "FR", "German": "DE", "Italian": "IT", "Japanese": "JP", "Mexican": "MX",
+        "Monegasque": "MC", "New Zealander": "NZ", "Polish": "PL", "Spanish": "ES",
+        "Swiss": "CH", "Thai": "TH",
+    ]
+
     static func country(_ country: String) -> String {
-        let codes: [String: String] = [
-            "Australia": "AU", "Austria": "AT", "Azerbaijan": "AZ", "Bahrain": "BH",
-            "Belgium": "BE", "Brazil": "BR", "Canada": "CA", "China": "CN", "France": "FR",
-            "Germany": "DE", "Hungary": "HU", "Italy": "IT", "Japan": "JP", "Malaysia": "MY",
-            "Mexico": "MX", "Monaco": "MC", "Netherlands": "NL", "Portugal": "PT", "Qatar": "QA",
-            "Saudi Arabia": "SA", "Singapore": "SG", "Spain": "ES", "UAE": "AE",
-            "United Arab Emirates": "AE", "UK": "GB", "United Kingdom": "GB", "USA": "US",
-            "United States": "US",
-        ]
-        return codes[country].map(emoji) ?? "🏁"
+        countryCodes[country].map(emoji) ?? "🏁"
     }
 
     static func nationality(_ nationality: String?) -> String {
-        let codes: [String: String] = [
-            "American": "US", "Argentine": "AR", "Argentinian": "AR", "Australian": "AU",
-            "Austrian": "AT", "Belgian": "BE", "Brazilian": "BR", "British": "GB",
-            "Canadian": "CA", "Chinese": "CN", "Danish": "DK", "Dutch": "NL", "Finnish": "FI",
-            "French": "FR", "German": "DE", "Italian": "IT", "Japanese": "JP", "Mexican": "MX",
-            "Monegasque": "MC", "New Zealander": "NZ", "Polish": "PL", "Spanish": "ES",
-            "Swiss": "CH", "Thai": "TH",
-        ]
-        return nationality.flatMap { codes[$0] }.map(emoji) ?? "🏳️"
+        nationality.flatMap { nationalityCodes[$0] }.map(emoji) ?? "🏳️"
     }
 
     private static func emoji(_ isoCode: String) -> String {
