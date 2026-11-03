@@ -1589,6 +1589,7 @@ struct CarCard: View {
                 CarSceneView(livery: .team(constructorId), inline: false).ignoresSafeArea()
                 Button { full = false } label: { Image(systemName: "xmark.circle.fill").font(.largeTitle) }
                     .tint(.white).padding()
+                    .accessibilityLabel(L("Fermer", "Close"))
             }
             .environment(\.colorScheme, .dark)
         }
@@ -1637,6 +1638,7 @@ struct Track3DView: View {
                     HStack {
                         Spacer()
                         Button { full = false } label: { Image(systemName: "xmark.circle.fill").font(.largeTitle) }.tint(.white)
+                            .accessibilityLabel(L("Fermer", "Close"))
                     }
                     Spacer()
                     controls
@@ -1685,13 +1687,17 @@ struct Track3DView: View {
                     .accessibilityLabel(L("Afficher les noms", "Show names"))
                 Button { control.zoom(by: 0.8) } label: { Image(systemName: "plus") }
                     .frame(width: 34, height: 34).background(.black.opacity(0.65), in: Circle())
+                    .accessibilityLabel(L("Zoom avant", "Zoom in"))
                 Button { control.zoom(by: 1.25) } label: { Image(systemName: "minus") }
                     .frame(width: 34, height: 34).background(.black.opacity(0.65), in: Circle())
+                    .accessibilityLabel(L("Zoom arrière", "Zoom out"))
                 Button { control.resetCamera() } label: { Image(systemName: "arrow.counterclockwise") }
                     .frame(width: 34, height: 34).background(.black.opacity(0.65), in: Circle())
+                    .accessibilityLabel(L("Recentrer", "Recentre"))
                 if !full {
                     Button { full = true } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
                         .frame(width: 34, height: 34).background(.black.opacity(0.65), in: Circle())
+                        .accessibilityLabel(L("Plein écran", "Full screen"))
                 }
             }
         }
