@@ -195,6 +195,7 @@ private struct QualiOrderCard: View {
     /// Onglet choisi (sinon : les qualifs si elles ont eu lieu, sinon les qualifs sprint).
     @State private var showSprint: Bool?
     @State private var all = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let sprintShown = showSprint ?? main.isEmpty
@@ -202,7 +203,7 @@ private struct QualiOrderCard: View {
         if !list.isEmpty {
             SectionCard(title: L("Ordre des qualifications", "Qualifying order")) {
                 if !main.isEmpty && !sprint.isEmpty {
-                    Picker("", selection: Binding(get: { sprintShown }, set: { value in withAnimation(.snappy) { showSprint = value } })) {
+                    Picker("", selection: Binding(get: { sprintShown }, set: { value in withAnimation(reduceMotion ? nil : .snappy) { showSprint = value } })) {
                         Text(L("Qualifications", "Qualifying")).tag(false)
                         Text(L("Qualifs sprint", "Sprint quali")).tag(true)
                     }
@@ -217,7 +218,7 @@ private struct QualiOrderCard: View {
                 HStack {
                     if list.count > 10 {
                         Button(all ? L("Voir le top 10", "Show top 10") : L("Voir les \(list.count) pilotes", "See all \(list.count) drivers")) {
-                            withAnimation(.snappy) { all.toggle() }
+                            withAnimation(reduceMotion ? nil : .snappy) { all.toggle() }
                         }
                         .font(.subheadline.weight(.semibold))
                     }
