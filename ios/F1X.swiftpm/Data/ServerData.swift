@@ -89,8 +89,9 @@ actor ServerAPI {
     private var photoInflight: [String: Task<PhotoFetch, Never>] = [:]
 
     func get<T: Decodable>(_ path: String, as type: T.Type, ttl: TimeInterval = 600) async throws -> T {
-        if let hit = cache[path], Date().timeIntervalSince(hit.0) < ttl {
-            return try JSONDecoder().decode(T.self, from: hit.1)
+        if let hit = cache[path], Date().timeIntervalSince(hit.0) < ttl,
+           let decoded = try? JSONDecoder().decode(T.self, from: hit.1) {
+            return decoded
         }
         do {
             let data = try await download(path)
