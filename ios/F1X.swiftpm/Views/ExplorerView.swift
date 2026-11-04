@@ -272,6 +272,7 @@ struct CompareView: View {
     @State private var b: String = ""
     @State private var ca: [Race] = []
     @State private var cb: [Race] = []
+    @State private var failed = false
 
     var body: some View {
         List {
@@ -307,20 +308,42 @@ struct CompareView: View {
                 }
             }
         }
-        .navigationTitle(L("Comparateur", "Compare"))
-        .task {
-            standings = (try? await F1API.shared.driverStandings()) ?? []
-            if a.isEmpty, standings.count > 1 {
-                a = standings[0].driver.driverId
-                b = standings[1].driver.driverId
+        .opacity(standings.isEmpty ? 0 : 1)
+        .overlay {
+            // Classement indisponible : message et « Réessayer » au lieu de deux sélecteurs vides.
+            if standings.isEmpty {
+                if failed {
+                    ContentUnavailableView {
+                        Label(L("Données indisponibles", "Data unavailable"), systemImage: "wifi.slash")
+                    } description: {
+                        Text(L("La liste des pilotes n'a pas pu être chargée.", "The drivers list could not be loaded."))
+                    } actions: {
+                        Button(L("Réessayer", "Retry")) { Task { await loadStandings() } }
+                            .buttonStyle(.borderedProminent)
+                    }
+                } else {
+                    StartLightsLoader()
+                }
             }
         }
+        .navigationTitle(L("Comparateur", "Compare"))
+        .task { await loadStandings() }
         .task(id: a + b) {
             guard !a.isEmpty, !b.isEmpty else { return }
             async let x = try? F1API.shared.career(driverId: a)
             async let y = try? F1API.shared.career(driverId: b)
             ca = await x ?? []
             cb = await y ?? []
+        }
+    }
+
+    private func loadStandings() async {
+        failed = false
+        if let list = try? await F1API.shared.driverStandings(), !list.isEmpty { standings = list }
+        failed = standings.isEmpty
+        if a.isEmpty, let first = standings.first, let second = standings.dropFirst().first {
+            a = first.driver.driverId
+            b = second.driver.driverId
         }
     }
 
