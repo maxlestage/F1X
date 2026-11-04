@@ -66,6 +66,7 @@ struct WatchRoot: View {
             .tabViewStyle(.verticalPage)
         }
         .id(language)
+        .environmentObject(model)
         .environment(\.locale, wLocale)
         .tint(.white)
         .task { await model.load(force: true) }
@@ -83,13 +84,29 @@ private struct Caption: View {
     }
 }
 
+/// Chargement, puis « Données indisponibles » avec « Réessayer » : sans ce bouton, une montre
+/// hors réseau au premier lancement restait vide jusqu'au prochain retour au premier plan.
 private struct Placeholder: View {
     let loaded: Bool
+    @EnvironmentObject private var model: WatchModel
+    @State private var retrying = false
+
     var body: some View {
-        if loaded {
-            Text(WL("Données indisponibles", "Data unavailable")).font(.footnote).foregroundStyle(.secondary)
+        if loaded && !retrying {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(WL("Données indisponibles", "Data unavailable")).font(.footnote).foregroundStyle(.secondary)
+                Button(WL("Réessayer", "Retry")) {
+                    retrying = true
+                    Task {
+                        await model.load(force: true)
+                        retrying = false
+                    }
+                }
+                .font(.footnote.weight(.semibold))
+            }
         } else {
             ProgressView()
+                .accessibilityLabel(WL("Chargement", "Loading"))
         }
     }
 }
