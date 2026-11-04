@@ -284,6 +284,7 @@ struct TrackRealView: View {
                 Button { speed = speed >= 4 ? 1 : speed * 2 } label: { Text("×\(Int(speed))").monospacedDigit() }
                     .frame(width: 38, height: 34).background(.black.opacity(0.65), in: Capsule())
                     .accessibilityLabel(L("Vitesse de lecture", "Playback speed"))
+                    .accessibilityValue(L("\(Int(speed)) fois", "\(Int(speed))x"))
             }
             Button { labels.toggle() } label: { Image(systemName: labels ? "tag.fill" : "tag.slash") }
                 .frame(width: 34, height: 34).background(.black.opacity(0.65), in: Circle())

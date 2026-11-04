@@ -100,7 +100,9 @@ struct LiveView: View {
                     ForEach((2023...max(2023, Calendar.current.component(.year, from: .now))).reversed(), id: \.self) { Text(String($0)).tag($0) }
                 }
                 Picker(L("Vitesse", "Speed"), selection: $speed) {
-                    ForEach([1, 5, 10, 30, 60], id: \.self) { Text("×\($0)").tag($0) }
+                    ForEach([1, 5, 10, 30, 60], id: \.self) {
+                        Text("×\($0)").tag($0).accessibilityLabel(L("\($0) fois", "\($0)x"))
+                    }
                 }
                 .pickerStyle(.segmented)
                 if sessionsFailed {

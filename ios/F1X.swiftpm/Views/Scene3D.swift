@@ -1682,6 +1682,7 @@ struct Track3DView: View {
                 Button { control.speed = control.speed >= 4 ? 1 : control.speed * 2 } label: { Text("×\(Int(control.speed))").monospacedDigit() }
                     .frame(width: 38, height: 34).background(.black.opacity(0.65), in: Capsule())
                     .accessibilityLabel(L("Vitesse de lecture", "Playback speed"))
+                    .accessibilityValue(L("\(Int(control.speed)) fois", "\(Int(control.speed))x"))
                 Button { control.showLabels.toggle() } label: { Image(systemName: control.showLabels ? "tag.fill" : "tag.slash") }
                     .frame(width: 34, height: 34).background(.black.opacity(0.65), in: Circle())
                     .accessibilityLabel(L("Afficher les noms", "Show names"))
