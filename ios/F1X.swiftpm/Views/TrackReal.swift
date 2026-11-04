@@ -58,7 +58,9 @@ enum RealCircuits {
 // MARK: - Calage du tracé GPS sur la carte
 
 enum TrackGeoFit {
-    private static var cache: [String: [CLLocationCoordinate2D]] = [:]
+    /// Résultat du calage par tracé, échec compris (nil) : le calcul est déterministe et coûteux
+    /// (des dizaines de millions de distances), il n'est donc jamais refait pour le même tracé.
+    private static var cache: [String: [CLLocationCoordinate2D]?] = [:]
     private static let lock = NSLock()
 
     /// Latitude/longitude de chaque point du tracé OpenF1, ou nil si le calage échoue.
@@ -72,11 +74,9 @@ enum TrackGeoFit {
         let pts = map.points.map { SIMD2<Double>($0.x, $0.y) }
         let length = map.stats.length_km * 1000
         let result = await Task.detached(priority: .userInitiated) { fit(pts, length: length, line: line) }.value
-        if let result {
-            lock.lock()
-            cache[key] = result
-            lock.unlock()
-        }
+        lock.lock()
+        cache[key] = .some(result)
+        lock.unlock()
         return result
     }
 
