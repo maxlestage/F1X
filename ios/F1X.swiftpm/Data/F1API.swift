@@ -162,7 +162,10 @@ actor F1API {
         let key = (all ? "all/" : "f1/") + path
         if cache[key] == nil, let disk = DiskCache.read(key) { cache[key] = disk }
         if let hit = cache[key], F1API.preferCached || Date().timeIntervalSince(hit.date) < ttl {
-            return try JSONDecoder().decode(T.self, from: hit.data)
+            if let decoded = try? JSONDecoder().decode(T.self, from: hit.data) { return decoded }
+            // Copie illisible (format changé après une mise à jour, fichier abîmé) :
+            // on la jette et on repart au réseau au lieu de renvoyer une erreur.
+            cache[key] = nil
         }
         do {
             let (data, owner) = try await download(key)
@@ -175,8 +178,8 @@ actor F1API {
             return decoded
         } catch {
             // Hors ligne : on sert la dernière copie connue plutôt qu'une erreur.
-            if let stale = cache[key] {
-                return try JSONDecoder().decode(T.self, from: stale.data)
+            if let stale = cache[key], let decoded = try? JSONDecoder().decode(T.self, from: stale.data) {
+                return decoded
             }
             throw error
         }
