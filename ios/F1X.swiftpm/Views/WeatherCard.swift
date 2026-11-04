@@ -411,6 +411,7 @@ struct WeatherCard: View {
             .font(.caption2).foregroundStyle(.secondary)
     }
 
+    @MainActor
     private func load() async {
         guard forecast == nil, let lat = race.circuit.location.lat, let lon = race.circuit.location.long else { return }
         let first = race.sessions.first.map { String(Session.isoDay($0.date)) } ?? race.date
@@ -419,6 +420,12 @@ struct WeatherCard: View {
         let current = "temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,precipitation"
         let s = "https://api.open-meteo.com/v1/forecast?latitude=\(lat)&longitude=\(lon)&hourly=\(hourly)&daily=\(daily)&current=\(current)&timezone=UTC&start_date=\(first)&end_date=\(race.date)"
         guard let url = URL(string: s) else { return }
+        // L'accueil et la fiche du Grand Prix demandent la même adresse : une réponse
+        // de moins de 30 min est réutilisée au lieu de retélécharger les prévisions.
+        if let hit = ForecastCache.store[s], -hit.date.timeIntervalSinceNow < ForecastCache.ttl {
+            forecast = hit.forecast
+            return
+        }
         // Délai borné : hors réseau, le message d'échec s'affiche au bout de 15 s
         // au lieu des 60 s par défaut d'URLSession.
         var request = URLRequest(url: url)
@@ -426,11 +433,21 @@ struct WeatherCard: View {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
-            forecast = try JSONDecoder().decode(Forecast.self, from: data)
+            let decoded = try JSONDecoder().decode(Forecast.self, from: data)
+            ForecastCache.store[s] = (Date(), decoded)
+            forecast = decoded
         } catch {
-            failed = true
+            // Hors réseau : la dernière prévision reçue vaut mieux qu'un message d'échec.
+            if let stale = ForecastCache.store[s] { forecast = stale.forecast } else { failed = true }
         }
     }
+}
+
+/// Prévisions déjà reçues pendant la session, par adresse de requête.
+@MainActor
+private enum ForecastCache {
+    static var store: [String: (date: Date, forecast: Forecast)] = [:]
+    static let ttl: TimeInterval = 30 * 60
 }
 
 extension Session {
