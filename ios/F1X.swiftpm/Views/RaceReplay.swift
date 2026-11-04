@@ -33,6 +33,17 @@ struct RaceReplayCard: View {
                 order(snap)
             } else if let loading = client.loading {
                 HStack { ProgressView(); Text(loading).font(.footnote).foregroundStyle(.secondary) }
+            } else if let error = client.error, let key {
+                // Erreur du serveur ou connexion perdue : message et « Réessayer » au lieu
+                // d'un chargement sans fin.
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(error).font(.footnote).foregroundStyle(.secondary)
+                    Button(L("Réessayer", "Retry")) {
+                        client.connect()
+                        client.replay(key: key, speed: 30)
+                    }
+                    .font(.footnote.bold())
+                }
             } else if searched && key == nil {
                 Text(L("Pas de replay disponible pour cette course.", "No replay available for this race."))
                     .font(.footnote).foregroundStyle(.secondary)
