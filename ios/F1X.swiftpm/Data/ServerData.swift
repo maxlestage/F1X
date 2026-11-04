@@ -84,6 +84,11 @@ actor ServerAPI {
     static let shared = ServerAPI()
 
     private var cache: [String: (Date, Data)] = [:]
+    /// Taille totale des réponses gardées en mémoire, bornée par `cacheBudget`.
+    private var cacheBytes = 0
+    /// Les relais OpenF1 (télémétrie, positions) pèsent parfois plusieurs Mo : sans limite,
+    /// chaque séance consultée resterait en mémoire jusqu'à la fermeture de l'app.
+    private static let cacheBudget = 24 * 1024 * 1024
     private var photos: [String: Photo?] = [:]
     private var inflight: [String: Task<Data, Error>] = [:]
     private var photoInflight: [String: Task<PhotoFetch, Never>] = [:]
@@ -96,7 +101,7 @@ actor ServerAPI {
         do {
             let data = try await download(path)
             let decoded = try JSONDecoder().decode(T.self, from: data)
-            cache[path] = (Date(), data)
+            store(path, data)
             return decoded
         } catch let error as URLError where error.code != .fileDoesNotExist {
             // Réseau ou serveur indisponible : dernière copie connue plutôt qu'une erreur.
@@ -104,6 +109,20 @@ actor ServerAPI {
                 return decoded
             }
             throw error
+        }
+    }
+
+    /// Garde une réponse en mémoire ; au-delà du budget, les plus anciennes sont oubliées
+    /// (la plus récente est toujours gardée, même si elle dépasse seule le budget).
+    private func store(_ path: String, _ data: Data) {
+        if let old = cache[path] { cacheBytes -= old.1.count }
+        cache[path] = (Date(), data)
+        cacheBytes += data.count
+        guard cacheBytes > Self.cacheBudget else { return }
+        for (key, entry) in cache.sorted(by: { $0.value.0 < $1.value.0 }) where key != path {
+            cache[key] = nil
+            cacheBytes -= entry.1.count
+            if cacheBytes <= Self.cacheBudget { break }
         }
     }
 
