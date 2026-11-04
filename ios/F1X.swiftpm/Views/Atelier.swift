@@ -165,12 +165,14 @@ extension View {
     func rise(delay: Double = 0) -> some View { modifier(Rise(delay: delay)) }
 }
 
-/// Bouton qui s'enfonce sous le doigt.
+/// Bouton qui s'enfonce sous le doigt (sans rebond ni rétrécissement si « Réduire les animations »).
 struct PressableStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.96 : 1)
             .brightness(configuration.isPressed ? -0.06 : 0)
-            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
+            .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
     }
 }
