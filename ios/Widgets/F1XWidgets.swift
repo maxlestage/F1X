@@ -137,6 +137,34 @@ private enum Feed {
         return nil
     }
 
+    /// Départs des courses et sprints de la saison, lus dans la copie gardée du calendrier
+    /// (réseau seulement si elle manque) : sert à caler le rafraîchissement des widgets de résultats.
+    private static func pointsSessionStarts() async -> [Date] {
+        let path = "current.json?limit=100"
+        var mr = UserDefaults.standard.data(forKey: "feed-cache:\(path)").flatMap(parse)
+        if mr == nil { mr = await json(path) }
+        guard let races = (mr?["RaceTable"] as? [String: Any])?["Races"] as? [[String: Any]] else { return [] }
+        return races.flatMap { r -> [Date] in
+            [sessionDate(r), sessionDate(r["Sprint"])].compactMap { $0 }
+        }.sorted()
+    }
+
+    /// Prochain rafraîchissement d'un widget de résultats (classements, dernier podium).
+    /// Ils ne changent qu'après une course ou un sprint : toutes les heures autour d'une séance
+    /// qui rapporte des points (du départ à 6 h après), sinon toutes les 4 h au plus tard
+    /// jusqu'au prochain départ. Vide (hors ligne, sans cache) : nouvel essai dans 15 min.
+    static func resultsRefresh(empty: Bool) async -> Date {
+        let now = Date()
+        if empty { return now.addingTimeInterval(900) }
+        let starts = await pointsSessionStarts()
+        if starts.contains(where: { $0 <= now && now < $0.addingTimeInterval(6 * 3600) }) {
+            return now.addingTimeInterval(3600)
+        }
+        let later = now.addingTimeInterval(4 * 3600)
+        guard let next = starts.first(where: { $0 > now }), next < later else { return later }
+        return next
+    }
+
     static func leaders() async -> [Leader] {
         guard let mr = await json("current/driverStandings.json?limit=3"),
               let lists = (mr["StandingsTable"] as? [String: Any])?["StandingsLists"] as? [[String: Any]],
@@ -454,9 +482,8 @@ struct StandingsProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<StandingsEntry>) -> Void) {
         Task {
             let entry = await load()
-            // Rafraîchi toutes les heures ; vide (hors ligne, sans cache) : nouvel essai dans 15 min.
-            let delay: TimeInterval = entry.drivers.isEmpty && entry.teams.isEmpty ? 900 : 3600
-            completion(Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(delay))))
+            let next = await Feed.resultsRefresh(empty: entry.drivers.isEmpty && entry.teams.isEmpty)
+            completion(Timeline(entries: [entry], policy: .after(next)))
         }
     }
 
@@ -575,9 +602,8 @@ struct LastRaceProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<LastRaceEntry>) -> Void) {
         Task {
             let entry = await Feed.lastRace() ?? LastRaceEntry(date: Date(), race: "F1X", round: "", podium: [])
-            // Vide (hors ligne, sans cache) : nouvel essai dans 15 min plutôt qu'une heure.
-            let delay: TimeInterval = entry.podium.isEmpty ? 900 : 3600
-            completion(Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(delay))))
+            let next = await Feed.resultsRefresh(empty: entry.podium.isEmpty)
+            completion(Timeline(entries: [entry], policy: .after(next)))
         }
     }
 }
