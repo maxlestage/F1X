@@ -632,6 +632,8 @@ enum Studio {
 /// (Le contrôle de caméra de SceneKit captait tous les glissements : la page restait bloquée.)
 final class CarGestures: NSObject, UIGestureRecognizerDelegate {
     weak var view: SCNView?
+    /// Livrée déjà affichée : la géométrie de la voiture n'est reconstruite que si elle change.
+    var livery: Livery?
 
     @objc func onPan(_ g: UIPanGestureRecognizer) {
         guard let car = view?.scene?.rootNode.childNode(withName: "car", recursively: false) else { return }
@@ -683,7 +685,8 @@ struct CarSceneView: UIViewRepresentable {
         let scene = Studio.scene()
         let car = CarModel.node(livery: livery)
         car.name = "car"
-        car.runAction(.repeatForever(.rotateBy(x: 0, y: CGFloat.pi * 2, z: 0, duration: 24)))
+        context.coordinator.livery = livery
+        Self.spin(car, !context.environment.accessibilityReduceMotion)
         scene.rootNode.addChildNode(car)
         let floor = SCNNode(geometry: SCNFloor())
         (floor.geometry as! SCNFloor).reflectivity = 0
@@ -700,7 +703,22 @@ struct CarSceneView: UIViewRepresentable {
 
     func updateUIView(_ view: SCNView, context: Context) {
         guard let car = view.scene?.rootNode.childNode(withName: "car", recursively: false) else { return }
+        Self.spin(car, !context.environment.accessibilityReduceMotion)
+        // Reconstruire le modèle coûte cher : seulement quand la livrée change, pas à chaque mise à jour SwiftUI.
+        guard context.coordinator.livery != livery else { return }
+        context.coordinator.livery = livery
         car.geometry = CarModel.node(livery: livery).geometry
+    }
+
+    /// Plateau tournant (un tour en 24 s), coupé quand « Réduire les animations » est activé :
+    /// la voiture reste alors immobile et se tourne toujours au doigt.
+    private static func spin(_ car: SCNNode, _ on: Bool) {
+        let key = "spin"
+        if on, car.action(forKey: key) == nil {
+            car.runAction(.repeatForever(.rotateBy(x: 0, y: CGFloat.pi * 2, z: 0, duration: 24)), forKey: key)
+        } else if !on {
+            car.removeAction(forKey: key)
+        }
     }
 }
 
