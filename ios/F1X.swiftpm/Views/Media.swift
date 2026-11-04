@@ -123,29 +123,11 @@ struct TrackMapView: View {
                 let minS = Double(map.stats.min_speed), maxS = Double(map.stats.top_speed)
                 ZStack {
                     ProgressReveal(progress: drawn) { k in
-                    Canvas { ctx, _ in
-                        let shown = k >= 1 ? map.points.count : Int(Double(map.points.count) * k)
-                        var base = Path()
-                        for (i, p) in map.points.prefix(shown).enumerated() {
-                            if i == 0 { base.move(to: pt(p)) } else { base.addLine(to: pt(p)) }
-                        }
-                        ctx.stroke(base, with: .color(Color.chip), style: StrokeStyle(lineWidth: 10, lineCap: .round, lineJoin: .round))
-                        for i in 0..<max(shown - 1, 0) {
-                            var seg = Path()
-                            seg.move(to: pt(map.points[i]))
-                            seg.addLine(to: pt(map.points[i + 1]))
-                            let ratio = (Double(map.points[i].speed) - minS) / max(maxS - minS, 1)
-                            ctx.stroke(seg, with: .color(speedColor(ratio)), style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                        }
-                        if let first = map.points.first {
-                            let p = pt(first)
-                            ctx.fill(Path(ellipseIn: CGRect(x: p.x - 6, y: p.y - 6, width: 12, height: 12)), with: .color(Color.ink))
-                        }
-                        if let i = picked, map.points.indices.contains(i) {
-                            let p = pt(map.points[i])
-                            ctx.fill(Path(ellipseIn: CGRect(x: p.x - 8, y: p.y - 8, width: 16, height: 16)), with: .color(Color.ink))
-                        }
-                    }
+                        // Tracé figé dans une vue Equatable : les repères (voiture du replay, pilotes
+                        // en direct) bougent à chaque image sans redessiner les centaines de segments.
+                        SpeedTraceCanvas(map: map, progress: k, picked: picked, origin: CGPoint(x: ox, y: oy),
+                                         scale: scale, pad: pad, minSpeed: minS, maxSpeed: maxS)
+                            .equatable()
                     }
                     ForEach(map.points.isEmpty ? [] : markers, id: \.key) { m in
                         let target = m.fraction * map.lap_time
@@ -295,6 +277,54 @@ struct CircuitMapView: View {
             .buttonBorderShape(.capsule)
             .font(.caption.bold())
             .lineLimit(1)
+        }
+    }
+}
+
+/// Tracé coloré par la vitesse, redessiné seulement quand le tracé, l'avancement du dessin,
+/// le point touché ou la taille changent (et non à chaque mouvement d'un repère).
+private struct SpeedTraceCanvas: View, Equatable {
+    let map: TrackMap
+    let progress: Double
+    let picked: Int?
+    let origin: CGPoint
+    let scale: Double
+    let pad: Double
+    let minSpeed: Double
+    let maxSpeed: Double
+
+    static func == (a: Self, b: Self) -> Bool {
+        a.progress == b.progress && a.picked == b.picked && a.origin == b.origin && a.scale == b.scale
+            && a.pad == b.pad && a.minSpeed == b.minSpeed && a.maxSpeed == b.maxSpeed
+            && a.map.circuit_id == b.map.circuit_id && a.map.year == b.map.year && a.map.driver == b.map.driver
+            && a.map.lap_time == b.map.lap_time && a.map.points.count == b.map.points.count
+    }
+
+    var body: some View {
+        Canvas { ctx, _ in
+            let pt = { (p: TrackPoint) in CGPoint(x: origin.x + (p.x + pad) * scale, y: origin.y + (p.y + pad) * scale) }
+            let points = map.points
+            let shown = progress >= 1 ? points.count : Int(Double(points.count) * progress)
+            var base = Path()
+            for (i, p) in points.prefix(shown).enumerated() {
+                if i == 0 { base.move(to: pt(p)) } else { base.addLine(to: pt(p)) }
+            }
+            ctx.stroke(base, with: .color(Color.chip), style: StrokeStyle(lineWidth: 10, lineCap: .round, lineJoin: .round))
+            for i in 0..<max(shown - 1, 0) {
+                var seg = Path()
+                seg.move(to: pt(points[i]))
+                seg.addLine(to: pt(points[i + 1]))
+                let ratio = (Double(points[i].speed) - minSpeed) / max(maxSpeed - minSpeed, 1)
+                ctx.stroke(seg, with: .color(speedColor(ratio)), style: StrokeStyle(lineWidth: 5, lineCap: .round))
+            }
+            if let first = points.first {
+                let p = pt(first)
+                ctx.fill(Path(ellipseIn: CGRect(x: p.x - 6, y: p.y - 6, width: 12, height: 12)), with: .color(Color.ink))
+            }
+            if let i = picked, points.indices.contains(i) {
+                let p = pt(points[i])
+                ctx.fill(Path(ellipseIn: CGRect(x: p.x - 8, y: p.y - 8, width: 16, height: 16)), with: .color(Color.ink))
+            }
         }
     }
 }
