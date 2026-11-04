@@ -202,6 +202,9 @@ final class LiveClient: ObservableObject {
     /// Attente avant de se reconnecter : 3 s, doublée à chaque échec, plafonnée à 60 s.
     private var retryDelay: UInt64 = 3
     private let decoder = JSONDecoder()
+    private static var connectionLost: String {
+        L("Connexion perdue. Relance la session une fois reconnecté.", "Connection lost. Restart the session once reconnected.")
+    }
 
     func connect() {
         guard task == nil else { return }
@@ -247,6 +250,7 @@ final class LiveClient: ObservableObject {
     func followLive() {
         snapshot = nil
         track = nil
+        error = nil
         send(["type": "live"])
     }
 
@@ -266,11 +270,21 @@ final class LiveClient: ObservableObject {
                 switch result {
                 case .success(let message):
                     self.retryDelay = 3
+                    // Reconnecté : le message « connexion perdue » n'a plus lieu d'être.
+                    if self.error == Self.connectionLost { self.error = nil }
                     if case .string(let text) = message { self.handle(text) }
                     self.receive()
                 case .failure:
                     self.task = nil
                     self.connected = false
+                    // Le replay ou le direct suivi vivait sur l'ancienne connexion : sans ça,
+                    // l'écran restait bloqué sur « Chargement… » ou sur un classement figé.
+                    if self.reconnect, self.snapshot != nil || self.loading != nil {
+                        self.snapshot = nil
+                        self.track = nil
+                        self.loading = nil
+                        self.error = Self.connectionLost
+                    }
                     if self.reconnect {
                         let delay = self.retryDelay
                         self.retryDelay = min(delay * 2, 60)
