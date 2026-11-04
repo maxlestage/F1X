@@ -722,6 +722,8 @@ struct TelemetrySection: View {
     @State private var b = 0
     @State private var traces: [JSONValue] = []
     @State private var loading = false
+    @State private var failed = false
+    @State private var attempt = 0
 
     var body: some View {
         let list = drivers.values.sorted { $0.number < $1.number }
@@ -732,11 +734,25 @@ struct TelemetrySection: View {
             }
             .pickerStyle(.menu)
             if loading { StartLightsLoader() }
-            Text(traces.map { "\(of1Code(drivers, $0["driver_number"].int ?? 0)) \(formatLap($0["lap_duration"].double ?? 0)) (T\($0["lap_number"].string))" }.joined(separator: " · "))
-                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-            trace(L("Vitesse (km/h)", "Speed (km/h)"), "speed", 200)
-            trace(L("Accélérateur (%)", "Throttle (%)"), "throttle", 120)
-            trace(L("Rapport engagé", "Gear"), "gear", 110)
+            if traces.isEmpty {
+                // Requête échouée ou aucun tour exploitable : message et « Réessayer »
+                // au lieu de trois graphiques vides.
+                if failed && !loading {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(L("Télémétrie momentanément indisponible (source OpenF1 saturée ou connexion perdue).",
+                               "Telemetry temporarily unavailable (OpenF1 busy or connection lost)."))
+                            .font(.footnote).foregroundStyle(.secondary)
+                        Button(L("Réessayer", "Retry")) { attempt += 1 }
+                            .buttonStyle(.bordered)
+                    }
+                }
+            } else {
+                Text(traces.map { "\(of1Code(drivers, $0["driver_number"].int ?? 0)) \(formatLap($0["lap_duration"].double ?? 0)) (T\($0["lap_number"].string))" }.joined(separator: " · "))
+                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                trace(L("Vitesse (km/h)", "Speed (km/h)"), "speed", 200)
+                trace(L("Accélérateur (%)", "Throttle (%)"), "throttle", 120)
+                trace(L("Rapport engagé", "Gear"), "gear", 110)
+            }
             Text(L("Données car_data OpenF1 (~4 mesures/s), alignées sur la distance parcourue.", "OpenF1 car_data (~4 samples/s), aligned on distance."))
                 .font(.caption2).foregroundStyle(.secondary)
         }
@@ -747,10 +763,14 @@ struct TelemetrySection: View {
                 b = res.dropFirst().first?["driver_number"].int ?? list[1].number
             }
         }
-        .task(id: "\(a)-\(b)") {
+        .task(id: "\(a)-\(b)-\(attempt)") {
             guard a != 0, b != 0 else { return }
             loading = true
-            traces = (try? await ServerAPI.shared.get("api/of1/telemetry?session_key=\(key)&drivers=\(a),\(b)", as: [JSONValue].self, ttl: 3600)) ?? []
+            let res = try? await ServerAPI.shared.get("api/of1/telemetry?session_key=\(key)&drivers=\(a),\(b)", as: [JSONValue].self, ttl: 3600)
+            // Vue quittée ou paire changée pendant la requête : ne rien écraser.
+            guard !Task.isCancelled else { return }
+            traces = res ?? []
+            failed = res?.isEmpty ?? true
             loading = false
         }
     }
