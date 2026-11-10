@@ -7,6 +7,30 @@ struct LapReplayView: View {
     let tel: JSONValue
     let code: String
     let colour: String
+    /// Séries converties une seule fois : la vue est redessinée à chaque image pendant la lecture,
+    /// reconvertir à chaque fois tout le JSON du tour (une dizaine de tableaux) coûtait cher.
+    private let series: Series
+
+    init(tel: JSONValue, code: String, colour: String) {
+        self.tel = tel
+        self.code = code
+        self.colour = colour
+        series = Series(tel)
+    }
+
+    private struct Series {
+        let time, distance, speed, gear, rpm, throttle, brake, drs: [Double]
+        init(_ tel: JSONValue) {
+            time = tel["time"].doubles
+            distance = tel["distance"].doubles
+            speed = tel["speed"].doubles
+            gear = tel["gear"].doubles
+            rpm = tel["rpm"].doubles
+            throttle = tel["throttle"].doubles
+            brake = tel["brake"].doubles
+            drs = tel["drs"].doubles
+        }
+    }
 
     @State private var map: TrackMap?
     @State private var cumulative: [Double] = []
@@ -15,7 +39,7 @@ struct LapReplayView: View {
     @State private var origin = Date()
     @State private var offset = 0.0
 
-    private var times: [Double] { tel["time"].doubles }
+    private var times: [Double] { series.time }
     private var duration: Double { tel["lap_duration"].double ?? times.last ?? 1 }
 
     var body: some View {
@@ -71,7 +95,7 @@ struct LapReplayView: View {
 
     /// Avancement (en temps du tour de référence de la carte) correspondant à la distance parcourue.
     private func fraction(_ i: Int, _ map: TrackMap) -> Double {
-        let dist = tel["distance"].doubles
+        let dist = series.distance
         guard let total = dist.last, total > 0, i < dist.count, let mapTotal = cumulative.last, mapTotal > 0,
               cumulative.count == map.points.count else { return 0 }
         let target = dist[i] / total * mapTotal
@@ -113,14 +137,13 @@ struct LapReplayView: View {
 
     // MARK: Tableau de bord
 
-    private func value(_ field: String, _ i: Int) -> Double {
-        let v = tel[field].doubles
-        return i < v.count ? v[i] : 0
+    private func value(_ v: [Double], _ i: Int) -> Double {
+        i < v.count ? v[i] : 0
     }
 
     private func dashboard(_ i: Int, _ e: Double) -> some View {
-        let kmh = Int(value("speed", i)), gear = Int(value("gear", i)), rpm = value("rpm", i)
-        let throttle = value("throttle", i), brake = value("brake", i), drs = value("drs", i)
+        let kmh = Int(value(series.speed, i)), gear = Int(value(series.gear, i)), rpm = value(series.rpm, i)
+        let throttle = value(series.throttle, i), brake = value(series.brake, i), drs = value(series.drs, i)
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 14) {
                 HStack(alignment: .firstTextBaseline, spacing: 3) {
@@ -147,7 +170,7 @@ struct LapReplayView: View {
                     .padding(.horizontal, 10).padding(.vertical, 4)
                     .background(brake > 0 ? Color.red : Color.secondary.opacity(0.15), in: Capsule())
                     .foregroundStyle(brake > 0 ? .white : .secondary)
-                if !tel["drs"].doubles.isEmpty {
+                if !series.drs.isEmpty {
                     Text(drs >= 100 ? L("DRS ouvert", "DRS open") : drs >= 50 ? L("DRS autorisé", "DRS armed") : "DRS")
                         .padding(.horizontal, 10).padding(.vertical, 4)
                         .background(drs >= 100 ? Color.green : drs >= 50 ? Color.yellow.opacity(0.6) : Color.secondary.opacity(0.15), in: Capsule())
